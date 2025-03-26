@@ -52,7 +52,7 @@ const viewModel = {
 ### 3. Use KnockoutScope in children
 
 ```tsx
-<KnockoutScope vm={viewModel}>
+<KnockoutScope viewModel={viewModel}>
   <input data-bind="value: value" />
 </KnockoutScope>
 ```
@@ -66,7 +66,7 @@ export function KoInput({ value }) {
   const vm = { value }
 
   return (
-    <KnockoutScope vm={vm}>
+    <KnockoutScope viewModel={vm}>
       <input data-bind="value: value" />
     </KnockoutScope>
   )
