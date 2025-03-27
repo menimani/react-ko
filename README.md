@@ -9,8 +9,9 @@
 
 - ✅ Seamless integration between React and Knockout
 - ✅ Two-way binding with Knockout observables
-- ✅ `with:` scoping via `KnockoutScope`
-- ✅ Use Knockout ViewModels with JSX components
+- ✅ No event handler noise — just `data-bind="value: value"`
+- ✅ Scoped ViewModel binding via `<KnockoutScope>`
+- ✅ Single `RootKnockoutProvider` wraps your app
 - ✅ TypeScript support with zero-config
 
 ---
@@ -85,7 +86,7 @@ export function KoInput({ value }: Props) {
 }
 ```
 
-### ▶️ Usage of the component
+### ▶️ Component Usage
 
 ```tsx
 import { KoInput } from './KoInput'
@@ -101,6 +102,24 @@ const viewModel = {
 
 ---
 
+## 💡 Why?
+
+```tsx
+// Without react-ko (pure React)
+<input
+  value={value}
+  onChange={(e) => setValue(e.target.value)}
+  style={{ color }}
+/>
+
+// With Knockout binding
+<input data-bind="value: value, style: { color: color }" />
+```
+
+No more wiring events. Let observables handle your state.
+
+---
+
 ## 📁 Folder Structure
 
 ```
@@ -111,14 +130,6 @@ react-ko/
 │   └── context/
 │       └── AppViewModelContext.ts
 ```
-
----
-
-## 🧠 Philosophy
-
-React excels at components.  
-Knockout excels at observables and data-binding.  
-**react-ko lets them work together without compromise.**
 
 ---
 
