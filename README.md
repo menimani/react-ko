@@ -1,5 +1,7 @@
 # react-ko
 
+[![npm version](https://img.shields.io/npm/v/react-ko)](https://www.npmjs.com/package/react-ko)
+
 > 🧠 A minimal bridge library to use Knockout.js inside React components.  
 > Combine Knockout's reactivity with React's component architecture.
 
