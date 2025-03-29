@@ -1,11 +1,15 @@
 *
 !src/
 !src/**/*
+!tests/
+!tests/**/*
 
+!.gitignore
+!LICENSE
+!package.json
+!README.ja.md
+!README.md
 !tsconfig.json
 !tsup.config.ts
-!package.json
-!README.md
-!README.ja.md
-!LICENSE
-!.gitignore
+!vitest.config.ts
+!vitest.setup.ts
