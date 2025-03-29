@@ -1,19 +1,19 @@
 import { createContext, useContext } from 'react'
 
 /**
- * グローバルな AppViewModel の型
- * 使用者がこの型を上書きして使うことを想定（anyで暫定）
+ * Context to store the global AppViewModel.
+ * Intended to be overridden by consumer's ViewModel type.
  */
-export const AppViewModelContext = createContext<any | null>(null)
+export const AppViewModelContext = createContext<unknown | null>(null)
 
 /**
- * AppViewModel を取得するフック
- * Provider 配下でのみ使える
+ * Hook to access the current AppViewModel.
+ * Must be used within a RootKnockoutProvider.
  */
-export function useAppViewModel<T = any>(): T {
+export function useAppViewModel<T>(): T {
   const context = useContext(AppViewModelContext)
-  if (!context) {
+  if (context === null) {
     throw new Error('useAppViewModel must be used within a RootKnockoutProvider.')
   }
-  return context
+  return context as T
 }

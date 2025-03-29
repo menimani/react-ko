@@ -8,7 +8,8 @@ type Props<T> = {
 }
 
 /**
- * KOのapplyBindingsを初回1回だけ実行し、VMをContextで提供する
+ * Applies Knockout bindings once on initial render,
+ * and provides the ViewModel via context.
  */
 export const RootKnockoutProvider = React.memo(function RootKnockoutProvider<T>({ viewModel, children }: Props<T>) {
   const koContainer = useRef<HTMLDivElement | null>(null)

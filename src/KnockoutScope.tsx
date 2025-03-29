@@ -7,19 +7,19 @@ type Props<T> = {
 }
 
 /**
- * Knockoutの `with:` バインディングを使って、
- * サブViewModelにスコープを絞るためのラッパー
+ * Wraps a child component with a Knockout `with:` binding scope
+ * to isolate a sub-ViewModel within the global ViewModel.
  */
 export const KnockoutScope = React.memo(function KnockoutScope<T>({ viewModel, children }: Props<T>) {
-  const appViewModel = useAppViewModel()
+  const appViewModel = useAppViewModel<Record<string, unknown>>()
 
   const uniqueKey = useMemo(() => crypto.randomUUID(), [])
 
   useLayoutEffect(() => {
-    ;(appViewModel as any)[uniqueKey] = viewModel
+    appViewModel[uniqueKey] = viewModel
 
     return () => {
-      delete (appViewModel as any)[uniqueKey]
+      delete appViewModel[uniqueKey]
     }
   }, [appViewModel, viewModel, uniqueKey])
 
