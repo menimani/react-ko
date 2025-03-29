@@ -1,37 +1,37 @@
 # react-ko
 
-en English | [ja 日本語](./README.ja.md)
+[en English](./README.md) | ja 日本語
 
 [![npm version](https://img.shields.io/npm/v/react-ko)](https://www.npmjs.com/package/react-ko)
 
-> 🧠 A minimal bridge to use Knockout.js inside React components.  
-> Combine Knockout's reactivity with React's component architecture — clean, scoped, and type-safe.
+> 🧠 Knockout.js を React コンポーネント内で使うための最小限のブリッジライブラリ  
+> Knockout のリアクティブ性と React のコンポーネント構造をクリーンに融合します
 
 ---
 
-## ✨ Features
+## ✨ 特長
 
-- ✅ Seamless two-way data binding with Knockout observables
-- ✅ Use `data-bind="..."` directly in JSX / TSX
-- ✅ Scoped ViewModel logic via `<KnockoutScope>`
-- ✅ One-line root binding via `<RootKnockoutProvider>`
-- ✅ Zero boilerplate — no event handlers or local state
-- ✅ Full TypeScript & JavaScript support with zero-config
-- ✅ No runtime dependencies other than Knockout & React
+- ✅ Knockout の observable による双方向データバインディング
+- ✅ JSX / TSX 上でそのまま `data-bind="..."` を使用可能
+- ✅ `<KnockoutScope>` によるスコープ付き ViewModel
+- ✅ `<RootKnockoutProvider>` による1行ルートバインディング
+- ✅ イベントハンドラや状態管理のボイラープレート不要
+- ✅ TypeScript / JavaScript の両対応（設定不要）
+- ✅ Knockout と React 以外のランタイム依存なし
 
 ---
 
-## 📦 Installation
+## 📦 インストール
 
 ```bash
 npm install react-ko knockout
 ```
 
-> ⚠️ This library requires `react` (v18+) and `knockout` (v3.5+) as peer dependencies.
+> ⚠️ このライブラリは `react` (v18+) と `knockout` (v3.5+) をピア依存としています。
 
 ---
 
-## 🚀 Quick Usage (JSX / TSX)
+## 🚀 クイック使用例（JSX / TSX）
 
 ```tsx
 import ko from 'knockout'
@@ -50,7 +50,7 @@ const viewModel = {
 
 ---
 
-## 🧩 Custom Component Example
+## 🧩 カスタムコンポーネント例
 
 ### ▶️ JavaScript (JSX)
 
@@ -88,7 +88,7 @@ export function KoInput({ value }: Props) {
 }
 ```
 
-### ▶️ Component Usage
+### ▶️ コンポーネント使用例
 
 ```tsx
 const vm = {
@@ -102,9 +102,9 @@ const vm = {
 
 ---
 
-## 🤔 Why react-ko?
+## 🤔 なぜ react-ko？
 
-Without react-ko (pure React):
+従来の React：
 
 ```tsx
 <input
@@ -114,18 +114,18 @@ Without react-ko (pure React):
 />
 ```
 
-With react-ko:
+react-ko を使うと：
 
 ```tsx
 <input data-bind="value: value, style: { color: color }" />
 ```
 
-No need to wire events or manage local state.  
-Let Knockout observables do the work — even in modern React.
+イベントや状態管理の記述は不要。  
+Knockout の observable に任せるだけで、UI がリアクティブに更新されます。
 
 ---
 
-## 📁 Folder Structure
+## 📁 フォルダ構成
 
 ```
 react-ko/
@@ -138,7 +138,7 @@ react-ko/
 
 ---
 
-## 🛠 Development
+## 🛠 開発
 
 ```bash
 npm install
@@ -147,6 +147,6 @@ npm run build
 
 ---
 
-## 📄 License
+## 📄 ライセンス
 
 MIT

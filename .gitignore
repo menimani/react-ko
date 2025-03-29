@@ -6,5 +6,6 @@
 !tsup.config.ts
 !package.json
 !README.md
+!README.ja.md
 !LICENSE
 !.gitignore
