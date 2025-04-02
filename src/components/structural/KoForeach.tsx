@@ -15,7 +15,7 @@ export const KoForeach = React.memo(function KoForeach({ items, children }: Prop
 
   return (
     <KnockoutScope viewModel={vm}>
-      <div data-bind="foreach: items">
+      <div data-bind="foreach: items" style={{ display: 'contents' }}>
         {children}
       </div>
     </KnockoutScope>
