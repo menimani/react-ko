@@ -1,2 +1,2 @@
 export { RootKnockoutProvider } from './RootKnockoutProvider'
-export { KnockoutScope } from './KnockoutScope'
+export { KnockoutScope, KnockoutScope as KoScope } from './KnockoutScope'
