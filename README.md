@@ -128,12 +128,22 @@ Let Knockout observables do the work — even in modern React.
 ## 📁 Folder Structure
 
 ```
-react-ko/
-├── src/
-│   ├── RootKnockoutProvider.tsx
-│   ├── KnockoutScope.tsx
-│   └── context/
-│       └── AppViewModelContext.ts
+src/
+├── components/                          // Components
+│   ├── scope/                          // Core components for binding with Knockout
+│   │   ├── KnockoutScope.tsx          // Manages the Knockout and React scope
+│   │   └── RootKnockoutProvider.tsx   // Root component, initializes Knockout
+│   ├── structural/                     // Generic components for Knockout flow control
+│   │   ├── KoIf.tsx                   // ko if: control component
+│   │   ├── KoIfNot.tsx                // ko ifnot: control component
+│   │   ├── KoForeach.tsx              // ko foreach: control component
+│   │   ├── compat/                    // Components for compatibility with comment-based Knockout syntax
+│   │   │   ├── HtmlComment.tsx       // HTML comment insertion component
+│   │   │   ├── KoIfComment.tsx       // ko if: comment-based control component
+│   │   │   ├── KoIfNotComment.tsx    // ko ifnot: comment-based control component
+│   │   │   └── KoForeachComment.tsx  // ko foreach: comment-based control component
+├── context/                             // Context management
+│   ├── AppViewModelContext.ts          // Context related to Knockout's ViewModel
 ```
 
 ---

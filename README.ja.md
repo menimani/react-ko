@@ -128,12 +128,22 @@ Knockout の observable に任せるだけで、UI がリアクティブに更�
 ## 📁 フォルダ構成
 
 ```
-react-ko/
-├── src/
-│   ├── RootKnockoutProvider.tsx
-│   ├── KnockoutScope.tsx
-│   └── context/
-│       └── AppViewModelContext.ts
+src/
+├── components/                          // コンポーネント群
+│   ├── scope/                          // Knockoutとの結びつきのための基本コンポーネント
+│   │   ├── KnockoutScope.tsx          // KnockoutとReactのスコープを管理
+│   │   └── RootKnockoutProvider.tsx   // ルートコンポーネント、Knockoutの初期化
+│   ├── structural/                     // Knockoutのフロー制御を担当する汎用コンポーネント
+│   │   ├── KoIf.tsx                   // ko if: 制御コンポーネント
+│   │   ├── KoIfNot.tsx                // ko ifnot: 制御コンポーネント
+│   │   ├── KoForeach.tsx              // ko foreach: 制御コンポーネント
+│   │   ├── compat/                    // 互換性のためだけのコメント記法コンポーネント
+│   │   │   ├── HtmlComment.tsx       // HTMLコメント挿入コンポーネント
+│   │   │   ├── KoIfComment.tsx       // ko if: コメントベース制御コンポーネント
+│   │   │   ├── KoIfNotComment.tsx    // ko ifnot: コメントベース制御コンポーネント
+│   │   │   └── KoForeachComment.tsx  // ko foreach: コメントベース制御コンポーネント
+├── context/                             // コンテキスト管理
+│   ├── AppViewModelContext.ts          // KnockoutのViewModelに関連するコンテキスト
 ```
 
 ---
