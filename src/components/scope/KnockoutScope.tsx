@@ -1,5 +1,5 @@
 import React, { useMemo, useLayoutEffect } from 'react'
-import { useAppViewModel } from './context/AppViewModelContext'
+import { useAppViewModel } from '@/index'
 
 type Props<T> = {
   viewModel: T

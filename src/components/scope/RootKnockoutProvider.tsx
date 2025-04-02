@@ -1,6 +1,6 @@
 import React, { useRef, useLayoutEffect, useMemo } from 'react'
 import ko from 'knockout'
-import { AppViewModelContext } from './context/AppViewModelContext'
+import { AppViewModelContext } from '@/index'
 
 type Props<T> = {
   viewModel: T

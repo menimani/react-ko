@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { render } from '@testing-library/react'
-import React from 'react'
-import { RootKnockoutProvider, useAppViewModel } from '../src'
+import { RootKnockoutProvider, useAppViewModel } from '@/index'
 
 /**
  * Dummy consumer that uses the ViewModel context

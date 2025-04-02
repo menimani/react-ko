@@ -1,6 +1,5 @@
 import React from 'react'
-import { KnockoutScope } from '../../../KnockoutScope'
-import { HtmlComment } from './HtmlComment'
+import { KnockoutScope, HtmlComment } from '@/index'
 
 type Props = {
   items: KnockoutObservable<unknown[]> | unknown[]

@@ -1,5 +1,5 @@
 import React from 'react'
-import { KnockoutScope } from '../../KnockoutScope'
+import { KnockoutScope } from '@/index'
 
 type Props = {
   items: KnockoutObservable<unknown[]> | unknown[]

@@ -1,8 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { render, act } from '@testing-library/react'
-import React from 'react'
 import ko from 'knockout'
-import { RootKnockoutProvider, KnockoutScope } from '../src'
+import { RootKnockoutProvider, KnockoutScope } from '@/index'
 
 describe('KnockoutScope', () => {
   it('updates DOM when observable changes (observable → DOM)', () => {

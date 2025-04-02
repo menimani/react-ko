@@ -1,9 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { render, screen } from '@testing-library/react'
-import { KoForeach } from '@/components/structural/KoForeach'
-import { KnockoutScope } from '@/KnockoutScope'
-import { RootKnockoutProvider } from '@/RootKnockoutProvider'
 import ko from 'knockout'
+import { RootKnockoutProvider, KnockoutScope, KoForeach } from '@/index'
 
 describe('KoForeach', () => {
   it('renders children for each item in the array', () => {

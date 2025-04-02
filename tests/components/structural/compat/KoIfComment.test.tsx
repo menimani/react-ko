@@ -1,9 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { render, screen } from '@testing-library/react'
-import { KoIfComment } from '@/components/structural/compat/KoIfComment'
-import { KnockoutScope } from '@/KnockoutScope'
 import ko from 'knockout'
-import { RootKnockoutProvider } from '@/RootKnockoutProvider'
+import { RootKnockoutProvider, KnockoutScope, KoIfComment } from '@/index'
 
 describe('KoIfComment', () => {
   it('renders children when condition is true', () => {

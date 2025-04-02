@@ -1,5 +1,4 @@
-export { RootKnockoutProvider } from './RootKnockoutProvider'
-export { KnockoutScope } from './KnockoutScope'
-export { AppViewModelContext, useAppViewModel } from './context/AppViewModelContext'
-
+export * from './context'
+export * from './components/scope'
 export * from './components/structural'
+export * from './components/structural/compat'

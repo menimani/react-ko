@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { render, screen } from '@testing-library/react'
-import { HtmlComment } from '@/components/structural/compat/HtmlComment'
+import { render } from '@testing-library/react'
+import { HtmlComment } from '@/index'
 
 describe('HtmlComment', () => {
   it('inserts a comment into the DOM', () => {

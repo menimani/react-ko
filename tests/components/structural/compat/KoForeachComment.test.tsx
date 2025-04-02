@@ -1,8 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { render, screen } from '@testing-library/react'
-import { KoForeachComment } from '@/components/structural/compat/KoForeachComment'
-import { KnockoutScope } from '@/KnockoutScope'
-import { RootKnockoutProvider } from '@/RootKnockoutProvider'
+import { RootKnockoutProvider, KnockoutScope, KoForeachComment } from '@/index'
 import ko from 'knockout'
 
 describe('KoForeachComment', () => {
