@@ -1,23 +1,6 @@
-import React from 'react'
-import { KnockoutScope, HtmlComment } from '@/index'
-
-type Props = {
-  condition: KnockoutObservable<boolean> | boolean
-  children: React.ReactNode
-}
+import { KoIfNot } from "@/index"
 
 /**
- * Renders children with Knockout's comment-based `ifnot:` binding.
- * Useful for compatibility with template-based KO structures.
+ * @deprecated Use `KoIfNot` instead. This component will be removed in a future version.
  */
-export const KoIfNotComment = React.memo(function KoIfNotComment({ condition, children }: Props) {
-  const vm = { condition }
-
-  return (
-    <KnockoutScope viewModel={vm}>
-      <HtmlComment text="ko ifnot: condition" />
-      {children}
-      <HtmlComment text="/ko" />
-    </KnockoutScope>
-  )
-})
+export const KoIfNotComment = KoIfNot

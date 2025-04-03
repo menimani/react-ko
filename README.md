@@ -100,6 +100,22 @@ const vm = {
 </KnockoutScope>
 ```
 
+### ❗ Deprecated Components
+
+> ⚠️ The following components are deprecated and will be removed in a future release (v2.0.0):
+>
+> - `KoIfComment`
+> - `KoIfNotComment`
+> - `KoForeachComment`
+>
+> Please use the unified components instead:
+>
+> - ✅ `KoIf`
+> - ✅ `KoIfNot`
+> - ✅ `KoForeach`
+>
+> These new components are fully JSX-compliant and no longer rely on HTML comment nodes.
+
 ---
 
 ## 🤔 Why react-ko?
@@ -137,11 +153,6 @@ src/
 │   │   ├── KoIf.tsx                   // ko if: control component
 │   │   ├── KoIfNot.tsx                // ko ifnot: control component
 │   │   ├── KoForeach.tsx              // ko foreach: control component
-│   │   ├── compat/                    // Components for compatibility with comment-based Knockout syntax
-│   │   │   ├── HtmlComment.tsx       // HTML comment insertion component
-│   │   │   ├── KoIfComment.tsx       // ko if: comment-based control component
-│   │   │   ├── KoIfNotComment.tsx    // ko ifnot: comment-based control component
-│   │   │   └── KoForeachComment.tsx  // ko foreach: comment-based control component
 ├── context/                             // Context management
 │   ├── AppViewModelContext.ts          // Context related to Knockout's ViewModel
 ```
