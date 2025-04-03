@@ -100,6 +100,22 @@ const vm = {
 </KnockoutScope>
 ```
 
+### ❗ 非推奨コンポーネント
+
+> ⚠️ 以下のコンポーネントは非推奨となり、将来のリリース（v2.0.0）で削除される予定です：
+> 
+> - KoIfComment
+> - KoIfNotComment
+> - KoForeachComment
+> 
+> 代わりに、以下の統一されたコンポーネントを使用してください：
+> 
+> - ✅ KoIf
+> - ✅ KoIfNot
+> - ✅ KoForeach
+> 
+> 新しいコンポーネントは完全に JSX に準拠しており、HTML コメントノードに依存しません。
+
 ---
 
 ## 🤔 なぜ react-ko？
@@ -137,11 +153,6 @@ src/
 │   │   ├── KoIf.tsx                   // ko if: 制御コンポーネント
 │   │   ├── KoIfNot.tsx                // ko ifnot: 制御コンポーネント
 │   │   ├── KoForeach.tsx              // ko foreach: 制御コンポーネント
-│   │   ├── compat/                    // 互換性のためだけのコメント記法コンポーネント
-│   │   │   ├── HtmlComment.tsx       // HTMLコメント挿入コンポーネント
-│   │   │   ├── KoIfComment.tsx       // ko if: コメントベース制御コンポーネント
-│   │   │   ├── KoIfNotComment.tsx    // ko ifnot: コメントベース制御コンポーネント
-│   │   │   └── KoForeachComment.tsx  // ko foreach: コメントベース制御コンポーネント
 ├── context/                             // コンテキスト管理
 │   ├── AppViewModelContext.ts          // KnockoutのViewModelに関連するコンテキスト
 ```
