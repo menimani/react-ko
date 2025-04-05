@@ -71,10 +71,11 @@ export function KoInput({ value }) {
 ### ▶️ TypeScript (TSX)
 
 ```tsx
+import ko from 'knockout'
 import { KnockoutScope } from 'react-ko'
 
 type Props = {
-  value: KnockoutObservable<string>
+  value: ko.Observable<string>
 }
 
 export function KoInput({ value }: Props) {

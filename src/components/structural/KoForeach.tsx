@@ -1,8 +1,9 @@
 import React from 'react'
+import ko from 'knockout'
 import { KnockoutScope } from '@/index'
 
 type Props = {
-  items: KnockoutObservable<unknown[]> | unknown[]
+  items: ko.Observable<unknown[]> | ko.Computed<unknown[]> | unknown[]
   children: React.ReactNode
 }
 

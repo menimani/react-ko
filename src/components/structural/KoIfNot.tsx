@@ -2,7 +2,7 @@ import React from 'react'
 import { KnockoutScope } from '@/index'
 
 type Props = {
-  condition: KnockoutObservable<boolean> | boolean
+  condition: ko.Observable<boolean> | ko.Computed<boolean> | boolean
   children: React.ReactNode
 }
 

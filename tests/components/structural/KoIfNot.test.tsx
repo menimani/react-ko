@@ -4,7 +4,7 @@ import ko from 'knockout'
 import { RootKnockoutProvider, KnockoutScope, KoIfNot } from '@/index'
 
 describe('KoIfNot', () => {
-  it('renders children when condition is false', () => {
+  it('shows children when observable condition is false', () => {
     const vm = { isHidden: ko.observable(false) }
 
     render(
@@ -20,8 +20,72 @@ describe('KoIfNot', () => {
     expect(screen.getByText('Not hidden')).toBeDefined()
   })
 
-  it('does not render children when condition is true', () => {
+  it('hides children when observable condition is true', () => {
     const vm = { isHidden: ko.observable(true) }
+
+    render(
+      <RootKnockoutProvider viewModel={{}}>
+        <KnockoutScope viewModel={vm}>
+          <KoIfNot condition={vm.isHidden}>
+            <p>Hidden</p>
+          </KoIfNot>
+        </KnockoutScope>
+      </RootKnockoutProvider>
+    )
+
+    expect(screen.queryByText('Hidden')).toBeNull()
+  })
+
+  it('shows children when computed condition is false', () => {
+    const vm = { isHidden: ko.computed(() => false) }
+
+    render(
+      <RootKnockoutProvider viewModel={{}}>
+        <KnockoutScope viewModel={vm}>
+          <KoIfNot condition={vm.isHidden}>
+            <p>Not hidden</p>
+          </KoIfNot>
+        </KnockoutScope>
+      </RootKnockoutProvider>
+    )
+
+    expect(screen.getByText('Not hidden')).toBeDefined()
+  })
+
+  it('hides children when computed condition is true', () => {
+    const vm = { isHidden: ko.computed(() => true) }
+
+    render(
+      <RootKnockoutProvider viewModel={{}}>
+        <KnockoutScope viewModel={vm}>
+          <KoIfNot condition={vm.isHidden}>
+            <p>Hidden</p>
+          </KoIfNot>
+        </KnockoutScope>
+      </RootKnockoutProvider>
+    )
+
+    expect(screen.queryByText('Hidden')).toBeNull()
+  })
+
+  it('shows children when boolean condition is false', () => {
+    const vm = { isHidden: false }
+
+    render(
+      <RootKnockoutProvider viewModel={{}}>
+        <KnockoutScope viewModel={vm}>
+          <KoIfNot condition={vm.isHidden}>
+            <p>Not hidden</p>
+          </KoIfNot>
+        </KnockoutScope>
+      </RootKnockoutProvider>
+    )
+
+    expect(screen.getByText('Not hidden')).toBeDefined()
+  })
+
+  it('hides children when boolean condition is true', () => {
+    const vm = { isHidden: true }
 
     render(
       <RootKnockoutProvider viewModel={{}}>

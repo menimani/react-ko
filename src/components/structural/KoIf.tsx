@@ -1,8 +1,9 @@
 import React from 'react'
+import ko from 'knockout'
 import { KnockoutScope } from '@/index'
 
 type Props = {
-  condition: KnockoutObservable<boolean> | boolean
+  condition: ko.Observable<boolean> | ko.Computed<boolean> | boolean
   children: React.ReactNode
 }
 
@@ -16,7 +17,7 @@ export const KoIf = React.memo(function KoIf({ condition, children }: Props) {
 
   return (
     <KnockoutScope viewModel={vm}>
-      <div data-bind="if: condition"  style={{ display: 'contents' }}>
+      <div data-bind="if: condition" style={{ display: 'contents' }}>
         {children}
       </div>
     </KnockoutScope>
