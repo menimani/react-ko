@@ -31,6 +31,30 @@ npm install react-ko knockout
 
 ---
 
+## ⚡ Quick Start with Starter Template
+
+Use the official starter powered by **Vite + React + Knockout** in 3 easy steps:
+
+```bash
+npx degit menimani/react-ko-starter my-app
+cd my-app
+npm install && npm run dev
+```
+
+→ Open [http://localhost:5173](http://localhost:5173) to see it in action.
+
+This template comes pre-configured with:
+
+- ✅ `react`, `knockout`, `react-ko`
+- ✅ TypeScript + Vite + Hot Reload
+- ✅ Clean and minimal example
+
+Perfect for prototypes, experiments, or small apps.
+
+🔗 GitHub: [react-ko-starter](https://github.com/menimani/react-ko-starter)
+
+---
+
 ## 🚀 Quick Usage (JSX / TSX)
 
 ```tsx
@@ -41,7 +65,7 @@ const viewModel = {
   name: ko.observable('Alice')
 }
 
-<RootKnockoutProvider viewModel={viewModel}>
+<RootKnockoutProvider viewModel={{}}>
   <KnockoutScope viewModel={viewModel}>
     <input data-bind="value: name" />
   </KnockoutScope>
