@@ -33,25 +33,27 @@ npm install react-ko knockout
 
 ## ⚡ クイックスタート（スターターテンプレート）
 
-Vite + React + Knockout をベースにした公式スターターを使って、3ステップで始められます：
+### ▶ TypeScript
 
 ```bash
-npx degit menimani/react-ko-starter my-app
-cd my-app
+npx degit menimani/react-ko-starter-ts my-app-ts
+cd my-app-ts
 npm install && npm run dev
 ```
 
-→ [http://localhost:5173](http://localhost:5173) を開いて確認できます。
+🔗 GitHub: [react-ko-starter-ts](https://github.com/menimani/react-ko-starter-ts)
 
-このテンプレートには以下が含まれています：
+---
 
-- ✅ `react`, `knockout`, `react-ko`
-- ✅ TypeScript + Vite + ホットリロード対応
-- ✅ 最小限でクリーンなサンプル構成
+### ▶ JavaScript
 
-プロトタイプ、検証、小規模アプリに最適です。
+```bash
+npx degit menimani/react-ko-starter-js my-app-js
+cd my-app-js
+npm install && npm run dev
+```
 
-🔗 GitHub: [react-ko-starter](https://github.com/menimani/react-ko-starter)
+🔗 GitHub: [react-ko-starter-js](https://github.com/menimani/react-ko-starter-js)
 
 ---
 

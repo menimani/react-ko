@@ -33,25 +33,27 @@ npm install react-ko knockout
 
 ## ⚡ Quick Start with Starter Template
 
-Use the official starter powered by **Vite + React + Knockout** in 3 easy steps:
+### ▶ TypeScript
 
 ```bash
-npx degit menimani/react-ko-starter my-app
-cd my-app
+npx degit menimani/react-ko-starter-ts my-app-ts
+cd my-app-ts
 npm install && npm run dev
 ```
 
-→ Open [http://localhost:5173](http://localhost:5173) to see it in action.
+🔗 GitHub: [react-ko-starter-ts](https://github.com/menimani/react-ko-starter-ts)
 
-This template comes pre-configured with:
+---
 
-- ✅ `react`, `knockout`, `react-ko`
-- ✅ TypeScript + Vite + Hot Reload
-- ✅ Clean and minimal example
+### ▶ JavaScript
 
-Perfect for prototypes, experiments, or small apps.
+```bash
+npx degit menimani/react-ko-starter-js my-app-js
+cd my-app-js
+npm install && npm run dev
+```
 
-🔗 GitHub: [react-ko-starter](https://github.com/menimani/react-ko-starter)
+🔗 GitHub: [react-ko-starter-js](https://github.com/menimani/react-ko-starter-js)
 
 ---
 
