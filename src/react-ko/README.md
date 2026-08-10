@@ -95,7 +95,8 @@ available on `RootKnockoutProvider`, `KoIf`, `KoIfNot`, `KoForeach`, and
 The host elements remain structural: they receive only the binding boundary or
 binding-root ref and `display: contents`, not styling or ARIA props. Because both
 hosts always contain children, `boundaryAs` and `as` accept only non-void HTML
-elements; tags such as `input`, `img`, and `br` are rejected.
+elements in both TypeScript and JavaScript; tags such as `input`, `img`, `br`,
+`svg`, and custom element names are rejected.
 
 Replacing a `RootKnockoutProvider` or `KnockoutScope` `viewModel` reapplies its
 Knockout bindings. Both components dispose their bindings when replaced or
