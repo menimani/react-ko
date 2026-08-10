@@ -9,6 +9,7 @@ const REACT_CHILD_AUDITED_BINDINGS = new Set([
   'checked',
   'checkedValue',
   'childrenComplete',
+  'class',
   'click',
   'component',
   'css',
@@ -19,6 +20,7 @@ const REACT_CHILD_AUDITED_BINDINGS = new Set([
   'foreach',
   'hasFocus',
   'hasfocus',
+  'hidden',
   'html',
   'if',
   'ifnot',
@@ -45,6 +47,30 @@ const REACT_CHILD_AUDITED_BINDINGS = new Set([
   'with',
   DESCENDANT_BINDING_BOUNDARY,
 ])
+const REACT_CHILD_HANDLERLESS_BINDINGS = new Set([
+  'childrenComplete',
+  'descendantsComplete',
+  'optionsAfterRender',
+  'optionsCaption',
+  'optionsIncludeDestroyed',
+  'optionsText',
+  'optionsValue',
+  'valueAllowUnset',
+  'valueUpdate',
+])
+const REACT_CHILD_AUDITED_BINDING_HANDLERS = new Map(
+  [...REACT_CHILD_AUDITED_BINDINGS].map((name) => [name, ko.bindingHandlers[name]])
+)
+
+function hasAuditedBindingHandler(name: string) {
+  const registeredHandler = ko.bindingHandlers[name]
+  return (
+    REACT_CHILD_AUDITED_BINDINGS.has(name) &&
+    (REACT_CHILD_HANDLERLESS_BINDINGS.has(name)
+      ? registeredHandler === undefined
+      : registeredHandler === REACT_CHILD_AUDITED_BINDING_HANDLERS.get(name))
+  )
+}
 
 function bindingNames(element: Element): Set<string> {
   const source = element.getAttribute('data-bind')
@@ -143,7 +169,7 @@ function propsOwnUnfiberedContent(props: ReactHostProps | null | undefined): boo
 
   function hasRenderedPrimitive(child: unknown): boolean {
     if (typeof child === 'string') return child !== ''
-    if (typeof child === 'number') return true
+    if (typeof child === 'number' || typeof child === 'bigint') return true
     return Array.isArray(child) && child.some(hasRenderedPrimitive)
   }
 
@@ -225,7 +251,7 @@ export function assertNoReactUnsafeBindings(
         REACT_UNSAFE_BINDINGS.has(name) ||
         (hasOwnedChildren &&
           (REACT_CHILD_UNSAFE_BINDINGS.has(name) ||
-            !REACT_CHILD_AUDITED_BINDINGS.has(name)))
+            !hasAuditedBindingHandler(name)))
     )
 
     if (unsafeBinding !== undefined) {

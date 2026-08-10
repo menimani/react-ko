@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { fireEvent, render } from '@testing-library/react'
+import type { ReactNode } from 'react'
 import ko from 'knockout'
 import { applyBindingsSafely } from '@/components/scope/applyBindingsSafely'
 
@@ -61,6 +62,61 @@ describe('applyBindingsSafely', () => {
     )
     expect(container.textContent).toBe('React text')
   })
+
+  it('rejects a content binding over direct React bigint text', () => {
+    const bigint = 123n as unknown as ReactNode
+    const { container } = render(<div data-bind="text: value">{bigint}</div>)
+
+    expect(() => applyBindingsSafely({ value: 'Knockout value' }, container)).toThrow(
+      'react-ko cannot apply the Knockout "text" binding'
+    )
+    expect(container.textContent).toBe('123')
+  })
+
+  it.each([
+    ['class', 'className', 'active'],
+    ['hidden', 'isHidden', true],
+  ] as const)('allows the built-in %s binding with React-owned children', (binding, key, value) => {
+    const { container } = render(
+      <div data-bind={`${binding}: ${key}`}>
+        <span>React child</span>
+      </div>
+    )
+
+    expect(() => applyBindingsSafely({ [key]: value }, container)).not.toThrow()
+    const element = container.firstElementChild as HTMLElement
+    if (binding === 'class') expect(element.classList.contains('active')).toBe(true)
+    else expect(element.style.display).toBe('none')
+    expect(element.querySelector('span')?.textContent).toBe('React child')
+  })
+
+  it.each(['optionsText', 'visible'])(
+    'rejects a custom handler colliding with the allowlisted %s name',
+    (binding) => {
+      const registered = ko.bindingHandlers[binding]
+      const init = vi.fn((element: Element) => {
+        element.replaceChildren('Knockout replacement')
+      })
+      ko.bindingHandlers[binding] = { init }
+
+      try {
+        const { container } = render(
+          <div data-bind={`${binding}: true`}>
+            <span>React child</span>
+          </div>
+        )
+
+        expect(() => applyBindingsSafely({}, container)).toThrow(
+          `react-ko cannot apply the Knockout "${binding}" binding`
+        )
+        expect(init).not.toHaveBeenCalled()
+        expect(container.querySelector('span')?.textContent).toBe('React child')
+      } finally {
+        if (registered === undefined) delete ko.bindingHandlers[binding]
+        else ko.bindingHandlers[binding] = registered
+      }
+    }
+  )
 
   it('leaves the React tree attached for later rerenders after rejecting a descendant-mutating binding', () => {
     const label = ko.observable('Knockout label')

@@ -616,6 +616,7 @@ describe('RootKnockoutProvider', () => {
 
   it.each([
     ['text', (show: boolean) => (show ? 'React text' : null)],
+    ['bigint', (show: boolean) => (show ? (123n as unknown as ReactNode) : null)],
     [
       'dangerouslySetInnerHTML',
       (show: boolean) => ({
