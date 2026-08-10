@@ -78,6 +78,10 @@ const viewModel = {
 `KoScope` is also exported as a shorter alias of `KnockoutScope`; both names
 refer to the same component.
 
+Replacing a `RootKnockoutProvider` or `KnockoutScope` `viewModel` reapplies its
+Knockout bindings. Both components dispose their bindings when replaced or
+unmounted.
+
 ---
 
 ## Custom Component Example

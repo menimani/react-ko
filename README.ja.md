@@ -78,6 +78,10 @@ const viewModel = {
 `KoScope` も `KnockoutScope` の短い別名としてエクスポートされています。
 どちらも同じコンポーネントを参照します。
 
+`RootKnockoutProvider` または `KnockoutScope` の `viewModel` を置き換えると、
+Knockout バインディングが再適用されます。どちらのコンポーネントも、置き換え時と
+アンマウント時にバインディングを破棄します。
+
 ---
 
 ## カスタムコンポーネント例
