@@ -30,7 +30,7 @@ function App() {
           count is <KoText text={vm.count} color={vm.color} />
         </button>
         <p>
-          Edit <code>src/App.tsx</code> and save to test HMR
+          Edit <code>src/App.jsx</code> and save to test HMR
         </p>
       </div>
       <p className="read-the-docs">
