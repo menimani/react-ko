@@ -28,7 +28,7 @@ en English | [ja 日本語](./README.ja.md)
 npm install react-ko knockout
 ```
 
-> This library requires `react` (v18+) and `knockout` (v3.5+) as peer dependencies.
+> This library requires `react` (`^18.0.0 || ^19.0.0`), `react-dom` (`^18.0.0 || ^19.0.0`), and `knockout` (`^3.5.1`) as peer dependencies.
 
 ---
 
