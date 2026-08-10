@@ -423,6 +423,13 @@ npm run build
 git config core.hooksPath .githooks
 ```
 
+スターターは npm workspaces なので、ルートで install すれば公開前でも
+ローカルのライブラリを参照してそのまま動かせます：
+
+```bash
+npm run dev --workspace=starter/ts
+```
+
 このリポジトリを保守する自律改善ループは `orchestration/` にあります。
 起動と再開の方法は `orchestration/CLAUDE.md` を参照してください。
 

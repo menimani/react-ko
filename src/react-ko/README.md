@@ -429,6 +429,13 @@ Enable the repository hooks once per clone:
 git config core.hooksPath .githooks
 ```
 
+The starters are npm workspaces: after the root install they run against the
+local library without publishing.
+
+```bash
+npm run dev --workspace=starter/ts
+```
+
 The autonomous improvement loop that maintains this repository lives in
 `orchestration/`; `orchestration/CLAUDE.md` explains how to run and resume it.
 
