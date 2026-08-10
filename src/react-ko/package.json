@@ -46,7 +46,7 @@
     "build": "tsup && npm run test:types && npm run test:package",
     "test:types": "tsc --project tests/declarations/tsconfig.json && tsc --project tests/consumers/esm/tsconfig.json && tsc --project tests/consumers/cjs/tsconfig.json && tsc --project tests/consumers/cjs/tsconfig.nodenext.json",
     "test:package": "node tests/package-smoke.mjs",
-    "test": "npx vitest run --reporter verbose"
+    "test": "npx vitest run --reporter verbose --coverage"
   },
   "peerDependencies": {
     "knockout": "^3.5.1",
@@ -57,6 +57,7 @@
     "@testing-library/react": "^16.2.0",
     "@types/react": "^18.2.45",
     "@types/react-dom": "^18.2.17",
+    "@vitest/coverage-v8": "^4.1.8",
     "jsdom": "^26.0.0",
     "tsup": "^8.4.0",
     "typescript": "^5.8.2",
