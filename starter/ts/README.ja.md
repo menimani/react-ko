@@ -27,15 +27,19 @@ npx degit menimani/react-ko/starter/js my-app-js
 
 - React + TypeScript + Vite（公式テンプレート）
 - Knockout.js と react-ko インストール済み
-- 動作するサンプル：`data-bind` によるカウンター、`KoIf` / `KoIfNot` と
-  `KoForeach` の render prop で作った todo リスト
+- ルートプロバイダーとネストしたスコープによる双方向の `data-bind`
+- `KoIf` / `KoIfNot`、キー付き `KoForeach` 行、nullable な `KoWith` 詳細表示で
+  作った動作する todo リスト
+- `observableArray` のインプレース更新を React の表示につなぐ `useKoValue`
 - 余計な構成なし — `npm install` してすぐ開発可能
 
 ## サンプルコード
 
 ```tsx
-<KoForeach items={vm.list}>
-  {(item) => <li>{item}</li>}
+const itemCount = useKoValue(vm.list).length
+
+<KoForeach items={vm.list} itemKey={(todo) => todo.id}>
+  {(_todo, index) => <li>{index + 1}. <span data-bind="text: title" /></li>}
 </KoForeach>
 ```
 

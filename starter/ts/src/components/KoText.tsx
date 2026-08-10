@@ -1,6 +1,6 @@
 import React from 'react'
 import ko from 'knockout'
-import { KoScope } from 'react-ko'
+import { KnockoutScope } from 'react-ko'
 
 import styles from '../css/KoText.module.css'
 
@@ -13,8 +13,8 @@ export const KoText = React.memo(function KoText<T>({ text, color }: Props<T>) {
   const vm = { text, color }
 
   return (
-    <KoScope viewModel={vm}>
+    <KnockoutScope viewModel={vm}>
       <span className={styles.text} data-bind="text: text, style: { color: color }"></span>
-    </KoScope>
+    </KnockoutScope>
   )
 })
