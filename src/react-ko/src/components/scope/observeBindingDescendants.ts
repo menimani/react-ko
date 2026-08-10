@@ -981,7 +981,7 @@ function refreshOwnedContent(
       const hasUnownedChild = [...element.childNodes].some((child) => !owned.has(child))
       const contested =
         (hasUnownedChild || textChanged) &&
-        (hasReactOwnedChildren(element) ||
+        (hasReactOwnedChildren(element, owned) ||
           [...element.childNodes].some(
             (child) => !owned.has(child) && hasReactOwnership(child, element)
           ))
