@@ -43,6 +43,33 @@ describe('KnockoutScope', () => {
     await waitFor(() => expect(vm.name.getSubscriptionsCount()).toBe(0))
   })
 
+  it('sends a late binding error to a React error boundary with a stable view model', async () => {
+    const appVm = {}
+    const vm = {}
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    function Harness({ show }: { show: boolean }) {
+      return (
+        <ErrorBoundary>
+          <RootKnockoutProvider viewModel={appVm}>
+            <KnockoutScope viewModel={vm}>
+              {show ? <span data-bind="text: missing.value" /> : null}
+            </KnockoutScope>
+          </RootKnockoutProvider>
+        </ErrorBoundary>
+      )
+    }
+
+    try {
+      const { rerender } = render(<Harness show={false} />)
+      rerender(<Harness show />)
+
+      await waitFor(() => expect(screen.getByText('Binding failed')).toBeDefined())
+    } finally {
+      consoleError.mockRestore()
+    }
+  })
+
   it('reapplies a changed data-bind in the nearest scope', async () => {
     const root = {
       first: ko.observable('Root first'),

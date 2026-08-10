@@ -71,6 +71,30 @@ describe('RootKnockoutProvider', () => {
     expect(screen.getByText('Still bound')).toBeDefined()
   })
 
+  it('sends a late binding error to a React error boundary with a stable view model', async () => {
+    const vm = {}
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    function Harness({ show }: { show: boolean }) {
+      return (
+        <ErrorBoundary>
+          <RootKnockoutProvider viewModel={vm}>
+            {show ? <span data-bind="text: missing.value" /> : null}
+          </RootKnockoutProvider>
+        </ErrorBoundary>
+      )
+    }
+
+    try {
+      const { rerender } = render(<Harness show={false} />)
+      rerender(<Harness show />)
+
+      await waitFor(() => expect(screen.getByText('Binding failed')).toBeDefined())
+    } finally {
+      consoleError.mockRestore()
+    }
+  })
+
   it('disposes a late descendant when React removes it', async () => {
     const vm = { label: ko.observable('Temporary') }
 

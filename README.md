@@ -87,7 +87,8 @@ so its children use only its own `viewModel` and are cleaned up with that bindin
 root.
 React-rendered descendants mounted after the initial binding pass are also bound
 automatically to the nearest root or scope. Their bindings are disposed when
-React removes them. When React changes an existing element's `data-bind`
+React removes them. Errors from these late-applied bindings also reach the nearest
+React error boundary. When React changes an existing element's `data-bind`
 attribute, the previous binding is disposed and the new expression is applied
 in that same nearest root or scope.
 

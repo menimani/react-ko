@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { useContext, useRef, useLayoutEffect, useState } from 'react'
+import { useCallback, useContext, useRef, useLayoutEffect, useState } from 'react'
 import ko from 'knockout'
 import { AppViewModelContext } from '@/index'
 import { ScopeViewModelContext } from '@/context/ScopeViewModelContext'
@@ -21,7 +21,11 @@ export const RootKnockoutProvider = React.memo(function RootKnockoutProvider<T>(
   const koContainer = useRef<HTMLDivElement | null>(null)
   const parentGeneration = useContext(ScopeBindGenerationContext)
   const [generation, setGeneration] = useState(0)
+  const [bindingFailure, setBindingFailure] = useState<{ error: unknown } | null>(null)
   const isFirstBind = useRef(true)
+  const handleBindingError = useCallback((error: unknown) => {
+    setBindingFailure({ error })
+  }, [])
 
   useLayoutEffect(() => {
     const node = koContainer.current
@@ -29,7 +33,7 @@ export const RootKnockoutProvider = React.memo(function RootKnockoutProvider<T>(
       return
     }
     applyBindingsSafely(viewModel, node)
-    const stopObserving = observeBindingDescendants(viewModel, node)
+    const stopObserving = observeBindingDescendants(viewModel, node, handleBindingError)
 
     // Cleaning the root also disposes bindings owned by nested binding roots.
     // Let the nearest descendants know that they must bind themselves again.
@@ -43,7 +47,11 @@ export const RootKnockoutProvider = React.memo(function RootKnockoutProvider<T>(
       stopObserving()
       ko.cleanNode(node)
     }
-  }, [viewModel, parentGeneration])
+  }, [viewModel, parentGeneration, handleBindingError])
+
+  if (bindingFailure !== null) {
+    throw bindingFailure.error
+  }
 
   return (
     <AppViewModelContext.Provider value={viewModel}>

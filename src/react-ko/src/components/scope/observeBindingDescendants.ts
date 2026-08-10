@@ -122,14 +122,23 @@ function bindAddedNodes(records: MutationRecord[], root: Node, viewModel: unknow
  * Binds React-owned elements added after the initial binding pass and disposes
  * their bindings when React removes them.
  */
-export function observeBindingDescendants(viewModel: unknown, root: HTMLElement) {
+export function observeBindingDescendants(
+  viewModel: unknown,
+  root: HTMLElement,
+  onError: (error: unknown) => void
+) {
   bindingRoots.set(root, viewModel)
 
   const observer = new MutationObserver((records) => {
-    cleanRemovedNodes(records, root)
-    const addedRoots = addedBindingRoots(records, root)
-    rebindChangedAttributes(records, root, viewModel, addedRoots)
-    bindAddedNodes(records, root, viewModel)
+    try {
+      cleanRemovedNodes(records, root)
+      const addedRoots = addedBindingRoots(records, root)
+      rebindChangedAttributes(records, root, viewModel, addedRoots)
+      bindAddedNodes(records, root, viewModel)
+    } catch (error) {
+      observer.disconnect()
+      onError(error)
+    }
   })
   observer.observe(root, {
     attributeFilter: ['data-bind'],
