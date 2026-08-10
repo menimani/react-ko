@@ -28,15 +28,19 @@ npx degit menimani/react-ko/starter/ts my-app-ts
 
 - React + Vite (official template)
 - Knockout.js and react-ko installed
-- A working sample: a counter bound with `data-bind`, and a todo list built
-  with `KoIf`, `KoIfNot`, and the `KoForeach` render prop
+- A root provider and nested scopes with two-way `data-bind` bindings
+- A working todo list built with `KoIf`, `KoIfNot`, keyed `KoForeach` rows,
+  and a nullable `KoWith` detail view
+- `useKoValue` bridging an in-place `observableArray` update into React output
 - No extra setup — `npm install` and go
 
 ## Sample code
 
 ```jsx
-<KoForeach items={vm.list}>
-  {(item) => <li>{item}</li>}
+const itemCount = useKoValue(vm.list).length
+
+<KoForeach items={vm.list} itemKey={(todo) => todo.id}>
+  {(_todo, index) => <li>{index + 1}. <span data-bind="text: title" /></li>}
 </KoForeach>
 ```
 
