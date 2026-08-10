@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { fireEvent, render } from '@testing-library/react'
-import type { ReactNode } from 'react'
+import { version as reactVersion, type ReactNode } from 'react'
 import ko from 'knockout'
 import { applyBindingsSafely } from '@/components/scope/applyBindingsSafely'
 
@@ -63,14 +63,18 @@ describe('applyBindingsSafely', () => {
     expect(container.textContent).toBe('React text')
   })
 
-  it('rejects a content binding over direct React bigint text', () => {
+  it('handles direct React bigint content according to the React major', () => {
     const bigint = 123n as unknown as ReactNode
     const { container } = render(<div data-bind="text: value">{bigint}</div>)
+    const apply = () => applyBindingsSafely({ value: 'Knockout value' }, container)
 
-    expect(() => applyBindingsSafely({ value: 'Knockout value' }, container)).toThrow(
-      'react-ko cannot apply the Knockout "text" binding'
-    )
-    expect(container.textContent).toBe('123')
+    if (Number.parseInt(reactVersion, 10) >= 19) {
+      expect(apply).toThrow('react-ko cannot apply the Knockout "text" binding')
+      expect(container.textContent).toBe('123')
+    } else {
+      expect(apply).not.toThrow()
+      expect(container.textContent).toBe('Knockout value')
+    }
   })
 
   it.each([

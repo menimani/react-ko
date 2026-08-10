@@ -212,8 +212,10 @@ Use `KoIf`, `KoIfNot`, `KoForeach`, and `KoWith` instead.
 The `text`, `html`, `component`, and `options` bindings also replace an
 element's contents. They are supported only when the bound element has no
 React-rendered children; otherwise the binding is rejected before it can detach
-those children. Direct React scalar text, including `bigint`, and content inserted with
-`dangerouslySetInnerHTML` are treated as React-rendered children too. This
+those children. Direct React scalar text and content inserted with
+`dangerouslySetInnerHTML` are treated as React-rendered children too. React 19 renders
+`bigint` children as scalar text, so they have the same restriction; React 18 renders
+them as no output, so a `bigint` child alone does not conflict with a content binding. This
 remains enforced if React conditionally adds children after
 the binding was applied. React element insertion is rejected synchronously,
 before the child's layout effects run, and direct text or HTML insertion is

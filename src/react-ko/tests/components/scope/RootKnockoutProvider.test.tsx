@@ -1,6 +1,14 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, act, fireEvent, waitFor } from '@testing-library/react'
-import { Component, StrictMode, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import {
+  Component,
+  StrictMode,
+  useLayoutEffect,
+  useRef,
+  useState,
+  version as reactVersion,
+  type ReactNode,
+} from 'react'
 import ko from 'knockout'
 import { KnockoutScope, RootKnockoutProvider, useAppViewModel } from '@/index'
 
@@ -616,7 +624,6 @@ describe('RootKnockoutProvider', () => {
 
   it.each([
     ['text', (show: boolean) => (show ? 'React text' : null)],
-    ['bigint', (show: boolean) => (show ? (123n as unknown as ReactNode) : null)],
     [
       'dangerouslySetInnerHTML',
       (show: boolean) => ({
@@ -655,6 +662,38 @@ describe('RootKnockoutProvider', () => {
       }
     }
   )
+
+  it('handles late React bigint content according to the React major', async () => {
+    const vm = { label: ko.observable('Knockout text') }
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    function Harness({ show }: { show: boolean }) {
+      return (
+        <ErrorBoundary>
+          <RootKnockoutProvider viewModel={vm}>
+            <div data-bind="text: label">
+              {show ? (123n as unknown as ReactNode) : null}
+            </div>
+          </RootKnockoutProvider>
+        </ErrorBoundary>
+      )
+    }
+
+    try {
+      const { rerender } = render(<Harness show={false} />)
+      rerender(<Harness show />)
+
+      if (Number.parseInt(reactVersion, 10) >= 19) {
+        await waitFor(() => expect(screen.getByText('Binding failed')).toBeDefined())
+        expect(vm.label.getSubscriptionsCount()).toBe(0)
+      } else {
+        expect(screen.getByText('Knockout text')).toBeDefined()
+        expect(vm.label.getSubscriptionsCount()).toBe(1)
+      }
+    } finally {
+      consoleError.mockRestore()
+    }
+  })
 
   it.each([
     ['an empty text child', { children: '' }],
