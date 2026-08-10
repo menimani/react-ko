@@ -97,6 +97,48 @@ describe('useKoValue', () => {
     expect(screen.getByTestId('value').textContent).toBe('Updated')
   })
 
+  it('disposes its subscription when the source becomes plain or undefined', () => {
+    const observable = ko.observable('Observable')
+    let renderCount = 0
+
+    function OptionalProbe({
+      source,
+    }: {
+      source?: ko.Observable<string> | string
+    }) {
+      renderCount += 1
+      const value = useKoValue(source)
+      return <span data-testid="value">{value ?? 'none'}</span>
+    }
+
+    const { rerender } = render(<OptionalProbe source={observable} />)
+    expect(observable.getSubscriptionsCount()).toBe(1)
+
+    rerender(<OptionalProbe source="Plain" />)
+
+    expect(screen.getByTestId('value').textContent).toBe('Plain')
+    expect(observable.getSubscriptionsCount()).toBe(0)
+
+    const rendersAfterPlainValue = renderCount
+    act(() => {
+      observable('Ignored after plain value')
+    })
+    expect(renderCount).toBe(rendersAfterPlainValue)
+    expect(screen.getByTestId('value').textContent).toBe('Plain')
+
+    rerender(<OptionalProbe />)
+
+    expect(screen.getByTestId('value').textContent).toBe('none')
+    expect(observable.getSubscriptionsCount()).toBe(0)
+
+    const rendersAfterUndefined = renderCount
+    act(() => {
+      observable('Ignored after undefined')
+    })
+    expect(renderCount).toBe(rendersAfterUndefined)
+    expect(screen.getByTestId('value').textContent).toBe('none')
+  })
+
   it('catches a change fired between render and subscription', () => {
     const name = ko.observable('Hello')
 
