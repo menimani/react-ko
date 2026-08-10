@@ -1,4 +1,4 @@
-import { defineConfig } from 'vitest/config'
+import { configDefaults, defineConfig } from 'vitest/config'
 import tsconfigPaths from 'vite-tsconfig-paths'
 
 export default defineConfig({
@@ -15,6 +15,8 @@ export default defineConfig({
         lines: 95,
       },
     },
+    // The orchestration keeps its own vitest suite under orchestration/ts.
+    exclude: [...configDefaults.exclude, 'orchestration/**'],
   },
   plugins: [tsconfigPaths()],
 })

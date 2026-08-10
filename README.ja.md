@@ -362,6 +362,11 @@ function Greeting({ name }: { name: ko.Observable<string> }) {
 }
 ```
 
+optional なソースは形を保ちます: `ko.Observable<string> | undefined` 型の
+プロパティに `useKoValue` を使うと `string | undefined` が返ります。
+Knockout の遅延更新モード（`ko.options.deferUpdates = true`）はライブラリ
+全体でサポートされており、値は遅延通知の実行時に反映されます。
+
 ---
 
 ## v1 からの移行

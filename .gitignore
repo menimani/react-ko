@@ -15,9 +15,32 @@ src/react-ko/node_modules/
 src/react-ko/coverage/
 
 !.gitignore
+!.gitattributes
 !LICENSE
 !package.json
 !package-lock.json
+!CLAUDE.md
+!AGENTS.md
+!.githooks/
+!.githooks/*
+!.claude/
+!.claude/settings.json
+!.claude/skills/
+!.claude/skills/**/*
+
+# Orchestration: sources and templates are tracked; runtime state is not.
+!orchestration/
+!orchestration/**/*
+orchestration/worktrees/
+orchestration/logs/*
+!orchestration/logs/.gitkeep
+orchestration/status/*
+!orchestration/status/.gitkeep
+orchestration/queue/*
+!orchestration/queue/.gitkeep
+orchestration/tasks/*
+!orchestration/tasks/.gitkeep
+orchestration/ts/node_modules/
 !README.ja.md
 !README.md
 !tsconfig.json

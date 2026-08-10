@@ -141,6 +141,20 @@ describe('useKoValue', () => {
     expect(screen.getByTestId('value').textContent).toBe('After')
   })
 
+  it('returns undefined for an absent optional source', () => {
+    function OptionalProbe({ source }: { source?: ko.Observable<string> }) {
+      const value = useKoValue(source)
+      return <span data-testid="optional">{value ?? 'none'}</span>
+    }
+
+    const { rerender } = render(<OptionalProbe />)
+    expect(screen.getByTestId('optional').textContent).toBe('none')
+
+    const present = ko.observable('present')
+    rerender(<OptionalProbe source={present} />)
+    expect(screen.getByTestId('optional').textContent).toBe('present')
+  })
+
   it('disposes its subscription on unmount', () => {
     const name = ko.observable('Hello')
 

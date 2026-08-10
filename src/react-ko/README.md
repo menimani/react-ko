@@ -367,6 +367,12 @@ function Greeting({ name }: { name: ko.Observable<string> }) {
 }
 ```
 
+An optional source keeps its shape: `useKoValue` of a
+`ko.Observable<string> | undefined` prop returns `string | undefined`.
+Knockout's deferred-updates mode (`ko.options.deferUpdates = true`) is
+supported throughout the library; values arrive when the deferred
+notification runs.
+
 ---
 
 ## Migrating from v1

@@ -17,10 +17,10 @@ export const KoText = React.memo(function KoText({ text, color }) {
 // data-bind — the two sanctioned ways to read a Knockout value side by side.
 export const KoTextHook = React.memo(function KoTextHook({ text, color }) {
   const value = useKoValue(text)
-  const resolvedColor = useKoValue(color ?? '')
+  const resolvedColor = useKoValue(color)
 
   return (
-    <span className={styles.text} style={{ color: resolvedColor || undefined }}>
+    <span className={styles.text} style={{ color: resolvedColor }}>
       {String(value)}
     </span>
   )
