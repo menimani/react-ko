@@ -15,6 +15,8 @@ en English | [ja 日本語](./README.ja.md)
 - ✅ Use `data-bind="..."` directly in JSX / TSX
 - ✅ Scoped ViewModel logic via `<KnockoutScope>`
 - ✅ One-line root binding via `<RootKnockoutProvider>`
+- ✅ Type-safe list rendering with the `<KoForeach>` render prop
+- ✅ `useKoValue` to read observables as React state
 - ✅ Zero boilerplate — no event handlers or local state
 - ✅ Full TypeScript & JavaScript support with zero-config
 - ✅ No runtime dependencies other than Knockout & React
@@ -127,21 +129,106 @@ const vm = {
 </KnockoutScope>
 ```
 
-### ❗ Deprecated Components
+---
 
-> ⚠️ The following components are deprecated and will be removed in a future release (v2.0.0):
->
-> - `KoIfComment`
-> - `KoIfNotComment`
-> - `KoForeachComment`
->
-> Please use the unified components instead:
->
-> - ✅ `KoIf`
-> - ✅ `KoIfNot`
-> - ✅ `KoForeach`
->
-> These new components are fully JSX-compliant and no longer rely on HTML comment nodes.
+## 🔁 Structural Components
+
+### `KoForeach`
+
+`KoForeach` takes a render prop: the function receives each item and its
+index, and the JSX it returns is bound to that item — `data-bind` inside a
+row refers to the row item directly.
+
+```tsx
+type Todo = {
+  title: ko.Observable<string>
+  done: ko.Observable<boolean>
+}
+
+const vm = { todos: ko.observableArray<Todo>([]) }
+
+<KoForeach items={vm.todos}>
+  {(todo, index) => (
+    <li>
+      <span>{index + 1}.</span>
+      <input type="checkbox" data-bind="checked: done" />
+      <input data-bind="value: title" />
+      <button onClick={() => vm.todos.remove(todo)}>Remove</button>
+    </li>
+  )}
+</KoForeach>
+```
+
+- `items` accepts `ko.ObservableArray<T>`, `ko.Observable<T[]>`,
+  `ko.Computed<T[]>`, or a plain `T[]`.
+- Instead of `$data`, `$index`, and `$parent`, use the function arguments
+  and closures — outer variables (like `vm` above) are simply in scope, and
+  React components can be used inside rows.
+- Rows are keyed by `itemKey` when given; otherwise object items are keyed
+  by identity and primitive items fall back to their index. Pass `itemKey`
+  when rows hold state and items are primitive.
+
+Nesting is plain JSX:
+
+```tsx
+<KoForeach items={vm.groups}>
+  {(group) => (
+    <section>
+      <h2 data-bind="text: name" />
+      <KoForeach items={group.items}>
+        {(item) => <Row item={item} group={group} />}
+      </KoForeach>
+    </section>
+  )}
+</KoForeach>
+```
+
+### `KoIf` / `KoIfNot`
+
+Render children while the condition is true (`KoIf`) or false (`KoIfNot`).
+`data-bind` inside the children refers to the enclosing scope's view model.
+
+```tsx
+<KoIf condition={vm.isVisible}>
+  <p data-bind="text: message" />
+</KoIf>
+```
+
+---
+
+## 🪝 useKoValue
+
+Reads a Knockout observable, computed, or plain value as React state: it
+returns the current value and re-renders the component when it changes.
+This is the one sanctioned route for bringing Knockout values into JSX
+interpolation, effect dependencies, and props.
+
+```tsx
+import { useKoValue } from 'react-ko'
+
+function Greeting({ name }: { name: ko.Observable<string> }) {
+  const value = useKoValue(name) // string, re-renders on change
+  return <p>Hello, {value}!</p>
+}
+```
+
+---
+
+## 🚨 Migrating from v1
+
+v2 contains breaking changes:
+
+- **`KoForeach` children are now a function** `(item, index) => ReactNode`.
+  The v1 form (plain JSX handed to Knockout's `foreach:` binding) is gone —
+  it let Knockout clone DOM that React owned.
+- **`KoIfComment`, `KoIfNotComment`, and `KoForeachComment` are removed**,
+  as announced in v1. Use `KoIf`, `KoIfNot`, and `KoForeach`.
+- **Each `KnockoutScope` is now its own binding root.** `$root` inside a
+  scope refers to that scope's view model, and `$parent` does not cross
+  scope borders; use props and closures instead.
+- **`data-bind` inside `KoIf` / `KoIfNot` children** now resolves against
+  the enclosing scope's view model (it previously saw an internal wrapper
+  object holding the condition).
 
 ---
 
@@ -174,14 +261,16 @@ Let Knockout observables do the work — even in modern React.
 src/
 ├── components/                          // Components
 │   ├── scope/                          // Core components for binding with Knockout
-│   │   ├── KnockoutScope.tsx          // Manages the Knockout and React scope
+│   │   ├── KnockoutScope.tsx          // Self-binding scope for a sub-ViewModel
 │   │   └── RootKnockoutProvider.tsx   // Root component, initializes Knockout
-│   ├── structural/                     // Generic components for Knockout flow control
-│   │   ├── KoIf.tsx                   // ko if: control component
-│   │   ├── KoIfNot.tsx                // ko ifnot: control component
-│   │   ├── KoForeach.tsx              // ko foreach: control component
+│   ├── structural/                     // Generic components for flow control
+│   │   ├── KoIf.tsx                   // Conditional rendering (true)
+│   │   ├── KoIfNot.tsx                // Conditional rendering (false)
+│   │   ├── KoForeach.tsx              // List rendering via render prop
 ├── context/                             // Context management
 │   ├── AppViewModelContext.ts          // Context related to Knockout's ViewModel
+├── hooks/                               // Hooks
+│   ├── useKoValue.ts                   // Read a Knockout value as React state
 ```
 
 ---

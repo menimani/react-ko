@@ -15,6 +15,8 @@
 - ✅ JSX / TSX 上でそのまま `data-bind="..."` を使用可能
 - ✅ `<KnockoutScope>` によるスコープ付き ViewModel
 - ✅ `<RootKnockoutProvider>` による1行ルートバインディング
+- ✅ `<KoForeach>` の render prop による型安全なリスト描画
+- ✅ observable を React の state として読める `useKoValue`
 - ✅ イベントハンドラや状態管理のボイラープレート不要
 - ✅ TypeScript / JavaScript の両対応（設定不要）
 - ✅ Knockout と React 以外のランタイム依存なし
@@ -127,21 +129,106 @@ const vm = {
 </KnockoutScope>
 ```
 
-### ❗ 非推奨コンポーネント
+---
 
-> ⚠️ 以下のコンポーネントは非推奨となり、将来のリリース（v2.0.0）で削除される予定です：
-> 
-> - KoIfComment
-> - KoIfNotComment
-> - KoForeachComment
-> 
-> 代わりに、以下の統一されたコンポーネントを使用してください：
-> 
-> - ✅ KoIf
-> - ✅ KoIfNot
-> - ✅ KoForeach
-> 
-> 新しいコンポーネントは完全に JSX に準拠しており、HTML コメントノードに依存しません。
+## 🔁 構造コンポーネント
+
+### `KoForeach`
+
+`KoForeach` は render prop を取ります。関数は各アイテムとそのインデックスを
+受け取り、返した JSX はそのアイテムにバインドされます — 行内の `data-bind`
+は行アイテムを直接参照できます。
+
+```tsx
+type Todo = {
+  title: ko.Observable<string>
+  done: ko.Observable<boolean>
+}
+
+const vm = { todos: ko.observableArray<Todo>([]) }
+
+<KoForeach items={vm.todos}>
+  {(todo, index) => (
+    <li>
+      <span>{index + 1}.</span>
+      <input type="checkbox" data-bind="checked: done" />
+      <input data-bind="value: title" />
+      <button onClick={() => vm.todos.remove(todo)}>削除</button>
+    </li>
+  )}
+</KoForeach>
+```
+
+- `items` は `ko.ObservableArray<T>`、`ko.Observable<T[]>`、
+  `ko.Computed<T[]>`、素の `T[]` を受け付けます。
+- `$data` / `$index` / `$parent` の代わりに、関数引数とクロージャを
+  使います — 外側の変数（上の例の `vm`）はそのまま見え、行の中に React
+  コンポーネントを置けます。
+- 行のキーは `itemKey` があればそれを使い、なければオブジェクトは同一性
+  ベース、プリミティブは index にフォールバックします。行が状態を持ち
+  アイテムがプリミティブな場合は `itemKey` を渡してください。
+
+ネストは普通の JSX として書けます：
+
+```tsx
+<KoForeach items={vm.groups}>
+  {(group) => (
+    <section>
+      <h2 data-bind="text: name" />
+      <KoForeach items={group.items}>
+        {(item) => <Row item={item} group={group} />}
+      </KoForeach>
+    </section>
+  )}
+</KoForeach>
+```
+
+### `KoIf` / `KoIfNot`
+
+条件が true（`KoIf`）または false（`KoIfNot`）の間だけ children を描画
+します。children 内の `data-bind` は外側スコープの ViewModel を参照します。
+
+```tsx
+<KoIf condition={vm.isVisible}>
+  <p data-bind="text: message" />
+</KoIf>
+```
+
+---
+
+## 🪝 useKoValue
+
+Knockout の observable / computed / 素の値を React の state として読み
+ます。現在値を返し、変更されるとコンポーネントを再レンダーします。
+Knockout の値を React の世界（JSX の補間、effect の依存配列、props への
+受け渡し）へ持ち込む唯一の正規ルートです。
+
+```tsx
+import { useKoValue } from 'react-ko'
+
+function Greeting({ name }: { name: ko.Observable<string> }) {
+  const value = useKoValue(name) // string 型、変更で再レンダー
+  return <p>Hello, {value}!</p>
+}
+```
+
+---
+
+## 🚨 v1 からの移行
+
+v2 には破壊的変更が含まれます：
+
+- **`KoForeach` の children が関数になりました** `(item, index) => ReactNode`。
+  v1 の形式（素の JSX を Knockout の `foreach:` に委譲）は廃止です —
+  React が所有する DOM を Knockout が複製する構造だったためです。
+- **`KoIfComment` / `KoIfNotComment` / `KoForeachComment` は予告どおり
+  削除されました。** `KoIf` / `KoIfNot` / `KoForeach` を使ってください。
+- **各 `KnockoutScope` が独立したバインディングルートになりました。**
+  スコープ内の `$root` はそのスコープ自身の ViewModel を指し、`$parent`
+  はスコープ境界を越えません。props とクロージャを使ってください。
+- **`KoIf` / `KoIfNot` の children 内の `data-bind`** は外側スコープの
+  ViewModel に対して解決されるようになりました（以前は condition を
+  保持する内部ラッパーオブジェクトを参照していました）。
 
 ---
 
@@ -174,14 +261,16 @@ Knockout の observable に任せるだけで、UI がリアクティブに更�
 src/
 ├── components/                          // コンポーネント群
 │   ├── scope/                          // Knockoutとの結びつきのための基本コンポーネント
-│   │   ├── KnockoutScope.tsx          // KnockoutとReactのスコープを管理
+│   │   ├── KnockoutScope.tsx          // サブViewModelを自己バインドするスコープ
 │   │   └── RootKnockoutProvider.tsx   // ルートコンポーネント、Knockoutの初期化
-│   ├── structural/                     // Knockoutのフロー制御を担当する汎用コンポーネント
-│   │   ├── KoIf.tsx                   // ko if: 制御コンポーネント
-│   │   ├── KoIfNot.tsx                // ko ifnot: 制御コンポーネント
-│   │   ├── KoForeach.tsx              // ko foreach: 制御コンポーネント
+│   ├── structural/                     // フロー制御を担当する汎用コンポーネント
+│   │   ├── KoIf.tsx                   // 条件描画（true）
+│   │   ├── KoIfNot.tsx                // 条件描画（false）
+│   │   ├── KoForeach.tsx              // render prop によるリスト描画
 ├── context/                             // コンテキスト管理
 │   ├── AppViewModelContext.ts          // KnockoutのViewModelに関連するコンテキスト
+├── hooks/                               // フック
+│   ├── useKoValue.ts                   // Knockoutの値をReactのstateとして読む
 ```
 
 ---
