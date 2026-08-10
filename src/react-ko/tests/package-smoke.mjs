@@ -11,6 +11,7 @@ const expectedExports = [
   'KoScope',
   'KoWith',
   'RootKnockoutProvider',
+  'createAppViewModelContext',
   'useAppViewModel',
   'useKoValue'
 ]

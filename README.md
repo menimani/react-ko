@@ -237,10 +237,31 @@ Falsy values such as `false`, `0`, and `''` are present values.
 
 ## useAppViewModel
 
-`useAppViewModel<T>()` reads the current application ViewModel. It must be used under an
-`AppViewModelContext.Provider`. `RootKnockoutProvider` supplies this context provider
-internally, and consumers may also supply `AppViewModelContext.Provider` directly.
-The supplied ViewModel is returned unchanged; `null` and `undefined` are valid values.
+For provider-linked typing, create a matched Provider and hook once. The ViewModel type
+is fixed at creation and cannot be replaced with an unrelated type when the hook is used:
+
+```tsx
+import { createAppViewModelContext, RootKnockoutProvider } from 'react-ko'
+
+type AppViewModel = { title: string }
+const TypedAppViewModelContext = createAppViewModelContext<AppViewModel>()
+
+function Title() {
+  const vm = TypedAppViewModelContext.useAppViewModel() // AppViewModel
+  return <h1>{vm.title}</h1>
+}
+
+<TypedAppViewModelContext.Provider value={vm}>
+  <RootKnockoutProvider viewModel={vm}>
+    <Title />
+  </RootKnockoutProvider>
+</TypedAppViewModelContext.Provider>
+```
+
+The matched hook throws if its matching Provider is absent. The legacy
+`useAppViewModel<T>()` and `AppViewModelContext.Provider` remain available in v2, but
+the hook's generic is an unchecked assertion and is deprecated. The supplied ViewModel
+is returned unchanged; `null` and `undefined` are valid values when included in `T`.
 
 ---
 

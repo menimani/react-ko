@@ -238,11 +238,31 @@ render prop が `$data` の代わりになり、外側スコープの値には�
 
 ## useAppViewModel
 
-`useAppViewModel<T>()` は現在のアプリケーション ViewModel を取得します。このフックは
-`AppViewModelContext.Provider` の配下で使用する必要があります。`RootKnockoutProvider` は
-内部でこのコンテキストプロバイダーを提供しますが、利用側で
-`AppViewModelContext.Provider` を直接提供することもできます。指定した ViewModel は
-そのまま返され、`null` と `undefined` も有効な値として扱われます。
+Provider と型が結びついた安全な経路には、対応する Provider とフックを一度作成します。
+ViewModel の型は作成時に固定されるため、フックの使用時に無関係な型へ置き換えられません。
+
+```tsx
+import { createAppViewModelContext, RootKnockoutProvider } from 'react-ko'
+
+type AppViewModel = { title: string }
+const TypedAppViewModelContext = createAppViewModelContext<AppViewModel>()
+
+function Title() {
+  const vm = TypedAppViewModelContext.useAppViewModel() // AppViewModel
+  return <h1>{vm.title}</h1>
+}
+
+<TypedAppViewModelContext.Provider value={vm}>
+  <RootKnockoutProvider viewModel={vm}>
+    <Title />
+  </RootKnockoutProvider>
+</TypedAppViewModelContext.Provider>
+```
+
+対応する Provider がない場合、フックは例外をスローします。従来の
+`useAppViewModel<T>()` と `AppViewModelContext.Provider` は v2 でも利用できますが、
+フックのジェネリック型は未検査の型アサーションであり、非推奨です。指定した ViewModel は
+そのまま返され、`T` に含めれば `null` と `undefined` も有効な値として扱われます。
 
 ---
 
