@@ -37,24 +37,24 @@ npm install react-ko knockout
 ### TypeScript
 
 ```bash
-npx degit menimani/react-ko-starter-ts my-app-ts
+npx degit menimani/react-ko/starter/ts my-app-ts
 cd my-app-ts
 npm install && npm run dev
 ```
 
-GitHub: [react-ko-starter-ts](https://github.com/menimani/react-ko-starter-ts)
+テンプレート: [`starter/ts`](./starter/ts)
 
 ---
 
 ### JavaScript
 
 ```bash
-npx degit menimani/react-ko-starter-js my-app-js
+npx degit menimani/react-ko/starter/js my-app-js
 cd my-app-js
 npm install && npm run dev
 ```
 
-GitHub: [react-ko-starter-js](https://github.com/menimani/react-ko-starter-js)
+テンプレート: [`starter/js`](./starter/js)
 
 ---
 
