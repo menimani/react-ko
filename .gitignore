@@ -6,6 +6,10 @@
 !starter/
 !starter/**/*
 
+# Workspace build output and per-package installs stay untracked.
+src/react-ko/dist/
+src/react-ko/node_modules/
+
 !.gitignore
 !LICENSE
 !package.json
