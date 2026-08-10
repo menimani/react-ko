@@ -1,8 +1,9 @@
 import * as React from 'react'
-import { useLayoutEffect, useRef } from 'react'
+import { useContext, useLayoutEffect, useRef, useState } from 'react'
 import * as ko from 'knockout'
 import { useAppViewModel } from '@/index'
 import { ScopeViewModelContext } from '@/context/ScopeViewModelContext'
+import { ScopeBindGenerationContext } from '@/context/ScopeBindGenerationContext'
 
 type Props<T> = {
   viewModel: T
@@ -29,6 +30,9 @@ export const KnockoutScope = React.memo(function KnockoutScope<T>({ viewModel, c
   useAppViewModel()
 
   const container = useRef<HTMLDivElement | null>(null)
+  const parentGeneration = useContext(ScopeBindGenerationContext)
+  const [generation, setGeneration] = useState(0)
+  const isFirstBind = useRef(true)
 
   useLayoutEffect(() => {
     const node = container.current
@@ -37,18 +41,29 @@ export const KnockoutScope = React.memo(function KnockoutScope<T>({ viewModel, c
     }
     ko.applyBindings(viewModel, node)
 
+    // Rebinding means the cleanup's ko.cleanNode just disposed every nested
+    // binding, and the fresh pass stopped at nested scope boundaries.
+    // Announce a new generation so descendant scopes rebind themselves.
+    if (isFirstBind.current) {
+      isFirstBind.current = false
+    } else {
+      setGeneration((current) => current + 1)
+    }
+
     return () => {
       ko.cleanNode(node)
     }
-  }, [viewModel])
+  }, [viewModel, parentGeneration])
 
   return (
     <ScopeViewModelContext.Provider value={viewModel}>
-      <div data-bind={`${SCOPE_BOUNDARY}: true`} style={{ display: 'contents' }}>
-        <div ref={container} style={{ display: 'contents' }}>
-          {children}
+      <ScopeBindGenerationContext.Provider value={generation}>
+        <div data-bind={`${SCOPE_BOUNDARY}: true`} style={{ display: 'contents' }}>
+          <div ref={container} style={{ display: 'contents' }}>
+            {children}
+          </div>
         </div>
-      </div>
+      </ScopeBindGenerationContext.Provider>
     </ScopeViewModelContext.Provider>
   )
 })

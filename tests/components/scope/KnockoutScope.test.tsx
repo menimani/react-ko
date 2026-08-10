@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { render, act } from '@testing-library/react'
+import { render, screen, act } from '@testing-library/react'
 import ko from 'knockout'
 import { RootKnockoutProvider, KnockoutScope, KoScope } from '@/index'
 
@@ -150,6 +150,36 @@ describe('KnockoutScope', () => {
     unmount()
 
     expect(vm.name.getSubscriptionsCount()).toBe(0)
+  })
+
+  it('rebinds nested scopes when an ancestor scope rebinds', () => {
+    const appVm = {}
+    const inner = { label: ko.observable('First') }
+    const outerA = { title: ko.observable('A') }
+    const outerB = { title: ko.observable('B') }
+
+    function Harness({ outer }: { outer: unknown }) {
+      return (
+        <RootKnockoutProvider viewModel={appVm}>
+          <KnockoutScope viewModel={outer}>
+            <KnockoutScope viewModel={inner}>
+              <span data-bind="text: label" />
+            </KnockoutScope>
+          </KnockoutScope>
+        </RootKnockoutProvider>
+      )
+    }
+
+    const { rerender } = render(<Harness outer={outerA} />)
+    expect(screen.getByText('First')).toBeDefined()
+
+    rerender(<Harness outer={outerB} />)
+
+    act(() => {
+      inner.label('Second')
+    })
+
+    expect(screen.getByText('Second')).toBeDefined()
   })
 })
 
