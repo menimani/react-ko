@@ -82,6 +82,26 @@ describe('observeBindingDescendants', () => {
     await waitFor(() => expect(screen.getByText('Inserted')).toBeDefined())
   })
 
+  it('disposes a late-bound child removed in the same batch as unmount', async () => {
+    const vm = { label: ko.observable('Late') }
+    const { unmount } = render(<Host vm={vm} />)
+    const host = screen.getByTestId('host')
+    const child = document.createElement('span')
+    child.setAttribute('data-bind', 'text: label')
+
+    act(() => {
+      host.appendChild(child)
+    })
+    await waitFor(() => expect(vm.label.getSubscriptionsCount()).toBe(1))
+
+    act(() => {
+      child.remove()
+      unmount()
+    })
+
+    expect(vm.label.getSubscriptionsCount()).toBe(0)
+  })
+
   it('binds nodes added through replaceChild', async () => {
     const vm = { label: ko.observable('Replaced') }
     render(<Host vm={vm} />)
