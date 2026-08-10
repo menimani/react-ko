@@ -39,6 +39,14 @@ type AttributeInterceptor = {
 }
 const attributeInterceptors = new Map<typeof Element.prototype, AttributeInterceptor>()
 const scheduledPropertyRoots = new Set<HTMLElement>()
+type TrackedCheckedInterceptor = {
+  descriptor: PropertyDescriptor
+  interceptedSet: (value: unknown) => void
+}
+const trackedCheckedInterceptors = new WeakMap<
+  HTMLInputElement,
+  TrackedCheckedInterceptor
+>()
 type ChildListInterceptor = {
   count: number
   appendChild: typeof Node.prototype.appendChild
@@ -401,6 +409,65 @@ function reconcileChangedProperty(element: Element) {
   })
 }
 
+function interceptReactTrackedChecked(element: HTMLElement) {
+  const view = element.ownerDocument.defaultView
+  if (
+    view === null ||
+    !(element instanceof view.HTMLInputElement) ||
+    trackedCheckedInterceptors.has(element)
+  ) {
+    return
+  }
+
+  // React 18 tracks checked through an own property descriptor installed
+  // before this root binds. Its setter closes over the original prototype
+  // setter, so the prototype interceptor below cannot observe controlled
+  // checkbox writes.
+  const descriptor = Object.getOwnPropertyDescriptor(element, 'checked')
+  if (descriptor?.set === undefined) return
+  const set = descriptor.set
+  const interceptedSet = function (this: HTMLInputElement, value: unknown) {
+    set.call(this, value)
+    reconcileChangedProperty(this)
+  }
+  Object.defineProperty(element, 'checked', {
+    ...descriptor,
+    set: interceptedSet,
+  })
+  trackedCheckedInterceptors.set(element, { descriptor, interceptedSet })
+}
+
+function releaseReactTrackedChecked(
+  element: HTMLElement,
+  ownerRoot?: HTMLElement
+) {
+  if (
+    ownerRoot !== undefined &&
+    element !== ownerRoot &&
+    bindingRoots.has(element)
+  ) {
+    return
+  }
+
+  const view = element.ownerDocument.defaultView
+  if (view !== null && element instanceof view.HTMLInputElement) {
+    const interceptor = trackedCheckedInterceptors.get(element)
+    if (interceptor !== undefined) {
+      if (
+        Object.getOwnPropertyDescriptor(element, 'checked')?.set ===
+        interceptor.interceptedSet
+      ) {
+        Object.defineProperty(element, 'checked', interceptor.descriptor)
+      }
+      trackedCheckedInterceptors.delete(element)
+    }
+  }
+
+  for (const child of element.children) {
+    releaseReactTrackedChecked(child as HTMLElement, ownerRoot)
+  }
+}
+
 function interceptFormProperties(view: Window & typeof globalThis) {
   const intercepted: AttributeInterceptor['formProperties'] = []
   const properties: Array<[object, string]> = [
@@ -627,6 +694,8 @@ function trackBindingTree(
   if (element !== ownerRoot && bindingRoots.has(element)) {
     return
   }
+
+  interceptReactTrackedChecked(element)
 
   const source = element.getAttribute('data-bind')
   const beforeBinding = bindingStates.get(element)?.beforeBinding ?? snapshotDom(element)
@@ -1271,6 +1340,9 @@ function cleanRemovedNodes(records: MutationRecord[], root: Node) {
       // bindings while the same node remains under this binding root.
       if (!root.contains(node)) {
         ko.cleanNode(node)
+        if (node.nodeType === Node.ELEMENT_NODE) {
+          releaseReactTrackedChecked(node as HTMLElement)
+        }
       }
     }
   }
@@ -1432,6 +1504,7 @@ export function observeBindingDescendants(
     stopIntercepting()
     stopInterceptingInsertions()
     cleanRemovedNodes(pendingRecords, root)
+    releaseReactTrackedChecked(root, root)
   }
 }
 
