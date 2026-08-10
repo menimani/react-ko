@@ -16,7 +16,7 @@ en English | [ja 日本語](./README.ja.md)
 - One-line root binding via `<RootKnockoutProvider>`
 - Type-safe list rendering with the `<KoForeach>` render prop
 - `useKoValue` to read observables as React state
-- Zero boilerplate — no event handlers or local state
+- No React event-handler or local-state boilerplate for DOM behavior handled through `data-bind`
 - Full TypeScript & JavaScript support with zero-config
 - No runtime dependencies other than Knockout & React
 
@@ -257,7 +257,7 @@ With react-ko:
 <input data-bind="value: value, style: { color: color }" />
 ```
 
-No need to wire events or manage local state.  
+For DOM behavior handled through `data-bind`, there is no need to wire React events or manage local state.
 Let Knockout observables do the work — even in modern React.
 
 ---

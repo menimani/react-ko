@@ -16,7 +16,7 @@
 - `<RootKnockoutProvider>` による1行ルートバインディング
 - `<KoForeach>` の render prop による型安全なリスト描画
 - observable を React の state として読める `useKoValue`
-- イベントハンドラや状態管理のボイラープレート不要
+- `data-bind` で扱う DOM の振る舞いには、React のイベントハンドラやローカル state のボイラープレート不要
 - TypeScript / JavaScript の両対応（設定不要）
 - Knockout と React 以外のランタイム依存なし
 
@@ -258,7 +258,7 @@ react-ko を使うと：
 <input data-bind="value: value, style: { color: color }" />
 ```
 
-イベントや状態管理の記述は不要。  
+`data-bind` で扱う DOM の振る舞いには、React のイベントやローカル state の記述は不要。
 Knockout の observable に任せるだけで、UI がリアクティブに更新されます。
 
 ---
