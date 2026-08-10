@@ -18,10 +18,6 @@ and the repository's own test commands are reached only through the adapters in
 another forge, agent CLI, or repository; never hardcode any of the three in the core.
 Each task gets its own worktree under `orchestration/worktrees/` on a `task/<id>` branch.
 
-The bash implementation this replaced was deleted after the TS-driven validation run
-(run 9, 2026-08-08) completed and shipped; its behavior survives as `ts/SPEC.md` and the
-vitest suite.
-
 `ISSUE_QUEUE_ENABLED=true` moves the backlog to forge issues: findings are filed once
 per fingerprint under `loop:ready`, worker daemons claim by self-assigning, quiet leases
 are reaped after `ISSUE_LEASE_HOURS`, and the merge commit's `closes #N` closes the issue
