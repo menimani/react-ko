@@ -174,7 +174,9 @@ The `text`, `html`, `component`, and `options` bindings also replace an
 element's contents. They are supported only when the bound element has no
 React-rendered children; otherwise the binding is rejected before it can detach
 those children. This remains enforced if React conditionally adds children after
-the binding was applied. Leave the element empty while Knockout owns its contents.
+the binding was applied: the child insertion is rejected synchronously, before
+the child's layout effects run. Leave the element empty while Knockout owns its
+contents.
 
 ### `KoForeach`
 
