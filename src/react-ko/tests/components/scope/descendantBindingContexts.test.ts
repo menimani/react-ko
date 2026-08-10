@@ -22,8 +22,25 @@ describe('descendantBindingContexts', () => {
     expect(registered).toBeDefined()
 
     vi.resetModules()
-    await import('@/components/scope/descendantBindingContexts')
+    const reloaded = await import('@/components/scope/descendantBindingContexts')
 
     expect(ko.bindingHandlers[CAPTURE_DESCENDANT_CONTEXT]).toBe(registered)
+
+    const root = document.createElement('div')
+    const usingElement = document.createElement('div')
+    usingElement.setAttribute('data-bind', 'using: child')
+    root.appendChild(usingElement)
+
+    const removeMarkers = reloaded.prepareDescendantBindingContextCapture(root)
+    const child = { name: 'captured child' }
+    ko.applyBindings({ child }, root)
+
+    const lateDescendant = document.createElement('span')
+    usingElement.appendChild(lateDescendant)
+
+    expect(reloaded.descendantBindingContextFor(lateDescendant, root)?.$data).toBe(child)
+
+    removeMarkers()
+    ko.cleanNode(root)
   })
 })
