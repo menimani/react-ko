@@ -1261,4 +1261,93 @@ describe('RootKnockoutProvider', () => {
     fireEvent.change(select)
     expect(vm.choices()).toEqual(['knockout'])
   })
+
+  it('keeps committed React style and attr props as the retirement baseline', async () => {
+    const vm = {
+      color: ko.observable('red'),
+      width: ko.observable('10px'),
+      title: ko.observable('Knockout initial'),
+    }
+
+    function LocallyUpdatedElement() {
+      const [phase, setPhase] = useState(0)
+      useLayoutEffect(() => {
+        if (phase === 1) {
+          vm.color('purple')
+          vm.width('30px')
+          vm.title('Knockout simultaneous')
+        }
+      }, [phase])
+
+      return (
+        <>
+          <button onClick={() => setPhase((current) => current + 1)}>advance</button>
+          <div
+            data-testid="simultaneous-baseline"
+            style={{ color: phase === 0 ? 'blue' : 'green', width: phase === 0 ? 20 : 40 }}
+            title={phase === 0 ? 'React initial' : 'React committed'}
+            data-bind={phase < 2 ? 'style: { color: color, width: width }, attr: { title: title }' : undefined}
+          />
+        </>
+      )
+    }
+
+    render(
+      <RootKnockoutProvider viewModel={vm}>
+        <LocallyUpdatedElement />
+      </RootKnockoutProvider>
+    )
+    const element = screen.getByTestId('simultaneous-baseline')
+
+    fireEvent.click(screen.getByText('advance'))
+    await waitFor(() => {
+      expect(element.style.color).toBe('purple')
+      expect(element.style.width).toBe('30px')
+      expect(element.title).toBe('Knockout simultaneous')
+    })
+
+    fireEvent.click(screen.getByText('advance'))
+    expect(element.style.color).toBe('green')
+    expect(element.style.width).toBe('40px')
+    expect(element.title).toBe('React committed')
+  })
+
+  it('reapplies selectedOptions after a controlled multiple value update', async () => {
+    const vm = { choices: ko.observableArray(['knockout']) }
+
+    function LocallyUpdatedSelect() {
+      const [phase, setPhase] = useState(0)
+      return (
+        <>
+          <button onClick={() => setPhase((current) => current + 1)}>select advance</button>
+          <select
+            multiple
+            value={phase === 0 ? ['react-old'] : ['react-next']}
+            onChange={() => undefined}
+            data-testid="controlled-selected-options"
+            data-bind={phase < 2 ? 'selectedOptions: choices' : undefined}
+          >
+            <option value="react-old">React old</option>
+            <option value="react-next">React next</option>
+            <option value="knockout">Knockout</option>
+          </select>
+        </>
+      )
+    }
+
+    render(
+      <RootKnockoutProvider viewModel={vm}>
+        <LocallyUpdatedSelect />
+      </RootKnockoutProvider>
+    )
+    const select = screen.getByTestId('controlled-selected-options') as HTMLSelectElement
+
+    fireEvent.click(screen.getByText('select advance'))
+    await waitFor(() => {
+      expect([...select.selectedOptions].map(({ value }) => value)).toEqual(['knockout'])
+    })
+
+    fireEvent.click(screen.getByText('select advance'))
+    expect([...select.selectedOptions].map(({ value }) => value)).toEqual(['react-next'])
+  })
 })

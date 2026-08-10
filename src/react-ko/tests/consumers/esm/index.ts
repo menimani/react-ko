@@ -46,6 +46,8 @@ expectType<ViewModel>(useAppViewModel<ViewModel>())
 
 createElement(RootKnockoutProvider, { viewModel, children: child })
 createElement(RootKnockoutProvider, { viewModel, children: child, boundaryAs: 'main', as: 'section' })
+// @ts-expect-error Scope hosts always contain children, so void elements are invalid.
+createElement(RootKnockoutProvider, { viewModel, children: child, boundaryAs: 'input' })
 // @ts-expect-error A root requires a view model.
 createElement(RootKnockoutProvider, { children: child })
 // @ts-expect-error A root requires children.
@@ -53,6 +55,8 @@ createElement(RootKnockoutProvider, { viewModel })
 
 createElement(KnockoutScope, { viewModel, children: child })
 createElement(KnockoutScope, { viewModel, children: child, boundaryAs: 'li', as: 'span' })
+// @ts-expect-error Scope hosts always contain children, so void elements are invalid.
+createElement(KnockoutScope, { viewModel, children: child, as: 'img' })
 // @ts-expect-error Semantic hosts must be HTML elements.
 createElement(KnockoutScope, { viewModel, children: child, as: 'svg' })
 createElement(KoScope, { viewModel: { row: 1 }, children: child })

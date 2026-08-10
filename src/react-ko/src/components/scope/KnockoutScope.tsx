@@ -27,6 +27,9 @@ export const KnockoutScope = React.memo(function KnockoutScope<T>({
 }: Props<T>) {
   const BoundaryHost = semanticHostComponent(boundaryAs)
   const BindingHost = semanticHostComponent(as)
+  const hostIdentity = `${boundaryAs}\0${as}`
+  const committedHostIdentity = React.useRef(hostIdentity)
+  const replacingHost = committedHostIdentity.current !== hostIdentity
   useAppViewModel()
 
   const parentGeneration = useContext(ScopeBindGenerationContext)
@@ -35,6 +38,7 @@ export const KnockoutScope = React.memo(function KnockoutScope<T>({
   if (deferChildrenUntilBound.current === null) {
     deferChildrenUntilBound.current = getParentBindingRoot() !== null
   }
+  const shouldDeferChildren = deferChildrenUntilBound.current || replacingHost
   const [bindingFailure, setBindingFailure] = useState<{ error: unknown } | null>(null)
   const handleBindingError = useCallback((error: unknown) => {
     setBindingFailure({ error })
@@ -43,8 +47,13 @@ export const KnockoutScope = React.memo(function KnockoutScope<T>({
     viewModel,
     parentGeneration,
     handleBindingError,
-    deferChildrenUntilBound.current
+    shouldDeferChildren,
+    hostIdentity
   )
+
+  React.useLayoutEffect(() => {
+    committedHostIdentity.current = hostIdentity
+  }, [hostIdentity])
 
   if (bindingFailure !== null) {
     throw bindingFailure.error
@@ -56,7 +65,7 @@ export const KnockoutScope = React.memo(function KnockoutScope<T>({
         <ScopeBindGenerationContext.Provider value={generation}>
           <BoundaryHost data-bind={`${DESCENDANT_BINDING_BOUNDARY}: true`} style={{ display: 'contents' }}>
             <BindingHost ref={container} style={{ display: 'contents' }}>
-              {deferChildrenUntilBound.current && !bindingEstablished ? null : children}
+              {shouldDeferChildren && !bindingEstablished ? null : children}
             </BindingHost>
           </BoundaryHost>
         </ScopeBindGenerationContext.Provider>
