@@ -4,6 +4,7 @@ import ko from 'knockout'
 import { AppViewModelContext } from '@/index'
 import { ScopeViewModelContext } from '@/context/ScopeViewModelContext'
 import { ScopeBindGenerationContext } from '@/context/ScopeBindGenerationContext'
+import { applyBindingsSafely } from './applyBindingsSafely'
 
 type Props<T> = {
   viewModel: T
@@ -24,7 +25,7 @@ export const RootKnockoutProvider = React.memo(function RootKnockoutProvider<T>(
     if (node === null) {
       return
     }
-    ko.applyBindings(viewModel, node)
+    applyBindingsSafely(viewModel, node)
 
     // Cleaning the root also disposes bindings owned by nested scopes. Let
     // the nearest scopes know that they must bind their descendants again.
