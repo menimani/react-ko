@@ -2,8 +2,9 @@ import * as React from 'react'
 import type * as ko from 'knockout'
 import { KnockoutScope, useKoValue } from '@/index'
 import { useScopeViewModel } from '@/context/ScopeViewModelContext'
+import type { SemanticHostProps } from '@/components/scope/semanticHost'
 
-type Props = {
+type Props = SemanticHostProps & {
   condition: ko.Observable<boolean> | ko.Computed<boolean> | boolean
   children: React.ReactNode
 }
@@ -13,7 +14,7 @@ type Props = {
  * wrapped in a scope bound to the enclosing view model on every mount,
  * so `data-bind` attributes inside keep working across toggles.
  */
-export const KoIf = React.memo(function KoIf({ condition, children }: Props) {
+export const KoIf = React.memo(function KoIf({ condition, children, boundaryAs, as }: Props) {
   const visible = useKoValue(condition)
   const viewModel = useScopeViewModel()
 
@@ -21,5 +22,9 @@ export const KoIf = React.memo(function KoIf({ condition, children }: Props) {
     return null
   }
 
-  return <KnockoutScope viewModel={viewModel}>{children}</KnockoutScope>
+  return (
+    <KnockoutScope viewModel={viewModel} boundaryAs={boundaryAs} as={as}>
+      {children}
+    </KnockoutScope>
+  )
 })

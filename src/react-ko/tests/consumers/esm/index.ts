@@ -45,12 +45,16 @@ createElement(typedContext.Provider, { value: { title: 'missing count' }, childr
 expectType<ViewModel>(useAppViewModel<ViewModel>())
 
 createElement(RootKnockoutProvider, { viewModel, children: child })
+createElement(RootKnockoutProvider, { viewModel, children: child, boundaryAs: 'main', as: 'section' })
 // @ts-expect-error A root requires a view model.
 createElement(RootKnockoutProvider, { children: child })
 // @ts-expect-error A root requires children.
 createElement(RootKnockoutProvider, { viewModel })
 
 createElement(KnockoutScope, { viewModel, children: child })
+createElement(KnockoutScope, { viewModel, children: child, boundaryAs: 'li', as: 'span' })
+// @ts-expect-error Semantic hosts must be HTML elements.
+createElement(KnockoutScope, { viewModel, children: child, as: 'svg' })
 createElement(KoScope, { viewModel: { row: 1 }, children: child })
 // @ts-expect-error A scope requires a view model.
 createElement(KnockoutScope, { children: child })
@@ -60,6 +64,7 @@ createElement(KoScope, { viewModel })
 const booleanObservable = ko.observable(true)
 const booleanComputed = ko.pureComputed(() => booleanObservable())
 createElement(KoIf, { condition: true, children: child })
+createElement(KoIf, { condition: true, children: child, boundaryAs: 'span', as: 'span' })
 createElement(KoIf, { condition: booleanObservable, children: child })
 createElement(KoIf, { condition: booleanComputed, children: child })
 createElement(KoIfNot, { condition: false, children: child })
@@ -85,6 +90,7 @@ KoForeach({
   itemKey: (row, index) => `${row.id}:${index}`,
 })
 KoForeach({ items: observableRows, children: (row) => row.label })
+KoForeach({ items: rows, children: (row) => row.label, boundaryAs: 'li', as: 'span' })
 KoForeach({ items: computedRows, children: (row) => row.label })
 // @ts-expect-error The render callback receives the inferred item type.
 KoForeach({ items: rows, children: (row: string) => row })
@@ -94,6 +100,7 @@ KoForeach({ items: rows, children: () => null, itemKey: () => ({}) })
 const selected = ko.observable<Row | null>(rows[0])
 const computedSelection = ko.pureComputed<Row | undefined>(() => rows[0])
 KoWith({ value: rows[0], children: (row) => row.label })
+KoWith({ value: rows[0], children: (row) => row.label, boundaryAs: 'aside', as: 'section' })
 KoWith({
   value: selected,
   children: (row) => {

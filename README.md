@@ -78,6 +78,23 @@ const viewModel = {
 `KoScope` is also exported as a shorter alias of `KnockoutScope`; both names
 refer to the same component.
 
+Scopes render two unstyled host elements: the outer binding boundary and the
+inner binding root. Both default to `div`. Use `boundaryAs` and `as` to choose
+semantic HTML when a `div` is not valid in that position. The same props are
+available on `RootKnockoutProvider`, `KoIf`, `KoIfNot`, `KoForeach`, and
+`KoWith`. For example, use phrasing hosts inside a button:
+
+```tsx
+<button>
+  <KnockoutScope viewModel={viewModel} boundaryAs="span" as="span">
+    <span data-bind="text: name" />
+  </KnockoutScope>
+</button>
+```
+
+The host elements remain structural: they receive only the binding boundary or
+binding-root ref and `display: contents`, not styling or ARIA props.
+
 Replacing a `RootKnockoutProvider` or `KnockoutScope` `viewModel` reapplies its
 Knockout bindings. Both components dispose their bindings when replaced or
 unmounted. If applying a binding tree throws, subscriptions created earlier in
@@ -196,16 +213,18 @@ type Todo = {
 const vm = { todos: ko.observableArray<Todo>([]) }
 
 <RootKnockoutProvider viewModel={vm}>
-  <KoForeach items={vm.todos}>
-    {(todo, index) => (
-      <li>
-        <span>{index + 1}.</span>
-        <input type="checkbox" data-bind="checked: done" />
-        <input data-bind="value: title" />
-        <button onClick={() => vm.todos.remove(todo)}>Remove</button>
-      </li>
-    )}
-  </KoForeach>
+  <ul>
+    <KoForeach items={vm.todos} boundaryAs="li" as="div">
+      {(todo, index) => (
+        <div>
+          <span>{index + 1}.</span>
+          <input type="checkbox" data-bind="checked: done" />
+          <input data-bind="value: title" />
+          <button onClick={() => vm.todos.remove(todo)}>Remove</button>
+        </div>
+      )}
+    </KoForeach>
+  </ul>
 </RootKnockoutProvider>
 ```
 
@@ -218,6 +237,9 @@ const vm = { todos: ko.observableArray<Todo>([]) }
   by identity and occurrence (so repeated references remain unique), while
   primitive items fall back to their index. Pass `itemKey` when rows hold
   state and items are primitive.
+- `boundaryAs` and `as` select the two hosts for every row. In the example,
+  each outer `li` is a valid direct child of `ul`; the render callback returns
+  its contents rather than another `li`.
 
 Nesting is plain JSX:
 

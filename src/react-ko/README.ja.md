@@ -78,6 +78,22 @@ const viewModel = {
 `KoScope` も `KnockoutScope` の短い別名としてエクスポートされています。
 どちらも同じコンポーネントを参照します。
 
+スコープは、外側のバインディング境界と内側のバインディングルートという2つの
+非スタイルホスト要素をレンダーします。既定値はどちらも `div` です。`div` が有効でない
+位置では `boundaryAs` と `as` でセマンティックな HTML を選択できます。同じ prop は
+`RootKnockoutProvider`、`KoIf`、`KoIfNot`、`KoForeach`、`KoWith` でも使えます。
+
+```tsx
+<button>
+  <KnockoutScope viewModel={viewModel} boundaryAs="span" as="span">
+    <span data-bind="text: name" />
+  </KnockoutScope>
+</button>
+```
+
+ホスト要素は構造用のままで、バインディング境界またはルート用 ref と
+`display: contents` 以外のスタイルや ARIA prop は受け取りません。
+
 `RootKnockoutProvider` または `KnockoutScope` の `viewModel` を置き換えると、
 Knockout バインディングが再適用されます。どちらのコンポーネントも、置き換え時と
 アンマウント時にバインディングを破棄します。バインディングツリーの適用中に例外が
@@ -194,16 +210,18 @@ type Todo = {
 const vm = { todos: ko.observableArray<Todo>([]) }
 
 <RootKnockoutProvider viewModel={vm}>
-  <KoForeach items={vm.todos}>
-    {(todo, index) => (
-      <li>
-        <span>{index + 1}.</span>
-        <input type="checkbox" data-bind="checked: done" />
-        <input data-bind="value: title" />
-        <button onClick={() => vm.todos.remove(todo)}>削除</button>
-      </li>
-    )}
-  </KoForeach>
+  <ul>
+    <KoForeach items={vm.todos} boundaryAs="li" as="div">
+      {(todo, index) => (
+        <div>
+          <span>{index + 1}.</span>
+          <input type="checkbox" data-bind="checked: done" />
+          <input data-bind="value: title" />
+          <button onClick={() => vm.todos.remove(todo)}>削除</button>
+        </div>
+      )}
+    </KoForeach>
+  </ul>
 </RootKnockoutProvider>
 ```
 
@@ -216,6 +234,8 @@ const vm = { todos: ko.observableArray<Todo>([]) }
   出現順（同じ参照が複数あっても一意になります）を使い、プリミティブは
   index にフォールバックします。行が状態を持ちアイテムがプリミティブな
   場合は `itemKey` を渡してください。
+- `boundaryAs` と `as` は各行の2つのホストを選択します。上の例では外側の
+  `li` が `ul` の有効な直接の子になり、コールバックは別の `li` ではなくその内容を返します。
 
 ネストは普通の JSX として書けます：
 

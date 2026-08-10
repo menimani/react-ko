@@ -5,8 +5,9 @@ import { ScopeViewModelContext } from '@/context/ScopeViewModelContext'
 import { ScopeBindGenerationContext } from '@/context/ScopeBindGenerationContext'
 import { DESCENDANT_BINDING_BOUNDARY } from './descendantBindingBoundary'
 import { useBindingRoot } from './useBindingRoot'
+import { semanticHostComponent, type SemanticHostProps } from './semanticHost'
 
-type Props<T> = {
+type Props<T> = SemanticHostProps & {
   viewModel: T
   children: React.ReactNode
 }
@@ -15,7 +16,14 @@ type Props<T> = {
  * Applies Knockout bindings to the root, reapplies them when the ViewModel
  * changes, and provides the ViewModel via context.
  */
-export const RootKnockoutProvider = React.memo(function RootKnockoutProvider<T>({ viewModel, children }: Props<T>) {
+export const RootKnockoutProvider = React.memo(function RootKnockoutProvider<T>({
+  viewModel,
+  children,
+  boundaryAs = 'div',
+  as = 'div',
+}: Props<T>) {
+  const BoundaryHost = semanticHostComponent(boundaryAs)
+  const BindingHost = semanticHostComponent(as)
   const parentGeneration = useContext(ScopeBindGenerationContext)
   const [bindingFailure, setBindingFailure] = useState<{ error: unknown } | null>(null)
   const handleBindingError = useCallback((error: unknown) => {
@@ -35,11 +43,11 @@ export const RootKnockoutProvider = React.memo(function RootKnockoutProvider<T>(
     <AppViewModelContext.Provider value={viewModel}>
       <ScopeViewModelContext.Provider value={viewModel}>
         <ScopeBindGenerationContext.Provider value={generation}>
-          <div data-bind={`${DESCENDANT_BINDING_BOUNDARY}: true`} style={{ display: 'contents' }}>
-            <div ref={koContainer} style={{ display: 'contents' }}>
+          <BoundaryHost data-bind={`${DESCENDANT_BINDING_BOUNDARY}: true`} style={{ display: 'contents' }}>
+            <BindingHost ref={koContainer} style={{ display: 'contents' }}>
               {children}
-            </div>
-          </div>
+            </BindingHost>
+          </BoundaryHost>
         </ScopeBindGenerationContext.Provider>
       </ScopeViewModelContext.Provider>
     </AppViewModelContext.Provider>

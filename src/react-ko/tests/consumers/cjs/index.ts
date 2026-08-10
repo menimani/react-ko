@@ -36,12 +36,16 @@ React.createElement(typedContext.Provider, { value: { title: 'missing count' }, 
 expectType<ViewModel>(ReactKo.useAppViewModel<ViewModel>())
 
 React.createElement(ReactKo.RootKnockoutProvider, { viewModel, children: child })
+React.createElement(ReactKo.RootKnockoutProvider, { viewModel, children: child, boundaryAs: 'main', as: 'section' })
 // @ts-expect-error A root requires a view model.
 React.createElement(ReactKo.RootKnockoutProvider, { children: child })
 // @ts-expect-error A root requires children.
 React.createElement(ReactKo.RootKnockoutProvider, { viewModel })
 
 React.createElement(ReactKo.KnockoutScope, { viewModel, children: child })
+React.createElement(ReactKo.KnockoutScope, { viewModel, children: child, boundaryAs: 'li', as: 'span' })
+// @ts-expect-error Semantic hosts must be HTML elements.
+React.createElement(ReactKo.KnockoutScope, { viewModel, children: child, as: 'svg' })
 React.createElement(ReactKo.KoScope, { viewModel: { row: 1 }, children: child })
 // @ts-expect-error A scope requires a view model.
 React.createElement(ReactKo.KnockoutScope, { children: child })
@@ -51,6 +55,7 @@ React.createElement(ReactKo.KoScope, { viewModel })
 const booleanObservable = ko.observable(true)
 const booleanComputed = ko.pureComputed(() => booleanObservable())
 React.createElement(ReactKo.KoIf, { condition: true, children: child })
+React.createElement(ReactKo.KoIf, { condition: true, children: child, boundaryAs: 'span', as: 'span' })
 React.createElement(ReactKo.KoIf, { condition: booleanObservable, children: child })
 React.createElement(ReactKo.KoIf, { condition: booleanComputed, children: child })
 React.createElement(ReactKo.KoIfNot, { condition: false, children: child })
@@ -76,6 +81,7 @@ ReactKo.KoForeach({
   itemKey: (row, index) => `${row.id}:${index}`,
 })
 ReactKo.KoForeach({ items: observableRows, children: (row) => row.label })
+ReactKo.KoForeach({ items: rows, children: (row) => row.label, boundaryAs: 'li', as: 'span' })
 ReactKo.KoForeach({ items: computedRows, children: (row) => row.label })
 // @ts-expect-error The render callback receives the inferred item type.
 ReactKo.KoForeach({ items: rows, children: (row: string) => row })
@@ -85,6 +91,7 @@ ReactKo.KoForeach({ items: rows, children: () => null, itemKey: () => ({}) })
 const selected = ko.observable<Row | null>(rows[0])
 const computedSelection = ko.pureComputed<Row | undefined>(() => rows[0])
 ReactKo.KoWith({ value: rows[0], children: (row) => row.label })
+ReactKo.KoWith({ value: rows[0], children: (row) => row.label, boundaryAs: 'aside', as: 'section' })
 ReactKo.KoWith({
   value: selected,
   children: (row) => {
