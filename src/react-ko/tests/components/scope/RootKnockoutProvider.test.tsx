@@ -789,4 +789,57 @@ describe('RootKnockoutProvider', () => {
       'useAppViewModel must be used within an AppViewModelContext.Provider.'
     )
   })
+
+  it('surfaces a binding error raised by a late non-React descendant', async () => {
+    render(
+      <ErrorBoundary>
+        <RootKnockoutProvider viewModel={{}}>
+          <div data-testid="root-host" />
+        </RootKnockoutProvider>
+      </ErrorBoundary>
+    )
+    const host = screen.getByTestId('root-host')
+
+    const el = document.createElement('span')
+    el.setAttribute('data-bind', 'text: missing.value')
+    act(() => {
+      host.appendChild(el)
+    })
+
+    await waitFor(() => expect(screen.getByText('Binding failed')).toBeDefined())
+  })
+
+  it('rejects a content binding that would overwrite React-owned children', () => {
+    const vm = { label: ko.observable('never') }
+
+    render(
+      <ErrorBoundary>
+        <RootKnockoutProvider viewModel={vm}>
+          <div data-bind="text: label">
+            <span>React child</span>
+          </div>
+        </RootKnockoutProvider>
+      </ErrorBoundary>
+    )
+
+    expect(screen.getByText('Binding failed')).toBeDefined()
+  })
+
+  it('surfaces a structural binding rejected at initial mount and unbinds cleanly', () => {
+    const vm = { visible: ko.observable(true) }
+
+    const { unmount } = render(
+      <ErrorBoundary>
+        <RootKnockoutProvider viewModel={vm}>
+          <div data-bind="if: visible">
+            <span />
+          </div>
+        </RootKnockoutProvider>
+      </ErrorBoundary>
+    )
+
+    expect(screen.getByText('Binding failed')).toBeDefined()
+
+    unmount()
+  })
 })

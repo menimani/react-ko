@@ -27,6 +27,7 @@ export function useBindingRoot(
 
   function disposeBinding() {
     const active = activeBinding.current
+    /* v8 ignore next 3 -- callers dispose only after a successful bind set activeBinding */
     if (active === null) {
       return
     }

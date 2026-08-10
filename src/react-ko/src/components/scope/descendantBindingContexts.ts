@@ -4,10 +4,12 @@ const CAPTURE_DESCENDANT_CONTEXT = 'reactKoCaptureDescendantContext'
 const CONTEXT_ESTABLISHING_BINDINGS = new Set(['let', 'using'])
 const descendantBindingContexts = new WeakMap<Node, ko.BindingContext<unknown>>()
 
+/* v8 ignore next -- the module registers its handler once per process */
 if (ko.bindingHandlers[CAPTURE_DESCENDANT_CONTEXT] === undefined) {
   ko.bindingHandlers[CAPTURE_DESCENDANT_CONTEXT] = {
     init: (element, _valueAccessor, _allBindings, _viewModel, bindingContext) => {
       const parent = element.parentNode
+      /* v8 ignore next -- Knockout only binds attached markers, so a parent exists */
       if (parent !== null) {
         descendantBindingContexts.set(parent, bindingContext)
         ko.utils.domNodeDisposal.addDisposeCallback(parent, () => {
