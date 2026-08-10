@@ -1,22 +1,15 @@
 import reactLogo from './assets/react.svg'
 import viteLogo from '/vite.svg'
 import './App.css'
-import { KnockoutScope } from 'react-ko'
-import ko from 'knockout'
-import { useState } from 'react'
+import { AppViewModelContext } from './appViewModel'
 import { KoText } from './components/KoText'
 import { TodoForm } from './components/TodoForm'
 
 function App() {
-  class ViewModel {
-    count: ko.Observable<number> = ko.observable<number>(0)
-    color: ko.PureComputed<string> = ko.pureComputed<string>(() => this.count() % 2 === 0 ? 'green' : 'red')
-    increment: () => void = () => this.count(this.count() + 1)
-  }
-  const [vm] = useState(() => new ViewModel())
+  const vm = AppViewModelContext.useAppViewModel()
 
   return (
-    <KnockoutScope viewModel={vm}>
+    <>
       <div>
         <a href="https://vite.dev" target="_blank">
           <img src={viteLogo} className="logo" alt="Vite logo" />
@@ -38,7 +31,7 @@ function App() {
         Click on the Vite and React logos to learn more
       </p>
       <TodoForm />
-    </KnockoutScope>
+    </>
   )
 }
 
