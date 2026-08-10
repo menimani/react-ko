@@ -18,7 +18,7 @@
 - observable を React の state として読める `useKoValue`
 - `data-bind` で扱う DOM の振る舞いには、React のイベントハンドラやローカル state のボイラープレート不要
 - TypeScript / JavaScript の両対応（設定不要）
-- Knockout と React 以外のランタイム依存なし
+- Knockout、React、React DOM 以外のランタイム依存なし
 
 ---
 
@@ -249,6 +249,7 @@ import { createAppViewModelContext, RootKnockoutProvider } from 'react-ko'
 
 type AppViewModel = { title: string }
 const TypedAppViewModelContext = createAppViewModelContext<AppViewModel>()
+const vm: AppViewModel = { title: 'Hello' }
 
 function Title() {
   const vm = TypedAppViewModelContext.useAppViewModel() // AppViewModel
@@ -277,6 +278,7 @@ Knockout の値を React の世界（JSX の補間、effect の依存配列、pr
 受け渡し）へ持ち込む唯一の正規ルートです。
 
 ```tsx
+import type * as ko from 'knockout'
 import { useKoValue } from 'react-ko'
 
 function Greeting({ name }: { name: ko.Observable<string> }) {
