@@ -1,8 +1,9 @@
 import * as React from 'react'
-import { useRef, useLayoutEffect } from 'react'
+import { useRef, useLayoutEffect, useState } from 'react'
 import * as ko from 'knockout'
 import { AppViewModelContext } from '@/index'
 import { ScopeViewModelContext } from '@/context/ScopeViewModelContext'
+import { ScopeBindGenerationContext } from '@/context/ScopeBindGenerationContext'
 
 type Props<T> = {
   viewModel: T
@@ -10,30 +11,42 @@ type Props<T> = {
 }
 
 /**
- * Applies Knockout bindings once on initial render,
- * and provides the ViewModel via context.
+ * Applies Knockout bindings to the root, reapplies them when the ViewModel
+ * changes, and provides the ViewModel via context.
  */
 export const RootKnockoutProvider = React.memo(function RootKnockoutProvider<T>({ viewModel, children }: Props<T>) {
   const koContainer = useRef<HTMLDivElement | null>(null)
-  const isBoundRef = useRef(false)
+  const [generation, setGeneration] = useState(0)
+  const isFirstBind = useRef(true)
 
   useLayoutEffect(() => {
-    if (koContainer.current === null) {
+    const node = koContainer.current
+    if (node === null) {
       return
     }
-    if (isBoundRef.current === true) {
-      return
+    ko.applyBindings(viewModel, node)
+
+    // Cleaning the root also disposes bindings owned by nested scopes. Let
+    // the nearest scopes know that they must bind their descendants again.
+    if (isFirstBind.current) {
+      isFirstBind.current = false
+    } else {
+      setGeneration((current) => current + 1)
     }
-    ko.applyBindings(viewModel, koContainer.current)
-    isBoundRef.current = true
+
+    return () => {
+      ko.cleanNode(node)
+    }
   }, [viewModel])
 
   return (
     <AppViewModelContext.Provider value={viewModel}>
       <ScopeViewModelContext.Provider value={viewModel}>
-        <div ref={koContainer} style={{ display: 'contents' }}>
-          {children}
-        </div>
+        <ScopeBindGenerationContext.Provider value={generation}>
+          <div ref={koContainer} style={{ display: 'contents' }}>
+            {children}
+          </div>
+        </ScopeBindGenerationContext.Provider>
       </ScopeViewModelContext.Provider>
     </AppViewModelContext.Provider>
   )
