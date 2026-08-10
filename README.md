@@ -18,7 +18,7 @@ en English | [ja 日本語](./README.ja.md)
 - `useKoValue` to read observables as React state
 - No React event-handler or local-state boilerplate for DOM behavior handled through `data-bind`
 - Full TypeScript & JavaScript support with zero-config
-- No runtime dependencies other than Knockout & React
+- No runtime dependencies other than Knockout, React & React DOM
 
 ---
 
@@ -248,6 +248,7 @@ import { createAppViewModelContext, RootKnockoutProvider } from 'react-ko'
 
 type AppViewModel = { title: string }
 const TypedAppViewModelContext = createAppViewModelContext<AppViewModel>()
+const vm: AppViewModel = { title: 'Hello' }
 
 function Title() {
   const vm = TypedAppViewModelContext.useAppViewModel() // AppViewModel
@@ -276,6 +277,7 @@ This is the one sanctioned route for bringing Knockout values into JSX
 interpolation, effect dependencies, and props.
 
 ```tsx
+import type * as ko from 'knockout'
 import { useKoValue } from 'react-ko'
 
 function Greeting({ name }: { name: ko.Observable<string> }) {
