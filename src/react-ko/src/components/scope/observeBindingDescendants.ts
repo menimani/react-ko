@@ -737,9 +737,12 @@ const BOOLEAN_ATTRIBUTES = new Set([
   'controls',
   'default',
   'defer',
+  'disablePictureInPicture',
+  'disableRemotePlayback',
   'disabled',
   'formNoValidate',
   'hidden',
+  'inert',
   'loop',
   'multiple',
   'muted',
@@ -756,6 +759,13 @@ const BOOLEAN_ATTRIBUTES = new Set([
 ])
 
 const OVERLOADED_BOOLEAN_ATTRIBUTES = new Set(['capture', 'download'])
+
+const REACT_PROP_ATTRIBUTE_ALIASES = new Map([
+  ['acceptCharset', 'accept-charset'],
+  ['className', 'class'],
+  ['htmlFor', 'for'],
+  ['httpEquiv', 'http-equiv'],
+])
 
 function reactAttributeValue(name: string, value: unknown) {
   if (value === null || value === undefined) return null
@@ -799,10 +809,12 @@ function reactPropForAttribute(
   previous: Map<string, unknown>,
   current: Map<string, unknown>
 ) {
-  if (attributeName === 'class') return 'className'
-  if (attributeName === 'for') return 'htmlFor'
   const keys = new Set([...previous.keys(), ...current.keys()])
-  return [...keys].find((name) => name.toLowerCase() === attributeName.toLowerCase())
+  return [...keys].find(
+    (name) =>
+      (REACT_PROP_ATTRIBUTE_ALIASES.get(name) ?? name).toLowerCase() ===
+      attributeName.toLowerCase()
+  )
 }
 
 function refreshReactOwnedDom(

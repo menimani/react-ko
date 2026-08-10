@@ -117,8 +117,9 @@ Knockout バインディングが再適用されます。どちらのコンポ�
 React の props 更新と有効な Knockout バインディングは同じ要素を共有することもできます。
 React 側の最新のクラス、インラインスタイル、属性、フォームプロパティの初期値を保持しつつ、
 有効な Knockout バインディングが宣言した DOM 効果は引き続きそのバインディングが所有します。
-`attr` バインディングを取り除くと、React の属性 props は React DOM と同じ規則で復元され、
-boolean の `download` と `capture` は空文字の存在属性になります。
+`attr` バインディングを取り除くと、React の属性 props は React DOM と同じ規則で復元されます。
+これには `acceptCharset` / `httpEquiv` のような別名を持つ props、false の `inert` やメディア無効化
+props の属性削除、boolean の `download` と `capture` の空文字の存在属性が含まれます。
 
 ---
 
