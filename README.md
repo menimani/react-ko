@@ -160,6 +160,11 @@ child DOM nodes that React still owns. `RootKnockoutProvider` and
 `KnockoutScope` reject them before applying any bindings in that binding root.
 Use `KoIf`, `KoIfNot`, `KoForeach`, and `KoWith` instead.
 
+The `text`, `html`, `component`, and `options` bindings also replace an
+element's contents. They are supported only when the bound element has no
+React-rendered children; otherwise the binding is rejected before it can detach
+those children. Leave the element empty when Knockout should own its contents.
+
 ### `KoForeach`
 
 `KoForeach` takes a render prop: the function receives each item and its
