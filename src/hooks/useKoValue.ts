@@ -12,6 +12,7 @@ import * as ko from 'knockout'
  */
 export function useKoValue<T>(source: ko.Observable<T> | ko.Computed<T> | T): T {
   const version = useRef(0)
+  const rendered = useRef<unknown>(undefined)
 
   const subscribe = useCallback((onStoreChange: () => void) => {
     if (!ko.isSubscribable(source)) {
@@ -21,6 +22,13 @@ export function useKoValue<T>(source: ko.Observable<T> | ko.Computed<T> | T): T 
       version.current += 1
       onStoreChange()
     })
+    // A notification fired between render and this point (a sibling's layout
+    // effect, a binding's init) left no trace in the counter; reconcile
+    // against what the last render actually saw.
+    if (!sameAsRendered(ko.unwrap(source), rendered.current)) {
+      version.current += 1
+      onStoreChange()
+    }
     return () => subscription.dispose()
   }, [source])
 
@@ -28,5 +36,17 @@ export function useKoValue<T>(source: ko.Observable<T> | ko.Computed<T> | T): T 
 
   useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
 
-  return ko.unwrap(source)
+  const value = ko.unwrap(source)
+  // Arrays are kept as a shallow copy because the source mutates in place:
+  // comparing the live array against itself would hide every change.
+  rendered.current = Array.isArray(value) ? value.slice() : value
+  return value
+}
+
+function sameAsRendered(current: unknown, rendered: unknown): boolean {
+  if (Array.isArray(current) && Array.isArray(rendered)) {
+    return current.length === rendered.length
+      && current.every((item, index) => Object.is(item, rendered[index]))
+  }
+  return Object.is(current, rendered)
 }

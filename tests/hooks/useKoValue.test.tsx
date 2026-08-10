@@ -1,7 +1,16 @@
 import { describe, it, expect } from 'vitest'
 import { render, screen, act } from '@testing-library/react'
+import { useLayoutEffect } from 'react'
 import ko from 'knockout'
 import { useKoValue } from '@/index'
+
+function LayoutMutator({ run }: { run: () => void }) {
+  useLayoutEffect(() => {
+    run()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  return null
+}
 
 function Probe<T>({ source }: { source: ko.Observable<T> | ko.Computed<T> | T }) {
   const value = useKoValue(source)
@@ -60,6 +69,32 @@ describe('useKoValue', () => {
     render(<Probe source={42} />)
 
     expect(screen.getByTestId('value').textContent).toBe('42')
+  })
+
+  it('catches a change fired between render and subscription', () => {
+    const name = ko.observable('Hello')
+
+    render(
+      <>
+        <Probe source={name} />
+        <LayoutMutator run={() => name('Changed')} />
+      </>
+    )
+
+    expect(screen.getByTestId('value').textContent).toBe('Changed')
+  })
+
+  it('catches an in-place array change fired between render and subscription', () => {
+    const items = ko.observableArray(['A'])
+
+    render(
+      <>
+        <Probe source={items} />
+        <LayoutMutator run={() => items.push('B')} />
+      </>
+    )
+
+    expect(screen.getByTestId('value').textContent).toBe('A,B')
   })
 
   it('disposes its subscription on unmount', () => {
