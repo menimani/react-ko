@@ -1291,6 +1291,9 @@ function bindAddedNodes(
 
       // Binding the highest added element covers its subtree and respects any
       // descendant scope boundary encountered during that pass.
+      if (record.target.nodeType === Node.ELEMENT_NODE) {
+        assertNoReactUnsafeBindings(record.target as HTMLElement)
+      }
       const bindingContext = descendantBindingContextFor(node, root)
       prepareBindingTree(node as HTMLElement, root, bindingStates)
       applyBindingsSafely(bindingContext ?? viewModel, node as HTMLElement)
