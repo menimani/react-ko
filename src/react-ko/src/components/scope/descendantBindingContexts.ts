@@ -1,11 +1,23 @@
 import ko from 'knockout'
 
 const CAPTURE_DESCENDANT_CONTEXT = 'reactKoCaptureDescendantContext'
+const DESCENDANT_BINDING_CONTEXTS = Symbol.for('react-ko.descendantBindingContexts')
 const CONTEXT_ESTABLISHING_BINDINGS = new Set(['let', 'using'])
-const descendantBindingContexts = new WeakMap<Node, ko.BindingContext<unknown>>()
 
-if (ko.bindingHandlers[CAPTURE_DESCENDANT_CONTEXT] === undefined) {
+type CaptureDescendantContextHandler = ko.BindingHandler & {
+  [DESCENDANT_BINDING_CONTEXTS]: WeakMap<Node, ko.BindingContext<unknown>>
+}
+
+const registeredHandler = ko.bindingHandlers[CAPTURE_DESCENDANT_CONTEXT] as
+  | CaptureDescendantContextHandler
+  | undefined
+const descendantBindingContexts =
+  registeredHandler?.[DESCENDANT_BINDING_CONTEXTS] ??
+  new WeakMap<Node, ko.BindingContext<unknown>>()
+
+if (registeredHandler === undefined) {
   ko.bindingHandlers[CAPTURE_DESCENDANT_CONTEXT] = {
+    [DESCENDANT_BINDING_CONTEXTS]: descendantBindingContexts,
     init: (element, _valueAccessor, _allBindings, _viewModel, bindingContext) => {
       const parent = element.parentNode
       if (parent !== null) {
