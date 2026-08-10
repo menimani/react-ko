@@ -98,6 +98,79 @@ describe('RootKnockoutProvider', () => {
     expect(nested.label.getSubscriptionsCount()).toBeGreaterThan(0)
   })
 
+  it('creates an independent binding boundary when nested under another root', () => {
+    const outer = { label: ko.observable('Outer') }
+    const inner = { label: ko.observable('Inner') }
+
+    const { unmount } = render(
+      <RootKnockoutProvider viewModel={outer}>
+        <span data-bind="text: label" />
+        <RootKnockoutProvider viewModel={inner}>
+          <span data-bind="text: label" />
+        </RootKnockoutProvider>
+      </RootKnockoutProvider>
+    )
+
+    expect(screen.getByText('Outer')).toBeDefined()
+    expect(screen.getByText('Inner')).toBeDefined()
+    expect(outer.label.getSubscriptionsCount()).toBeGreaterThan(0)
+    expect(inner.label.getSubscriptionsCount()).toBeGreaterThan(0)
+
+    unmount()
+
+    expect(outer.label.getSubscriptionsCount()).toBe(0)
+    expect(inner.label.getSubscriptionsCount()).toBe(0)
+  })
+
+  it('creates an independent binding boundary when nested under a scope', () => {
+    const scope = { label: ko.observable('Scope') }
+    const inner = { label: ko.observable('Inner root') }
+
+    render(
+      <RootKnockoutProvider viewModel={{}}>
+        <KnockoutScope viewModel={scope}>
+          <span data-bind="text: label" />
+          <RootKnockoutProvider viewModel={inner}>
+            <span data-bind="text: label" />
+          </RootKnockoutProvider>
+        </KnockoutScope>
+      </RootKnockoutProvider>
+    )
+
+    expect(screen.getByText('Scope')).toBeDefined()
+    expect(screen.getByText('Inner root')).toBeDefined()
+  })
+
+  it('rebinds a nested root after its enclosing scope is rebound', () => {
+    const firstScope = { label: ko.observable('Scope A') }
+    const secondScope = { label: ko.observable('Scope B') }
+    const inner = { label: ko.observable('Inner A') }
+
+    function Harness({ scope }: { scope: typeof firstScope }) {
+      return (
+        <RootKnockoutProvider viewModel={{}}>
+          <KnockoutScope viewModel={scope}>
+            <RootKnockoutProvider viewModel={inner}>
+              <span data-bind="text: label" />
+            </RootKnockoutProvider>
+          </KnockoutScope>
+        </RootKnockoutProvider>
+      )
+    }
+
+    const { rerender } = render(<Harness scope={firstScope} />)
+    expect(screen.getByText('Inner A')).toBeDefined()
+
+    rerender(<Harness scope={secondScope} />)
+
+    act(() => {
+      inner.label('Inner B')
+    })
+
+    expect(screen.getByText('Inner B')).toBeDefined()
+    expect(inner.label.getSubscriptionsCount()).toBeGreaterThan(0)
+  })
+
   it('disposes its bindings on unmount', () => {
     const vm = { label: ko.observable('Mounted') }
 

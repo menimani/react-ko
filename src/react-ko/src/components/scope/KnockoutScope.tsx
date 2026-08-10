@@ -5,20 +5,11 @@ import { useAppViewModel } from '@/index'
 import { ScopeViewModelContext } from '@/context/ScopeViewModelContext'
 import { ScopeBindGenerationContext } from '@/context/ScopeBindGenerationContext'
 import { applyBindingsSafely } from './applyBindingsSafely'
+import { DESCENDANT_BINDING_BOUNDARY } from './descendantBindingBoundary'
 
 type Props<T> = {
   viewModel: T
   children: React.ReactNode
-}
-
-// Every scope's outer element carries this binding so an ancestor binding
-// pass (the root provider or an enclosing scope) stops at the boundary
-// instead of descending into DOM this scope binds itself.
-const SCOPE_BOUNDARY = 'reactKoScopeBoundary'
-if (ko.bindingHandlers[SCOPE_BOUNDARY] === undefined) {
-  ko.bindingHandlers[SCOPE_BOUNDARY] = {
-    init: () => ({ controlsDescendantBindings: true })
-  }
 }
 
 /**
@@ -43,8 +34,8 @@ export const KnockoutScope = React.memo(function KnockoutScope<T>({ viewModel, c
     applyBindingsSafely(viewModel, node)
 
     // Rebinding means the cleanup's ko.cleanNode just disposed every nested
-    // binding, and the fresh pass stopped at nested scope boundaries.
-    // Announce a new generation so descendant scopes rebind themselves.
+    // binding, and the fresh pass stopped at descendant boundaries. Announce
+    // a new generation so descendant binding roots rebind themselves.
     if (isFirstBind.current) {
       isFirstBind.current = false
     } else {
@@ -59,7 +50,7 @@ export const KnockoutScope = React.memo(function KnockoutScope<T>({ viewModel, c
   return (
     <ScopeViewModelContext.Provider value={viewModel}>
       <ScopeBindGenerationContext.Provider value={generation}>
-        <div data-bind={`${SCOPE_BOUNDARY}: true`} style={{ display: 'contents' }}>
+        <div data-bind={`${DESCENDANT_BINDING_BOUNDARY}: true`} style={{ display: 'contents' }}>
           <div ref={container} style={{ display: 'contents' }}>
             {children}
           </div>
