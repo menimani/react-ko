@@ -62,4 +62,16 @@ describe('createAppViewModelContext', () => {
       'useAppViewModel must be used within its matching Provider.'
     )
   })
+
+  it('throws when used within a Provider from a separate factory call', () => {
+    const OtherAppViewModelContext = createAppViewModelContext<{ name: string }>()
+
+    expect(() =>
+      render(
+        <OtherAppViewModelContext.Provider value={{ name: 'other' }}>
+          <TypedConsumer />
+        </OtherAppViewModelContext.Provider>
+      )
+    ).toThrow('useAppViewModel must be used within its matching Provider.')
+  })
 })
