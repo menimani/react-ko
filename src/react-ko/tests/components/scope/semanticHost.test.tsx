@@ -37,7 +37,7 @@ describe('semantic hosts', () => {
       <RootKnockoutProvider viewModel={{}}>
         <ul data-testid="rows">
           <KoForeach items={[row]} boundaryAs="li" as="span">
-            {(item) => <span data-bind="text: label">{item.label()}</span>}
+            {() => <span data-bind="text: label" />}
           </KoForeach>
         </ul>
         <button>

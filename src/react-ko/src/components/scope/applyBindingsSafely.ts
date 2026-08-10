@@ -24,6 +24,18 @@ function hasReactTag(node: Node): boolean {
   )
 }
 
+type ReactHostProps = {
+  children?: unknown
+  dangerouslySetInnerHTML?: unknown
+}
+
+function propsOwnChildren(props: ReactHostProps | null | undefined): boolean {
+  return (
+    props?.dangerouslySetInnerHTML !== undefined ||
+    (props?.children !== undefined && props.children !== null && props.children !== false)
+  )
+}
+
 export function hasReactOwnedChildren(element: Element): boolean {
   if (!element.hasChildNodes()) {
     return false
@@ -39,17 +51,31 @@ export function hasReactOwnedChildren(element: Element): boolean {
   }
 
   const reactProps = (element as unknown as Record<string, unknown>)[reactPropsKey] as
-    | { dangerouslySetInnerHTML?: unknown }
+    | ReactHostProps
     | undefined
 
-  if (reactProps?.dangerouslySetInnerHTML !== undefined) {
+  const reactFiberKey = Object.getOwnPropertyNames(element).find((key) =>
+    key.startsWith('__reactFiber$')
+  )
+  const reactFiber =
+    reactFiberKey === undefined
+      ? undefined
+      : ((element as unknown as Record<string, unknown>)[reactFiberKey] as {
+          pendingProps?: ReactHostProps
+          alternate?: { pendingProps?: ReactHostProps } | null
+        })
+
+  if (
+    propsOwnChildren(reactProps) ||
+    propsOwnChildren(reactFiber?.pendingProps) ||
+    propsOwnChildren(reactFiber?.alternate?.pendingProps)
+  ) {
     return true
   }
 
-  // The recorded props cannot answer for the children: React 18 leaves
-  // __reactProps$ stale when only the children changed. Both React 18 and 19
-  // tag element and text instances before inserting them, so ownership is
-  // read from the children themselves; Knockout-written nodes carry no tag.
+  // Element instances are tagged before insertion. Text instances are not,
+  // so committed and work-in-progress host props above identify direct text.
+  // Knockout-written nodes carry neither props nor a React tag.
   return [...element.childNodes].some(hasReactTag)
 }
 

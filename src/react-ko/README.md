@@ -199,10 +199,13 @@ Use `KoIf`, `KoIfNot`, `KoForeach`, and `KoWith` instead.
 The `text`, `html`, `component`, and `options` bindings also replace an
 element's contents. They are supported only when the bound element has no
 React-rendered children; otherwise the binding is rejected before it can detach
-those children. This remains enforced if React conditionally adds children after
-the binding was applied: the child insertion is rejected synchronously, before
-the child's layout effects run. Leave the element empty while Knockout owns its
-contents.
+those children. Direct React text and content inserted with
+`dangerouslySetInnerHTML` are treated as React-rendered children too. This
+remains enforced if React conditionally adds children after
+the binding was applied. React element insertion is rejected synchronously,
+before the child's layout effects run, and direct text or HTML insertion is
+rejected during late reconciliation. Leave the element empty while Knockout
+owns its contents.
 
 ### `KoForeach`
 

@@ -53,6 +53,15 @@ describe('applyBindingsSafely', () => {
     }
   )
 
+  it('rejects a content binding over a direct React text node', () => {
+    const { container } = render(<div data-bind="text: value">React text</div>)
+
+    expect(() => applyBindingsSafely({ value: 'Knockout value' }, container)).toThrow(
+      'react-ko cannot apply the Knockout "text" binding'
+    )
+    expect(container.textContent).toBe('React text')
+  })
+
   it('leaves the React tree attached for later rerenders after rejecting a descendant-mutating binding', () => {
     const label = ko.observable('Knockout label')
     const handleClick = vi.fn()

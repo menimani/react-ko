@@ -251,9 +251,14 @@ function reconcileChangedDataBind(element: Element, name: string) {
   }
 }
 
-function hasReactOwnership(node: Node) {
+function hasReactOwnership(node: Node, parent?: Element) {
   // React 18 and 19 tag host nodes before inserting them. Knockout-created
   // template nodes have no such tag and must remain on the asynchronous path.
+  // Direct text has no tag, so its host's committed or pending props decide.
+  if (node.nodeType === Node.TEXT_NODE && parent !== undefined) {
+    return hasReactOwnedChildren(parent)
+  }
+
   if (
     node.nodeType === Node.ELEMENT_NODE &&
     Object.getOwnPropertyNames(node).some(
@@ -263,15 +268,18 @@ function hasReactOwnership(node: Node) {
     return true
   }
 
-  return [...node.childNodes].some(hasReactOwnership)
+  return [...node.childNodes].some((child) => hasReactOwnership(child))
 }
 
 function reconcileInsertedChildren(parent: Node, reactOwned: boolean) {
-  if (!reactOwned || parent.nodeType !== Node.ELEMENT_NODE) {
+  if (parent.nodeType !== Node.ELEMENT_NODE) {
     return
   }
 
-  const root = nearestBindingRoot(parent as Element)
+  const element = parent as Element
+  if (!reactOwned && !hasReactOwnedChildren(element)) return
+
+  const root = nearestBindingRoot(element)
   const state = root === undefined ? undefined : bindingObservers.get(root)
   if (
     root !== undefined &&
@@ -442,7 +450,10 @@ function interceptChildListInsertions(root: HTMLElement) {
   const interceptedAppendChild: typeof prototype.appendChild = function <T extends Node>(
     child: T
   ): T {
-    const reactOwned = hasReactOwnership(child)
+    const reactOwned = hasReactOwnership(
+      child,
+      this.nodeType === Node.ELEMENT_NODE ? (this as Element) : undefined
+    )
     const inserted = appendChild.call(this, child) as T
     reconcileInsertedChildren(this, reactOwned)
     return inserted
@@ -451,7 +462,10 @@ function interceptChildListInsertions(root: HTMLElement) {
     child: T,
     referenceChild: Node | null
   ): T {
-    const reactOwned = hasReactOwnership(child)
+    const reactOwned = hasReactOwnership(
+      child,
+      this.nodeType === Node.ELEMENT_NODE ? (this as Element) : undefined
+    )
     const inserted = insertBefore.call(this, child, referenceChild) as T
     reconcileInsertedChildren(this, reactOwned)
     return inserted
@@ -460,7 +474,10 @@ function interceptChildListInsertions(root: HTMLElement) {
     child: Node,
     replacedChild: T
   ): T {
-    const reactOwned = hasReactOwnership(child)
+    const reactOwned = hasReactOwnership(
+      child,
+      this.nodeType === Node.ELEMENT_NODE ? (this as Element) : undefined
+    )
     const replaced = replaceChild.call(this, child, replacedChild) as T
     reconcileInsertedChildren(this, reactOwned)
     return replaced
@@ -938,27 +955,42 @@ function refreshOwnedContent(
   changedElements: Set<HTMLElement>,
   bindingStates: BindingStateStore
 ) {
+  const elements = new Set<HTMLElement>()
   for (const record of records) {
-    if (record.type !== 'childList' || record.target.nodeType !== Node.ELEMENT_NODE) {
-      continue
+    if (record.type === 'childList' && record.target.nodeType === Node.ELEMENT_NODE) {
+      elements.add(record.target as HTMLElement)
+    } else if (
+      record.type === 'characterData' &&
+      record.target.parentNode?.nodeType === Node.ELEMENT_NODE
+    ) {
+      elements.add(record.target.parentNode as HTMLElement)
     }
+  }
 
-    const element = record.target as HTMLElement
+  for (const element of elements) {
     const state = bindingStates.get(element)
     if (state !== undefined && state.ownedContent !== null && !changedElements.has(element)) {
       // An element that was empty at bind time can gain React children later.
       // Knockout's own content writes carry no React tag, so only a React-owned
       // node outside the tracked content makes the element contested.
       const owned = state.ownedContent
-      const contested = [...element.childNodes].some(
-        (child) => !owned.has(child) && hasReactOwnership(child)
+      const textChanged = records.some(
+        (record) => record.type === 'characterData' && record.target.parentNode === element
       )
+      const hasUnownedChild = [...element.childNodes].some((child) => !owned.has(child))
+      const contested =
+        (hasUnownedChild || textChanged) &&
+        (hasReactOwnedChildren(element) ||
+          [...element.childNodes].some(
+            (child) => !owned.has(child) && hasReactOwnership(child, element)
+          ))
       if (contested) {
         assertNoReactUnsafeBindings(element)
       }
 
-      // While a content binding remains active, its direct children belong to
-      // Knockout. Refresh the snapshot after text/html/component/options updates.
+      // A single DOM operation can enqueue several records for one element.
+      // Refresh only after all of them have been checked so the first record
+      // cannot absorb a later React node into Knockout's ownership snapshot.
       state.ownedContent = new Set(element.childNodes)
     }
   }
@@ -1257,6 +1289,7 @@ export function observeBindingDescendants(
   observer.observe(root, {
     attributes: true,
     attributeOldValue: true,
+    characterData: true,
     childList: true,
     subtree: true,
   })
