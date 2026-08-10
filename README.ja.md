@@ -135,6 +135,12 @@ const vm = {
 
 ## 構造コンポーネント
 
+React が描画した children を制御するために、Knockout の `if`、`ifnot`、
+`foreach`、`template` などの制御フローバインディングを使わないでください。
+これらのバインディングは React が所有している子 DOM ノードを削除または複製するため、
+React の DOM 状態と食い違う可能性があります。代わりに `KoIf`、`KoIfNot`、
+`KoForeach` を使ってください。
+
 ### `KoForeach`
 
 `KoForeach` は render prop を取ります。関数は各アイテムとそのインデックスを

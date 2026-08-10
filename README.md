@@ -135,6 +135,11 @@ const vm = {
 
 ## Structural Components
 
+Do not use Knockout control-flow bindings such as `if`, `ifnot`, `foreach`,
+or `template` to control React-rendered children. Those bindings remove or
+clone child DOM nodes that React still owns, which can leave React's DOM state
+out of sync. Use `KoIf`, `KoIfNot`, and `KoForeach` instead.
+
 ### `KoForeach`
 
 `KoForeach` takes a render prop: the function receives each item and its
