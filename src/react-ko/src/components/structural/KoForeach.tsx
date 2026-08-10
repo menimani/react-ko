@@ -8,14 +8,18 @@ type Props<T> = {
   itemKey?: (item: T, index: number) => React.Key
 }
 
-// Auto-assigned keys: object items get a stable identity-based key so their
-// rows survive reorders; primitives cannot be tracked by identity and fall
-// back to the index. Pass `itemKey` when rows hold state and items are
-// primitive.
+// Auto-assigned keys: object items get a stable identity-and-occurrence key
+// so their rows survive reorders and repeated references remain distinct;
+// primitives cannot be tracked by identity and fall back to the index. Pass
+// `itemKey` when rows hold state and items are primitive.
 let nextAutoKey = 1
 const autoKeys = new WeakMap<object, number>()
 
-function defaultItemKey(item: unknown, index: number): React.Key {
+function defaultItemKey(
+  item: unknown,
+  index: number,
+  occurrences: WeakMap<object, number>
+): React.Key {
   if ((typeof item === 'object' && item !== null) || typeof item === 'function') {
     let key = autoKeys.get(item)
     if (key === undefined) {
@@ -23,9 +27,12 @@ function defaultItemKey(item: unknown, index: number): React.Key {
       nextAutoKey += 1
       autoKeys.set(item, key)
     }
-    return key
+
+    const occurrence = occurrences.get(item) ?? 0
+    occurrences.set(item, occurrence + 1)
+    return `object:${key}:${occurrence}`
   }
-  return index
+  return `index:${index}`
 }
 
 /**
@@ -36,11 +43,15 @@ function defaultItemKey(item: unknown, index: number): React.Key {
  */
 export function KoForeach<T>({ items, children, itemKey }: Props<T>) {
   const array = useKoValue<T[]>(items)
+  const occurrences = new WeakMap<object, number>()
 
   return (
     <>
       {array.map((item, index) => (
-        <KnockoutScope key={(itemKey ?? defaultItemKey)(item, index)} viewModel={item}>
+        <KnockoutScope
+          key={itemKey ? itemKey(item, index) : defaultItemKey(item, index, occurrences)}
+          viewModel={item}
+        >
           {children(item, index)}
         </KnockoutScope>
       ))}
