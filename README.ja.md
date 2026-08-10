@@ -254,26 +254,6 @@ Knockout の observable に任せるだけで、UI がリアクティブに更�
 
 ---
 
-## フォルダ構成
-
-```
-src/
-├── components/                          // コンポーネント群
-│   ├── scope/                          // Knockoutとの結びつきのための基本コンポーネント
-│   │   ├── KnockoutScope.tsx          // サブViewModelを自己バインドするスコープ
-│   │   └── RootKnockoutProvider.tsx   // ルートコンポーネント、Knockoutの初期化
-│   ├── structural/                     // フロー制御を担当する汎用コンポーネント
-│   │   ├── KoIf.tsx                   // 条件描画（true）
-│   │   ├── KoIfNot.tsx                // 条件描画（false）
-│   │   ├── KoForeach.tsx              // render prop によるリスト描画
-├── context/                             // コンテキスト管理
-│   ├── AppViewModelContext.ts          // KnockoutのViewModelに関連するコンテキスト
-├── hooks/                               // フック
-│   ├── useKoValue.ts                   // Knockoutの値をReactのstateとして読む
-```
-
----
-
 ## 開発
 
 ```bash
