@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { useRef, useLayoutEffect, useMemo } from 'react'
+import { useRef, useLayoutEffect } from 'react'
 import * as ko from 'knockout'
 import { AppViewModelContext } from '@/index'
 import { ScopeViewModelContext } from '@/context/ScopeViewModelContext'
@@ -17,8 +17,6 @@ export const RootKnockoutProvider = React.memo(function RootKnockoutProvider<T>(
   const koContainer = useRef<HTMLDivElement | null>(null)
   const isBoundRef = useRef(false)
 
-  const appViewModel = useMemo(() => viewModel, [viewModel])
-
   useLayoutEffect(() => {
     if (koContainer.current === null) {
       return
@@ -26,13 +24,13 @@ export const RootKnockoutProvider = React.memo(function RootKnockoutProvider<T>(
     if (isBoundRef.current === true) {
       return
     }
-    ko.applyBindings(appViewModel, koContainer.current)
+    ko.applyBindings(viewModel, koContainer.current)
     isBoundRef.current = true
-  }, [appViewModel])
+  }, [viewModel])
 
   return (
-    <AppViewModelContext.Provider value={appViewModel}>
-      <ScopeViewModelContext.Provider value={appViewModel}>
+    <AppViewModelContext.Provider value={viewModel}>
+      <ScopeViewModelContext.Provider value={viewModel}>
         <div ref={koContainer} style={{ display: 'contents' }}>
           {children}
         </div>
