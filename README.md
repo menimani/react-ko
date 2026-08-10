@@ -205,7 +205,10 @@ remains enforced if React conditionally adds children after
 the binding was applied. React element insertion is rejected synchronously,
 before the child's layout effects run, and direct text or HTML insertion is
 rejected during late reconciliation. Leave the element empty while Knockout
-owns its contents.
+owns its contents. Adding an explicit empty-string child or an empty
+`dangerouslySetInnerHTML` payload is rejected too, because that React update
+clears Knockout-owned content. React can hand existing text or HTML off by
+removing it in the same render that adds the content binding.
 
 ### `KoForeach`
 

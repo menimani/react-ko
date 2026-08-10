@@ -17,6 +17,7 @@ const bindingObservers = new Map<
   {
     observer: MutationObserver
     reconcile: (records: MutationRecord[]) => void
+    shouldDeferDataBindChange: (element: Element) => boolean
     shouldDeferInsertion: (parent: Node) => boolean
     onError: (error: unknown) => void
   }
@@ -171,6 +172,62 @@ function snapshotReactProps(element: HTMLElement) {
   )
 }
 
+type ReactHostProps = Record<string, unknown>
+
+type ReactHostFiber = {
+  pendingProps?: ReactHostProps
+  alternate?: ReactHostFiber | null
+}
+
+function reactHostFiber(element: Element): ReactHostFiber | undefined {
+  const key = Object.getOwnPropertyNames(element).find((name) =>
+    name.startsWith('__reactFiber$')
+  )
+  return key === undefined
+    ? undefined
+    : ((element as unknown as Record<string, unknown>)[key] as ReactHostFiber)
+}
+
+function directReactContent(props: ReactHostProps | ReadonlyMap<string, unknown> | undefined) {
+  const get = (name: string) => (props instanceof Map ? props.get(name) : props?.[name])
+  const innerHtml = (get('dangerouslySetInnerHTML') as { __html?: unknown } | undefined)
+    ?.__html
+  if (innerHtml !== undefined && innerHtml !== null) {
+    return { kind: 'html', value: String(innerHtml) } as const
+  }
+
+  const children = get('children')
+  if (typeof children === 'string' || typeof children === 'number') {
+    return { kind: 'text', value: String(children) } as const
+  }
+
+  return null
+}
+
+function hasDirectReactContentTransition(
+  element: HTMLElement,
+  previousProps: ReadonlyMap<string, unknown>
+) {
+  const previous = directReactContent(previousProps)
+  const fiber = reactHostFiber(element)
+  const propsKey = Object.getOwnPropertyNames(element).find((name) =>
+    name.startsWith('__reactProps$')
+  )
+  const currentProps =
+    propsKey === undefined
+      ? undefined
+      : ((element as unknown as Record<string, unknown>)[propsKey] as ReactHostProps)
+  const candidates = [currentProps, fiber?.pendingProps, fiber?.alternate?.pendingProps]
+
+  return candidates.some((props) => {
+    const current = directReactContent(props)
+    return (
+      current !== null &&
+      (previous === null || current.kind !== previous.kind || current.value !== previous.value)
+    )
+  })
+}
+
 function prepareBindingTree(
   element: HTMLElement,
   root: HTMLElement,
@@ -247,6 +304,9 @@ function reconcileChangedDataBind(element: Element, name: string) {
 
   const root = nearestBindingRoot(element)
   if (root !== undefined) {
+    if (bindingObservers.get(root)?.shouldDeferDataBindChange(element)) {
+      return
+    }
     reconcileBindingDescendants(root)
   }
 }
@@ -972,21 +1032,31 @@ function refreshOwnedContent(
     const state = bindingStates.get(element)
     if (state !== undefined && state.ownedContent !== null && !changedElements.has(element)) {
       // An element that was empty at bind time can gain React children later.
-      // Knockout's own content writes carry no React tag, so only a React-owned
-      // node outside the tracked content makes the element contested.
+      // Direct text and HTML writes can instead replace a tracked node in place
+      // or remove it with an empty payload, so compare their host props too.
       const owned = state.ownedContent
       const textChanged = records.some(
         (record) => record.type === 'characterData' && record.target.parentNode === element
       )
+      const removedOwnedContent = records.some(
+        (record) =>
+          record.type === 'childList' &&
+          record.target === element &&
+          [...record.removedNodes].some((node) => owned.has(node))
+      )
+      const directReactContentTransition =
+        (removedOwnedContent || textChanged) &&
+        hasDirectReactContentTransition(element, state.reactProps)
       const hasUnownedChild = [...element.childNodes].some((child) => !owned.has(child))
       const contested =
-        (hasUnownedChild || textChanged) &&
-        (hasReactOwnedChildren(element, owned) ||
-          [...element.childNodes].some(
-            (child) => !owned.has(child) && hasReactOwnership(child, element)
-          ))
+        directReactContentTransition ||
+        ((hasUnownedChild || textChanged) &&
+          (hasReactOwnedChildren(element, owned) ||
+            [...element.childNodes].some(
+              (child) => !owned.has(child) && hasReactOwnership(child, element)
+            )))
       if (contested) {
-        assertNoReactUnsafeBindings(element)
+        assertNoReactUnsafeBindings(element, directReactContentTransition)
       }
 
       // A single DOM operation can enqueue several records for one element.
@@ -1254,6 +1324,23 @@ export function observeBindingDescendants(
     observer,
     reconcile,
     onError,
+    // React sets data-bind before clearing the host's previous text or HTML.
+    // Let that host mutation finish so stale current props do not make the
+    // newly empty element appear contested during its binding handoff.
+    shouldDeferDataBindChange: (target) => {
+      const element = target as HTMLElement
+      const state = bindingStates.get(element)
+      const source = element.getAttribute('data-bind')
+      const nextProps = reactHostFiber(element)?.alternate?.pendingProps
+      return (
+        state?.source === null &&
+        source !== null &&
+        controlsElementContent(source) &&
+        nextProps?.['data-bind'] === source &&
+        directReactContent(nextProps) === null &&
+        hasReactOwnedChildren(element)
+      )
+    },
     // A content binding may be inserting its own DOM, or React may be retiring
     // that binding in the same commit. Inspect React's work-in-progress host
     // props so only the latter ownership transition is deferred. If the binding

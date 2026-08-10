@@ -655,6 +655,71 @@ describe('RootKnockoutProvider', () => {
     }
   )
 
+  it.each([
+    ['an empty text child', { children: '' }],
+    ['empty dangerouslySetInnerHTML', { dangerouslySetInnerHTML: { __html: '' } }],
+  ] as const)('rejects late React content from %s', async (_, content) => {
+    const vm = { label: ko.observable('Knockout text') }
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    function Harness({ addContent }: { addContent: boolean }) {
+      return (
+        <ErrorMessageBoundary>
+          <RootKnockoutProvider viewModel={vm}>
+            <div data-bind="text: label" {...(addContent ? content : {})} />
+          </RootKnockoutProvider>
+        </ErrorMessageBoundary>
+      )
+    }
+
+    try {
+      const { rerender } = render(<Harness addContent={false} />)
+      expect(screen.getByText('Knockout text')).toBeDefined()
+
+      rerender(<Harness addContent />)
+
+      await waitFor(() =>
+        expect(
+          screen.getByText(
+            'react-ko cannot apply the Knockout "text" binding because it controls React-owned child nodes. Leave the bound element empty so Knockout can own its contents.'
+          )
+        ).toBeDefined()
+      )
+      expect(vm.label.getSubscriptionsCount()).toBe(0)
+    } finally {
+      consoleError.mockRestore()
+    }
+  })
+
+  it.each([
+    ['text', { children: 'React text' }],
+    [
+      'dangerouslySetInnerHTML',
+      { dangerouslySetInnerHTML: { __html: '<strong>React markup</strong>' } },
+    ],
+  ] as const)('hands %s content off to a newly added content binding', async (_, content) => {
+    const vm = { label: ko.observable('Knockout text') }
+
+    function Harness({ bound }: { bound: boolean }) {
+      return (
+        <RootKnockoutProvider viewModel={vm}>
+          <div
+            data-testid="react-content-handoff"
+            {...(bound ? { 'data-bind': 'text: label' } : content)}
+          />
+        </RootKnockoutProvider>
+      )
+    }
+
+    const { rerender } = render(<Harness bound={false} />)
+    rerender(<Harness bound />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('react-content-handoff').textContent).toBe('Knockout text')
+      expect(vm.label.getSubscriptionsCount()).toBe(1)
+    })
+  })
+
   it('rejects a late React child before its layout update can let Knockout detach it', () => {
     const vm = { label: ko.observable('Knockout text') }
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)

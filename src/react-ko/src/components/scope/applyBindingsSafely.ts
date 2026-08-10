@@ -82,6 +82,10 @@ export function hasReactOwnedChildren(
     return children.size > 0
   }
 
+  if (children.size === 0) {
+    return false
+  }
+
   const reactProps = (element as unknown as Record<string, unknown>)[reactPropsKey] as
     | ReactHostProps
     | undefined
@@ -101,9 +105,6 @@ export function hasReactOwnedChildren(
   ) {
     return true
   }
-  if (children.size === 0) {
-    return false
-  }
 
   // Element instances are tagged before insertion. Text instances are not,
   // so find those by identity in the committed and work-in-progress fiber
@@ -121,13 +122,18 @@ export function hasReactOwnedChildren(
  * nodes owned by React. Descendant scopes validate their own trees, so an
  * ancestor must stop scanning at their binding boundaries.
  */
-export function assertNoReactUnsafeBindings(root: HTMLElement) {
+export function assertNoReactUnsafeBindings(
+  root: HTMLElement,
+  rootHadReactContentMutation = false
+) {
   function visit(element: Element) {
     const names = bindingNames(element)
     const unsafeBinding = [...names].find(
       (name) =>
         REACT_UNSAFE_BINDINGS.has(name) ||
-        (hasReactOwnedChildren(element) && REACT_CHILD_UNSAFE_BINDINGS.has(name))
+        ((hasReactOwnedChildren(element) ||
+          (element === root && rootHadReactContentMutation)) &&
+          REACT_CHILD_UNSAFE_BINDINGS.has(name))
     )
 
     if (unsafeBinding !== undefined) {
