@@ -1,11 +1,27 @@
 import ko from 'knockout'
-import { applyBindingsSafely } from './applyBindingsSafely'
+import { applyBindingsSafely, hasReactOwnedChildren } from './applyBindingsSafely'
 
 // Observers on enclosing roots also see mutations inside nested scopes. Keep
 // track of each binding root so only the nearest one handles a changed subtree.
 // The view model registry also lets an ancestor attribute rebind restore any
 // descendant roots that ko.cleanNode necessarily cleaned along with it.
 const bindingRoots = new Map<HTMLElement, unknown>()
+const CONTENT_BINDINGS = new Set(['text', 'html', 'component', 'options'])
+
+type BindingState = {
+  source: string | null
+  ownedContent: Set<Node> | null
+}
+
+function controlsElementContent(source: string | null) {
+  if (source === null) {
+    return false
+  }
+
+  return ko.expressionRewriting
+    .parseObjectLiteral(source)
+    .some(({ key }) => key !== undefined && CONTENT_BINDINGS.has(key))
+}
 
 function belongsToBindingRoot(node: Node, root: Node) {
   if (!root.contains(node)) {
@@ -59,10 +75,29 @@ function restoreDescendantBindingRoots(element: HTMLElement, ownerRoot: HTMLElem
   }
 }
 
-function rebindChangedAttributes(
+function trackBindingTree(
+  element: HTMLElement,
+  ownerRoot: HTMLElement,
+  bindingStates: WeakMap<HTMLElement, BindingState>
+) {
+  if (element !== ownerRoot && bindingRoots.has(element)) {
+    return
+  }
+
+  const source = element.getAttribute('data-bind')
+  bindingStates.set(element, {
+    source,
+    ownedContent: controlsElementContent(source) ? new Set(element.childNodes) : null,
+  })
+
+  for (const child of element.children) {
+    trackBindingTree(child as HTMLElement, ownerRoot, bindingStates)
+  }
+}
+
+function changedBindingElements(
   records: MutationRecord[],
   root: HTMLElement,
-  viewModel: unknown,
   addedRoots: HTMLElement[]
 ) {
   const changedElements = new Set<HTMLElement>()
@@ -81,9 +116,63 @@ function rebindChangedAttributes(
     }
   }
 
+  return changedElements
+}
+
+function refreshOwnedContent(
+  records: MutationRecord[],
+  changedElements: Set<HTMLElement>,
+  bindingStates: WeakMap<HTMLElement, BindingState>
+) {
+  for (const record of records) {
+    if (record.type !== 'childList' || record.target.nodeType !== Node.ELEMENT_NODE) {
+      continue
+    }
+
+    const element = record.target as HTMLElement
+    const state = bindingStates.get(element)
+    if (state !== undefined && state.ownedContent !== null && !changedElements.has(element)) {
+      // While a content binding remains active, its direct children belong to
+      // Knockout. Refresh the snapshot after text/html/component/options updates.
+      state.ownedContent = new Set(element.childNodes)
+    }
+  }
+}
+
+function removeRetiredContent(element: HTMLElement, state: BindingState | undefined) {
+  if (
+    state === undefined ||
+    !controlsElementContent(state.source) ||
+    state.ownedContent === null
+  ) {
+    return
+  }
+
+  const retiredNodes = hasReactOwnedChildren(element)
+    ? state.ownedContent
+    : new Set(element.childNodes)
+
+  for (const node of retiredNodes) {
+    // React may add its new children before it removes data-bind. Only remove
+    // nodes captured while the previous Knockout content binding was active.
+    if (node.parentNode === element) {
+      element.removeChild(node)
+    }
+  }
+}
+
+function rebindChangedAttributes(
+  changedElements: Set<HTMLElement>,
+  root: HTMLElement,
+  viewModel: unknown,
+  bindingStates: WeakMap<HTMLElement, BindingState>
+) {
   for (const element of changedElements) {
+    const previousState = bindingStates.get(element)
     ko.cleanNode(element)
+    removeRetiredContent(element, previousState)
     applyBindingsSafely(viewModel, element)
+    trackBindingTree(element, root, bindingStates)
     restoreDescendantBindingRoots(element, root)
   }
 }
@@ -100,7 +189,12 @@ function cleanRemovedNodes(records: MutationRecord[], root: Node) {
   }
 }
 
-function bindAddedNodes(records: MutationRecord[], root: Node, viewModel: unknown) {
+function bindAddedNodes(
+  records: MutationRecord[],
+  root: HTMLElement,
+  viewModel: unknown,
+  bindingStates: WeakMap<HTMLElement, BindingState>
+) {
   for (const record of records) {
     for (const node of record.addedNodes) {
       if (
@@ -114,6 +208,7 @@ function bindAddedNodes(records: MutationRecord[], root: Node, viewModel: unknow
       // Binding the highest added element covers its subtree and respects any
       // descendant scope boundary encountered during that pass.
       applyBindingsSafely(viewModel, node as HTMLElement)
+      trackBindingTree(node as HTMLElement, root, bindingStates)
     }
   }
 }
@@ -128,13 +223,17 @@ export function observeBindingDescendants(
   onError: (error: unknown) => void
 ) {
   bindingRoots.set(root, viewModel)
+  const bindingStates = new WeakMap<HTMLElement, BindingState>()
+  trackBindingTree(root, root, bindingStates)
 
   const observer = new MutationObserver((records) => {
     try {
       cleanRemovedNodes(records, root)
       const addedRoots = addedBindingRoots(records, root)
-      rebindChangedAttributes(records, root, viewModel, addedRoots)
-      bindAddedNodes(records, root, viewModel)
+      const changedElements = changedBindingElements(records, root, addedRoots)
+      refreshOwnedContent(records, changedElements, bindingStates)
+      rebindChangedAttributes(changedElements, root, viewModel, bindingStates)
+      bindAddedNodes(records, root, viewModel, bindingStates)
     } catch (error) {
       observer.disconnect()
       onError(error)
