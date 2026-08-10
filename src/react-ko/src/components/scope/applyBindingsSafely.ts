@@ -25,6 +25,7 @@ function hasReactTag(node: Node): boolean {
 }
 
 type ReactHostProps = {
+  [name: string]: unknown
   children?: unknown
   dangerouslySetInnerHTML?: unknown
 }
@@ -34,7 +35,63 @@ type ReactFiber = {
   child?: ReactFiber | null
   sibling?: ReactFiber | null
   pendingProps?: ReactHostProps
+  return?: ReactFiber | null
   alternate?: ReactFiber | null
+}
+
+function propsMatchDataBind(element: Element, props: ReactHostProps | undefined) {
+  return (props?.['data-bind'] ?? null) === element.getAttribute('data-bind')
+}
+
+function committedFiber(fiber: ReactFiber | undefined): ReactFiber | undefined {
+  if (fiber === undefined) return undefined
+
+  let root = fiber
+  while (root.return !== null && root.return !== undefined) {
+    root = root.return
+  }
+
+  const currentRoot = (root.stateNode as { current?: ReactFiber } | null)?.current
+  if (currentRoot === root) return fiber
+  if (currentRoot === root.alternate) return fiber.alternate ?? undefined
+  return undefined
+}
+
+export function currentReactHostProps(
+  element: Element,
+  preferWorkInProgress = false
+): ReactHostProps | undefined {
+  const propsKey = Object.getOwnPropertyNames(element).find((key) =>
+    key.startsWith('__reactProps$')
+  )
+  const reactProps =
+    propsKey === undefined
+      ? undefined
+      : ((element as unknown as Record<string, unknown>)[propsKey] as ReactHostProps)
+  const fiberKey = Object.getOwnPropertyNames(element).find((key) =>
+    key.startsWith('__reactFiber$')
+  )
+  const fiber =
+    fiberKey === undefined
+      ? undefined
+      : ((element as unknown as Record<string, unknown>)[fiberKey] as ReactFiber)
+  const current = committedFiber(fiber)
+
+  if (preferWorkInProgress && current?.alternate?.pendingProps !== undefined) {
+    return current.alternate.pendingProps
+  }
+
+  if (propsMatchDataBind(element, current?.pendingProps)) {
+    return current?.pendingProps
+  }
+
+  // React mutates data-bind before switching the root's current fiber. During
+  // that window select only the work-in-progress props matching the DOM.
+  // Never combine both alternates: the other one can describe an older commit.
+  const workInProgress = [fiber, fiber?.alternate].find((candidate) =>
+    propsMatchDataBind(element, candidate?.pendingProps)
+  )
+  return workInProgress?.pendingProps ?? reactProps
 }
 
 function propsOwnUnfiberedContent(props: ReactHostProps | null | undefined): boolean {
@@ -86,10 +143,6 @@ export function hasReactOwnedChildren(
     return false
   }
 
-  const reactProps = (element as unknown as Record<string, unknown>)[reactPropsKey] as
-    | ReactHostProps
-    | undefined
-
   const reactFiberKey = Object.getOwnPropertyNames(element).find((key) =>
     key.startsWith('__reactFiber$')
   )
@@ -98,11 +151,7 @@ export function hasReactOwnedChildren(
       ? undefined
       : ((element as unknown as Record<string, unknown>)[reactFiberKey] as ReactFiber)
 
-  if (
-    propsOwnUnfiberedContent(reactProps) ||
-    propsOwnUnfiberedContent(reactFiber?.pendingProps) ||
-    propsOwnUnfiberedContent(reactFiber?.alternate?.pendingProps)
-  ) {
+  if (propsOwnUnfiberedContent(currentReactHostProps(element))) {
     return true
   }
 

@@ -2,6 +2,7 @@ import ko from 'knockout'
 import {
   applyBindingsSafely,
   assertNoReactUnsafeBindings,
+  currentReactHostProps,
   hasReactOwnedChildren,
 } from './applyBindingsSafely'
 import { descendantBindingContextFor } from './descendantBindingContexts'
@@ -16,7 +17,7 @@ const bindingObservers = new Map<
   HTMLElement,
   {
     observer: MutationObserver
-    reconcile: (records: MutationRecord[]) => void
+    reconcile: (records: MutationRecord[], reactCommitInProgress?: boolean) => void
     shouldDeferDataBindChange: (element: Element) => boolean
     shouldDeferInsertion: (parent: Node) => boolean
     onError: (error: unknown) => void
@@ -206,26 +207,21 @@ function directReactContent(props: ReactHostProps | ReadonlyMap<string, unknown>
 
 function hasDirectReactContentTransition(
   element: HTMLElement,
-  previousProps: ReadonlyMap<string, unknown>
+  previousProps: ReadonlyMap<string, unknown>,
+  reactCommitInProgress: boolean
 ) {
   const previous = directReactContent(previousProps)
-  const fiber = reactHostFiber(element)
-  const propsKey = Object.getOwnPropertyNames(element).find((name) =>
-    name.startsWith('__reactProps$')
+  const current = directReactContent(
+    currentReactHostProps(element, reactCommitInProgress)
   )
-  const currentProps =
-    propsKey === undefined
-      ? undefined
-      : ((element as unknown as Record<string, unknown>)[propsKey] as ReactHostProps)
-  const candidates = [currentProps, fiber?.pendingProps, fiber?.alternate?.pendingProps]
 
-  return candidates.some((props) => {
-    const current = directReactContent(props)
-    return (
-      current !== null &&
-      (previous === null || current.kind !== previous.kind || current.value !== previous.value)
-    )
-  })
+  return (
+    (previous !== null || current !== null) &&
+    (previous === null ||
+      current === null ||
+      current.kind !== previous.kind ||
+      current.value !== previous.value)
+  )
 }
 
 function prepareBindingTree(
@@ -1014,7 +1010,8 @@ function refreshReactOwnedDom(
 function refreshOwnedContent(
   records: MutationRecord[],
   changedElements: Set<HTMLElement>,
-  bindingStates: BindingStateStore
+  bindingStates: BindingStateStore,
+  reactCommitInProgress: boolean
 ) {
   const elements = new Set<HTMLElement>()
   for (const record of records) {
@@ -1046,7 +1043,11 @@ function refreshOwnedContent(
       )
       const directReactContentTransition =
         (removedOwnedContent || textChanged) &&
-        hasDirectReactContentTransition(element, state.reactProps)
+        hasDirectReactContentTransition(
+          element,
+          state.reactProps,
+          reactCommitInProgress
+        )
       const hasUnownedChild = [...element.childNodes].some((child) => !owned.has(child))
       const contested =
         directReactContentTransition ||
@@ -1285,7 +1286,7 @@ export function observeBindingDescendants(
   bindingRoots.set(root, viewModel)
   trackBindingTree(root, root, bindingStates)
 
-  const reconcile = (records: MutationRecord[]) => {
+  const reconcile = (records: MutationRecord[], reactCommitInProgress = false) => {
     cleanRemovedNodes(records, root)
     const addedRoots = addedBindingRoots(records, root)
     const changedElements = changedBindingElements(records, root, addedRoots)
@@ -1297,7 +1298,12 @@ export function observeBindingDescendants(
     )) {
       changedElements.add(element)
     }
-    refreshOwnedContent(records, changedElements, bindingStates)
+    refreshOwnedContent(
+      records,
+      changedElements,
+      bindingStates,
+      reactCommitInProgress
+    )
     rebindChangedAttributes(changedElements, root, viewModel, bindingStates, addedRoots)
     bindAddedNodes(records, root, viewModel, bindingStates)
     // Rebinding deliberately mutates the same attributes that React changed.
@@ -1406,7 +1412,7 @@ export function reconcileBindingDescendants(root: HTMLElement) {
   const records = state.observer.takeRecords()
   reconcilingRoots.add(root)
   try {
-    state.reconcile(records)
+    state.reconcile(records, true)
   } catch (error) {
     state.observer.disconnect()
     // React continues mounting layout effects after a host mutation throws.
