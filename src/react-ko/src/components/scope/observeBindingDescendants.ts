@@ -18,6 +18,7 @@ const bindingObservers = new Map<
     observer: MutationObserver
     reconcile: (records: MutationRecord[]) => void
     shouldDeferInsertion: (parent: Node) => boolean
+    onError: (error: unknown) => void
   }
 >()
 const reconcilingRoots = new Set<HTMLElement>()
@@ -27,8 +28,15 @@ type AttributeInterceptor = {
   removeAttribute: typeof Element.prototype.removeAttribute
   interceptedSetAttribute: typeof Element.prototype.setAttribute
   interceptedRemoveAttribute: typeof Element.prototype.removeAttribute
+  formProperties: Array<{
+    prototype: object
+    name: string
+    descriptor: PropertyDescriptor
+    interceptedSet: (this: Element, value: unknown) => void
+  }>
 }
 const attributeInterceptors = new Map<typeof Element.prototype, AttributeInterceptor>()
+const scheduledPropertyRoots = new Set<HTMLElement>()
 type ChildListInterceptor = {
   count: number
   appendChild: typeof Node.prototype.appendChild
@@ -76,6 +84,7 @@ const SAFELY_RETIRABLE_BINDINGS = new Set([
 
 type DomSnapshot = {
   attributes: Map<string, string>
+  style: Map<string, { value: string; priority: string }>
   styleDisplay: string
   focused: boolean
   value?: unknown
@@ -89,6 +98,7 @@ type BindingState = {
   ownedContent: Set<Node> | null
   ownedAttributes: Set<string>
   beforeBinding: DomSnapshot
+  reactProps: Map<string, unknown>
 }
 
 export type BindingStateStore = WeakMap<HTMLElement, BindingState>
@@ -115,6 +125,17 @@ function snapshotDom(element: HTMLElement): DomSnapshot {
 
   return {
     attributes: new Map([...element.attributes].map(({ name, value }) => [name, value])),
+    style: new Map(
+      Array.from({ length: element.style.length }, (_, index) =>
+        element.style.item(index)
+      ).map((name) => [
+        name,
+        {
+          value: element.style.getPropertyValue(name),
+          priority: element.style.getPropertyPriority(name),
+        },
+      ])
+    ),
     styleDisplay: element.style.display,
     focused: element.ownerDocument.activeElement === element,
     ...('value' in properties ? { value: properties.value } : {}),
@@ -122,6 +143,28 @@ function snapshotDom(element: HTMLElement): DomSnapshot {
     ...('disabled' in properties ? { disabled: properties.disabled } : {}),
     ...('selected' in properties ? { selected: properties.selected } : {}),
   }
+}
+
+function snapshotReactProps(element: HTMLElement) {
+  const key = Object.getOwnPropertyNames(element).find((name) =>
+    name.startsWith('__reactProps$')
+  )
+  const props =
+    key === undefined
+      ? undefined
+      : (element as unknown as Record<string, unknown>)[key]
+  if (props === null || typeof props !== 'object') {
+    return new Map<string, unknown>()
+  }
+
+  return new Map(
+    Object.entries(props as Record<string, unknown>).map(([name, value]) => [
+      name,
+      name === 'style' && value !== null && typeof value === 'object'
+        ? { ...(value as Record<string, unknown>) }
+        : value,
+    ])
+  )
 }
 
 function prepareBindingTree(
@@ -138,6 +181,7 @@ function prepareBindingTree(
     ownedContent: null,
     ownedAttributes: new Set(),
     beforeBinding: snapshotDom(element),
+    reactProps: snapshotReactProps(element),
   })
 
   for (const child of element.children) {
@@ -252,7 +296,63 @@ function releaseAttributeInterceptor(prototype: typeof Element.prototype) {
   if (prototype.removeAttribute === interceptor.interceptedRemoveAttribute) {
     prototype.removeAttribute = interceptor.removeAttribute
   }
+  for (const {
+    prototype: propertyPrototype,
+    name,
+    descriptor,
+    interceptedSet,
+  } of interceptor.formProperties) {
+    if (Object.getOwnPropertyDescriptor(propertyPrototype, name)?.set === interceptedSet) {
+      Object.defineProperty(propertyPrototype, name, descriptor)
+    }
+  }
   attributeInterceptors.delete(prototype)
+}
+
+function reconcileChangedProperty(element: Element) {
+  const root = nearestBindingRoot(element)
+  if (root === undefined || scheduledPropertyRoots.has(root)) return
+  scheduledPropertyRoots.add(root)
+  queueMicrotask(() => {
+    scheduledPropertyRoots.delete(root)
+    const state = bindingObservers.get(root)
+    if (state === undefined || reconcilingRoots.has(root)) return
+    reconcilingRoots.add(root)
+    try {
+      state.reconcile([])
+    } catch (error) {
+      state.observer.disconnect()
+      state.onError(error)
+    } finally {
+      reconcilingRoots.delete(root)
+    }
+  })
+}
+
+function interceptFormProperties(view: Window & typeof globalThis) {
+  const intercepted: AttributeInterceptor['formProperties'] = []
+  const properties: Array<[object, string]> = [
+    [view.HTMLInputElement.prototype, 'value'],
+    [view.HTMLInputElement.prototype, 'checked'],
+    [view.HTMLTextAreaElement.prototype, 'value'],
+    [view.HTMLSelectElement.prototype, 'value'],
+    [view.HTMLOptionElement.prototype, 'selected'],
+  ]
+  for (const [prototype, name] of properties) {
+    const descriptor = Object.getOwnPropertyDescriptor(prototype, name)
+    if (descriptor?.set === undefined) continue
+    const set = descriptor.set
+    const interceptedSet = function (this: Element, value: unknown) {
+      set.call(this, value)
+      reconcileChangedProperty(this)
+    }
+    Object.defineProperty(prototype, name, {
+      ...descriptor,
+      set: interceptedSet,
+    })
+    intercepted.push({ prototype, name, descriptor, interceptedSet })
+  }
+  return intercepted
 }
 
 function interceptDataBindChanges(root: HTMLElement) {
@@ -283,12 +383,14 @@ function interceptDataBindChanges(root: HTMLElement) {
   }
   prototype.setAttribute = interceptedSetAttribute
   prototype.removeAttribute = interceptedRemoveAttribute
+  const formProperties = interceptFormProperties(view)
   attributeInterceptors.set(prototype, {
     count: 1,
     setAttribute,
     removeAttribute,
     interceptedSetAttribute,
     interceptedRemoveAttribute,
+    formProperties,
   })
 
   return () => releaseAttributeInterceptor(prototype)
@@ -442,6 +544,7 @@ function trackBindingTree(
     ownedContent: controlsElementContent(source) ? new Set(element.childNodes) : null,
     ownedAttributes,
     beforeBinding,
+    reactProps: snapshotReactProps(element),
   })
 
   for (const child of element.children) {
@@ -494,6 +597,183 @@ function recordOwnedAttributeChanges(
   }
 }
 
+function reactPropChanged(
+  previous: Map<string, unknown>,
+  current: Map<string, unknown>,
+  name: string
+) {
+  const left = previous.get(name)
+  const right = current.get(name)
+  if (name !== 'style') return !Object.is(left, right)
+  const keys = new Set([
+    ...Object.keys((left as Record<string, unknown> | undefined) ?? {}),
+    ...Object.keys((right as Record<string, unknown> | undefined) ?? {}),
+  ])
+  return [...keys].some((key) => stylePropChanged(left, right, key))
+}
+
+function stylePropChanged(previous: unknown, current: unknown, name: string) {
+  const previousStyle =
+    previous !== null && typeof previous === 'object'
+      ? (previous as Record<string, unknown>)
+      : {}
+  const currentStyle =
+    current !== null && typeof current === 'object'
+      ? (current as Record<string, unknown>)
+      : {}
+  return !Object.is(previousStyle[name], currentStyle[name])
+}
+
+function cssPropertyName(name: string) {
+  if (name.startsWith('--')) return name
+  return name
+    .replace(/^ms-/, '-ms-')
+    .replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)
+}
+
+function updateStyleBaselineFromMutation(
+  element: HTMLElement,
+  state: BindingState,
+  oldValue: string | null
+) {
+  const current = snapshotDom(element).style
+  const previousElement = element.ownerDocument.createElement('span')
+  previousElement.setAttribute('style', oldValue ?? '')
+  const previous = snapshotDom(previousElement).style
+  for (const name of new Set([...previous.keys(), ...current.keys()])) {
+    const before = previous.get(name)
+    const after = current.get(name)
+    if (before?.value !== after?.value || before?.priority !== after?.priority) {
+      if (after === undefined) state.beforeBinding.style.delete(name)
+      else state.beforeBinding.style.set(name, after)
+    }
+  }
+}
+
+function reactPropForAttribute(
+  attributeName: string,
+  previous: Map<string, unknown>,
+  current: Map<string, unknown>
+) {
+  if (attributeName === 'class') return 'className'
+  if (attributeName === 'for') return 'htmlFor'
+  const keys = new Set([...previous.keys(), ...current.keys()])
+  return [...keys].find((name) => name.toLowerCase() === attributeName.toLowerCase())
+}
+
+function refreshReactOwnedDom(
+  records: MutationRecord[],
+  root: HTMLElement,
+  bindingStates: BindingStateStore,
+  dataBindChanges: Set<HTMLElement>
+) {
+  const changed = new Set<HTMLElement>()
+
+  for (const record of records) {
+    if (
+      record.type !== 'attributes' ||
+      record.attributeName === null ||
+      record.attributeName === 'data-bind'
+    ) {
+      continue
+    }
+    const element = record.target as HTMLElement
+    const state = bindingStates.get(element)
+    if (state === undefined || !belongsToBindingRoot(element, root)) continue
+
+    const names = bindingNames(state.source)
+    const currentProps = snapshotReactProps(element)
+    const reactProp = reactPropForAttribute(
+      record.attributeName,
+      state.reactProps,
+      currentProps
+    )
+    const propsChanged =
+      reactProp !== undefined && reactPropChanged(state.reactProps, currentProps, reactProp)
+    if (!dataBindChanges.has(element) && !propsChanged) continue
+
+    if (record.attributeName === 'class' && names.has('css')) {
+      const value = element.getAttribute('class')
+      if (value === null) state.beforeBinding.attributes.delete('class')
+      else state.beforeBinding.attributes.set('class', value)
+      changed.add(element)
+    } else if (record.attributeName === 'style' && names.has('style')) {
+      updateStyleBaselineFromMutation(element, state, record.oldValue)
+      changed.add(element)
+    } else if (names.has('attr') && state.ownedAttributes.has(record.attributeName)) {
+      const value = element.getAttribute(record.attributeName)
+      if (value === null) state.beforeBinding.attributes.delete(record.attributeName)
+      else state.beforeBinding.attributes.set(record.attributeName, value)
+      changed.add(element)
+    }
+  }
+
+  function visit(element: HTMLElement) {
+    if (element !== root && bindingRoots.has(element)) return
+    const state = bindingStates.get(element)
+    if (state !== undefined) {
+      const names = bindingNames(state.source)
+      const currentProps = snapshotReactProps(element)
+
+      if (names.has('css') && reactPropChanged(state.reactProps, currentProps, 'className')) {
+        const className = currentProps.get('className')
+        if (className === undefined || className === null) {
+          state.beforeBinding.attributes.delete('class')
+        } else {
+          state.beforeBinding.attributes.set('class', String(className))
+        }
+        changed.add(element)
+      }
+
+      const previousStyle = state.reactProps.get('style')
+      const currentStyle = currentProps.get('style')
+      if (names.has('style') && reactPropChanged(state.reactProps, currentProps, 'style')) {
+        const styleNames = new Set([
+          ...Object.keys((previousStyle as Record<string, unknown> | undefined) ?? {}),
+          ...Object.keys((currentStyle as Record<string, unknown> | undefined) ?? {}),
+        ])
+        for (const name of styleNames) {
+          if (!stylePropChanged(previousStyle, currentStyle, name)) continue
+          const cssName = cssPropertyName(name)
+          const value = element.style.getPropertyValue(cssName)
+          if (value === '') state.beforeBinding.style.delete(cssName)
+          else {
+            state.beforeBinding.style.set(cssName, {
+              value,
+              priority: element.style.getPropertyPriority(cssName),
+            })
+          }
+        }
+        changed.add(element)
+      }
+
+      const propertyBindings: Array<[string, string[], keyof DomSnapshot]> = [
+        ['value', ['value', 'textInput', 'checkedValue'], 'value'],
+        ['checked', ['checked'], 'checked'],
+        ['disabled', ['enable', 'disable'], 'disabled'],
+        ['selected', ['selectedOptions'], 'selected'],
+      ]
+      for (const [prop, bindings, snapshotKey] of propertyBindings) {
+        if (
+          bindings.some((binding) => names.has(binding)) &&
+          reactPropChanged(state.reactProps, currentProps, prop)
+        ) {
+          const reactValue = currentProps.get(prop)
+          if (snapshotKey === 'value') state.beforeBinding.value = reactValue ?? ''
+          else if (snapshotKey === 'checked') state.beforeBinding.checked = Boolean(reactValue)
+          else if (snapshotKey === 'disabled') state.beforeBinding.disabled = Boolean(reactValue)
+          else state.beforeBinding.selected = Boolean(reactValue)
+          changed.add(element)
+        }
+      }
+    }
+
+    for (const child of element.children) visit(child as HTMLElement)
+  }
+  visit(root)
+  return changed
+}
+
 function refreshOwnedContent(
   records: MutationRecord[],
   changedElements: Set<HTMLElement>,
@@ -538,6 +818,13 @@ function restoreAttribute(
   }
 }
 
+function restoreStyle(element: HTMLElement, snapshot: DomSnapshot) {
+  element.removeAttribute('style')
+  for (const [name, { value, priority }] of snapshot.style) {
+    element.style.setProperty(name, value, priority)
+  }
+}
+
 function assertBindingsCanBeRetired(state: BindingState) {
   const unsafe = [...bindingNames(state.source)].find(
     (name) => !SAFELY_RETIRABLE_BINDINGS.has(name)
@@ -563,7 +850,7 @@ function restoreRetiredDomEffects(element: HTMLElement, state: BindingState) {
     restoreAttribute(element, state.beforeBinding, 'class')
   }
   if (names.has('style')) {
-    restoreAttribute(element, state.beforeBinding, 'style')
+    restoreStyle(element, state.beforeBinding)
   } else if (names.has('visible')) {
     element.style.display = state.beforeBinding.styleDisplay
   }
@@ -741,9 +1028,21 @@ export function observeBindingDescendants(
     const addedRoots = addedBindingRoots(records, root)
     const changedElements = changedBindingElements(records, root, addedRoots)
     recordOwnedAttributeChanges(records, bindingStates)
+    for (const element of refreshReactOwnedDom(
+      records,
+      root,
+      bindingStates,
+      changedElements
+    )) {
+      changedElements.add(element)
+    }
     refreshOwnedContent(records, changedElements, bindingStates)
     rebindChangedAttributes(changedElements, root, viewModel, bindingStates, addedRoots)
     bindAddedNodes(records, root, viewModel, bindingStates)
+    // Rebinding deliberately mutates the same attributes that React changed.
+    // They are already reflected in the refreshed state and must not start a
+    // second ownership transition in the observer microtask.
+    observer.takeRecords()
   }
   const observer = new MutationObserver((records) => {
     if (reconcilingRoots.has(root)) {
@@ -763,6 +1062,7 @@ export function observeBindingDescendants(
   bindingObservers.set(root, {
     observer,
     reconcile,
+    onError,
     // A content binding may be inserting its own DOM, or React may be retiring
     // that binding in the same commit. Let the data-bind mutation or observer
     // callback reconcile those records as one ownership transition.
@@ -772,6 +1072,7 @@ export function observeBindingDescendants(
   })
   observer.observe(root, {
     attributes: true,
+    attributeOldValue: true,
     childList: true,
     subtree: true,
   })
@@ -799,10 +1100,6 @@ export function reconcileBindingDescendants(root: HTMLElement) {
   }
 
   const records = state.observer.takeRecords()
-  if (records.length === 0) {
-    return
-  }
-
   reconcilingRoots.add(root)
   try {
     state.reconcile(records)
