@@ -4,6 +4,40 @@ import ko from 'knockout'
 import { RootKnockoutProvider, KnockoutScope, KoForeach } from '@/index'
 
 describe('KoForeach', () => {
+  it('does not re-register its view model when a parent re-renders', () => {
+    const items = ko.observableArray(['A'])
+    let registrations = 0
+    const appViewModel = new Proxy<Record<string, unknown>>({}, {
+      set(target, property, value) {
+        registrations += 1
+        return Reflect.set(target, property, value)
+      }
+    })
+
+    const { rerender } = render(
+      <RootKnockoutProvider viewModel={appViewModel}>
+        <KoForeach items={items}>
+          <span data-bind="text: $data" />
+        </KoForeach>
+      </RootKnockoutProvider>
+    )
+
+    expect(registrations).toBe(1)
+
+    rerender(
+      <RootKnockoutProvider viewModel={appViewModel}>
+        <KoForeach items={items}>
+          <span data-bind="text: $data" />
+        </KoForeach>
+      </RootKnockoutProvider>
+    )
+
+    expect(registrations).toBe(1)
+
+    items.push('B')
+    expect(screen.getByText('B')).toBeDefined()
+  })
+
   it('renders children for each item in the array (observable)', () => {
     const vm = { items: ko.observableArray(['A', 'B', 'C']) }
 

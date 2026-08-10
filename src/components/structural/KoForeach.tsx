@@ -12,7 +12,7 @@ type Props = {
  * Uses Knockout's `foreach:` binding internally.
  */
 export const KoForeach = React.memo(function KoForeach({ items, children }: Props) {
-  const vm = { items }
+  const vm = React.useMemo(() => ({ items }), [items])
 
   return (
     <KnockoutScope viewModel={vm}>
