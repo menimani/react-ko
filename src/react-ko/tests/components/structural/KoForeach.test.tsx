@@ -139,6 +139,26 @@ describe('KoForeach', () => {
     expect(screen.getByText('B')).toBeDefined()
   })
 
+  it('re-renders when an observable array value is replaced', () => {
+    const items = ko.observable<string[]>(['A'])
+
+    render(
+      <RootKnockoutProvider viewModel={{}}>
+        <KoForeach items={items}>
+          {(item) => <span>{item}</span>}
+        </KoForeach>
+      </RootKnockoutProvider>
+    )
+
+    act(() => {
+      items(['B', 'C'])
+    })
+
+    expect(screen.queryByText('A')).toBeNull()
+    expect(screen.getByText('B')).toBeDefined()
+    expect(screen.getByText('C')).toBeDefined()
+  })
+
   it('renders plain arrays', () => {
     render(
       <RootKnockoutProvider viewModel={{}}>
@@ -172,6 +192,22 @@ describe('KoForeach', () => {
     })
 
     expect(screen.getByText('A')).toBe(node)
+  })
+
+  it('makes each object item the Knockout $root for its row', () => {
+    const appVm = { name: ko.observable('App') }
+    const item = row('Row')
+
+    render(
+      <RootKnockoutProvider viewModel={appVm}>
+        <KoForeach items={[item]}>
+          {() => <span data-bind="text: $root.name" />}
+        </KoForeach>
+      </RootKnockoutProvider>
+    )
+
+    expect(screen.getByText('Row')).toBeDefined()
+    expect(screen.queryByText('App')).toBeNull()
   })
 
   it('keys rows with itemKey when provided', () => {
@@ -217,5 +253,23 @@ describe('KoForeach', () => {
     expect(screen.getByText('G1-x')).toBeDefined()
     expect(screen.getByText('G1-y')).toBeDefined()
     expect(screen.getByText('G2-z')).toBeDefined()
+  })
+
+  it('disposes its items subscription on unmount', () => {
+    const items = ko.observableArray(['A'])
+
+    const { unmount } = render(
+      <RootKnockoutProvider viewModel={{}}>
+        <KoForeach items={items}>
+          {(item) => <span>{item}</span>}
+        </KoForeach>
+      </RootKnockoutProvider>
+    )
+
+    expect(items.getSubscriptionsCount()).toBe(1)
+
+    unmount()
+
+    expect(items.getSubscriptionsCount()).toBe(0)
   })
 })

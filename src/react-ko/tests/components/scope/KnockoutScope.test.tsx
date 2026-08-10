@@ -152,6 +152,47 @@ describe('KnockoutScope', () => {
     expect(vm.name.getSubscriptionsCount()).toBe(0)
   })
 
+  it('rebinds and disposes the previous bindings when its view model changes', () => {
+    const first = { name: ko.observable('First') }
+    const second = { name: ko.observable('Second') }
+
+    function Harness({ viewModel }: { viewModel: typeof first }) {
+      return (
+        <RootKnockoutProvider viewModel={{}}>
+          <KnockoutScope viewModel={viewModel}>
+            <span data-bind="text: name" />
+          </KnockoutScope>
+        </RootKnockoutProvider>
+      )
+    }
+
+    const { rerender } = render(<Harness viewModel={first} />)
+    expect(screen.getByText('First')).toBeDefined()
+    expect(first.name.getSubscriptionsCount()).toBeGreaterThan(0)
+
+    rerender(<Harness viewModel={second} />)
+
+    expect(screen.getByText('Second')).toBeDefined()
+    expect(first.name.getSubscriptionsCount()).toBe(0)
+    expect(second.name.getSubscriptionsCount()).toBeGreaterThan(0)
+  })
+
+  it('makes the scoped view model the Knockout $root', () => {
+    const appVm = { name: ko.observable('App') }
+    const scopeVm = { name: ko.observable('Scope') }
+
+    render(
+      <RootKnockoutProvider viewModel={appVm}>
+        <KnockoutScope viewModel={scopeVm}>
+          <span data-bind="text: $root.name" />
+        </KnockoutScope>
+      </RootKnockoutProvider>
+    )
+
+    expect(screen.getByText('Scope')).toBeDefined()
+    expect(screen.queryByText('App')).toBeNull()
+  })
+
   it('rebinds nested scopes when an ancestor scope rebinds', () => {
     const appVm = {}
     const inner = { label: ko.observable('First') }

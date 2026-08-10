@@ -120,5 +120,48 @@ describe('KoIfNot', () => {
     })
 
     expect(screen.getByText('Late')).toBeDefined()
+
+    act(() => {
+      vm.label('Changed')
+    })
+
+    expect(screen.getByText('Changed')).toBeDefined()
+  })
+
+  it('unbinds children when the condition becomes true', () => {
+    const vm = { isHidden: ko.observable(false), label: ko.observable('Gone') }
+
+    render(
+      <RootKnockoutProvider viewModel={{}}>
+        <KnockoutScope viewModel={vm}>
+          <KoIfNot condition={vm.isHidden}>
+            <span data-bind="text: label" />
+          </KoIfNot>
+        </KnockoutScope>
+      </RootKnockoutProvider>
+    )
+
+    expect(vm.label.getSubscriptionsCount()).toBeGreaterThan(0)
+
+    act(() => {
+      vm.isHidden(true)
+    })
+
+    expect(screen.queryByText('Gone')).toBeNull()
+    expect(vm.label.getSubscriptionsCount()).toBe(0)
+  })
+
+  it('binds children to the root view model when there is no enclosing scope', () => {
+    const vm = { isHidden: ko.observable(false), label: ko.observable('Root') }
+
+    render(
+      <RootKnockoutProvider viewModel={vm}>
+        <KoIfNot condition={vm.isHidden}>
+          <span data-bind="text: label" />
+        </KoIfNot>
+      </RootKnockoutProvider>
+    )
+
+    expect(screen.getByText('Root')).toBeDefined()
   })
 })
