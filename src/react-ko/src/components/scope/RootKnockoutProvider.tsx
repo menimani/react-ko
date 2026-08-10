@@ -1,10 +1,11 @@
 import * as React from 'react'
-import { useRef, useLayoutEffect, useState } from 'react'
+import { useContext, useRef, useLayoutEffect, useState } from 'react'
 import ko from 'knockout'
 import { AppViewModelContext } from '@/index'
 import { ScopeViewModelContext } from '@/context/ScopeViewModelContext'
 import { ScopeBindGenerationContext } from '@/context/ScopeBindGenerationContext'
 import { applyBindingsSafely } from './applyBindingsSafely'
+import { DESCENDANT_BINDING_BOUNDARY } from './descendantBindingBoundary'
 
 type Props<T> = {
   viewModel: T
@@ -17,6 +18,7 @@ type Props<T> = {
  */
 export const RootKnockoutProvider = React.memo(function RootKnockoutProvider<T>({ viewModel, children }: Props<T>) {
   const koContainer = useRef<HTMLDivElement | null>(null)
+  const parentGeneration = useContext(ScopeBindGenerationContext)
   const [generation, setGeneration] = useState(0)
   const isFirstBind = useRef(true)
 
@@ -27,8 +29,8 @@ export const RootKnockoutProvider = React.memo(function RootKnockoutProvider<T>(
     }
     applyBindingsSafely(viewModel, node)
 
-    // Cleaning the root also disposes bindings owned by nested scopes. Let
-    // the nearest scopes know that they must bind their descendants again.
+    // Cleaning the root also disposes bindings owned by nested binding roots.
+    // Let the nearest descendants know that they must bind themselves again.
     if (isFirstBind.current) {
       isFirstBind.current = false
     } else {
@@ -38,14 +40,16 @@ export const RootKnockoutProvider = React.memo(function RootKnockoutProvider<T>(
     return () => {
       ko.cleanNode(node)
     }
-  }, [viewModel])
+  }, [viewModel, parentGeneration])
 
   return (
     <AppViewModelContext.Provider value={viewModel}>
       <ScopeViewModelContext.Provider value={viewModel}>
         <ScopeBindGenerationContext.Provider value={generation}>
-          <div ref={koContainer} style={{ display: 'contents' }}>
-            {children}
+          <div data-bind={`${DESCENDANT_BINDING_BOUNDARY}: true`} style={{ display: 'contents' }}>
+            <div ref={koContainer} style={{ display: 'contents' }}>
+              {children}
+            </div>
           </div>
         </ScopeBindGenerationContext.Provider>
       </ScopeViewModelContext.Provider>
