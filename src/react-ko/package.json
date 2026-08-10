@@ -3,11 +3,11 @@
   "version": "2.0.0",
   "description": "React + Knockout integration library",
   "main": "dist/index.cjs",
-  "module": "dist/index.js",
+  "module": "dist/index.mjs",
   "types": "dist/index.d.ts",
   "exports": {
     ".": {
-      "import": "./dist/index.js",
+      "import": "./dist/index.mjs",
       "require": "./dist/index.cjs"
     }
   },
@@ -33,7 +33,7 @@
   },
   "homepage": "https://github.com/menimani/react-ko#readme",
   "scripts": {
-    "build": "tsup && tsc --project tests/declarations/tsconfig.json",
+    "build": "tsup && tsc --project tests/declarations/tsconfig.json && node tests/package-smoke.mjs",
     "test": "npx vitest run --reporter verbose"
   },
   "peerDependencies": {

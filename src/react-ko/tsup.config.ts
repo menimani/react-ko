@@ -10,7 +10,7 @@ export default defineConfig({
   external: ['react', 'react-dom', 'knockout'],
   outExtension({ format }) {
     return {
-      js: format === 'cjs' ? '.cjs' : '.js'
+      js: format === 'cjs' ? '.cjs' : '.mjs'
     }
   }
 })
