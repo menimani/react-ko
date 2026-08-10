@@ -29,17 +29,49 @@ type ReactHostProps = {
   dangerouslySetInnerHTML?: unknown
 }
 
-function propsOwnChildren(props: ReactHostProps | null | undefined): boolean {
-  return (
-    props?.dangerouslySetInnerHTML !== undefined ||
-    (props?.children !== undefined && props.children !== null && props.children !== false)
-  )
+type ReactFiber = {
+  stateNode?: unknown
+  child?: ReactFiber | null
+  sibling?: ReactFiber | null
+  pendingProps?: ReactHostProps
+  alternate?: ReactFiber | null
 }
 
-export function hasReactOwnedChildren(element: Element): boolean {
-  if (!element.hasChildNodes()) {
-    return false
+function propsOwnUnfiberedContent(props: ReactHostProps | null | undefined): boolean {
+  const innerHtml = (props?.dangerouslySetInnerHTML as { __html?: unknown } | undefined)?.__html
+  if (innerHtml !== undefined && innerHtml !== null && String(innerHtml) !== '') {
+    return true
   }
+
+  function hasRenderedPrimitive(child: unknown): boolean {
+    if (typeof child === 'string') return child !== ''
+    if (typeof child === 'number') return true
+    return Array.isArray(child) && child.some(hasRenderedPrimitive)
+  }
+
+  return hasRenderedPrimitive(props?.children)
+}
+
+function fiberOwnsNode(fiber: ReactFiber | null | undefined, nodes: ReadonlySet<Node>): boolean {
+  for (let current = fiber; current !== null && current !== undefined; current = current.sibling) {
+    if (nodes.has(current.stateNode as Node)) {
+      return true
+    }
+    if (fiberOwnsNode(current.child, nodes)) {
+      return true
+    }
+  }
+
+  return false
+}
+
+export function hasReactOwnedChildren(
+  element: Element,
+  excludedChildren?: ReadonlySet<Node>
+): boolean {
+  const children = new Set(
+    [...element.childNodes].filter((child) => !excludedChildren?.has(child))
+  )
 
   const reactPropsKey = Object.getOwnPropertyNames(element).find((key) =>
     key.startsWith('__reactProps$')
@@ -47,7 +79,7 @@ export function hasReactOwnedChildren(element: Element): boolean {
   if (reactPropsKey === undefined) {
     // applyBindingsSafely also accepts DOM assembled outside React. Treat its
     // existing children conservatively because their ownership is unknown.
-    return true
+    return children.size > 0
   }
 
   const reactProps = (element as unknown as Record<string, unknown>)[reactPropsKey] as
@@ -57,26 +89,31 @@ export function hasReactOwnedChildren(element: Element): boolean {
   const reactFiberKey = Object.getOwnPropertyNames(element).find((key) =>
     key.startsWith('__reactFiber$')
   )
-  const reactFiber =
+  const reactFiber: ReactFiber | undefined =
     reactFiberKey === undefined
       ? undefined
-      : ((element as unknown as Record<string, unknown>)[reactFiberKey] as {
-          pendingProps?: ReactHostProps
-          alternate?: { pendingProps?: ReactHostProps } | null
-        })
+      : ((element as unknown as Record<string, unknown>)[reactFiberKey] as ReactFiber)
 
   if (
-    propsOwnChildren(reactProps) ||
-    propsOwnChildren(reactFiber?.pendingProps) ||
-    propsOwnChildren(reactFiber?.alternate?.pendingProps)
+    propsOwnUnfiberedContent(reactProps) ||
+    propsOwnUnfiberedContent(reactFiber?.pendingProps) ||
+    propsOwnUnfiberedContent(reactFiber?.alternate?.pendingProps)
   ) {
     return true
   }
+  if (children.size === 0) {
+    return false
+  }
 
   // Element instances are tagged before insertion. Text instances are not,
-  // so committed and work-in-progress host props above identify direct text.
-  // Knockout-written nodes carry neither props nor a React tag.
-  return [...element.childNodes].some(hasReactTag)
+  // so find those by identity in the committed and work-in-progress fiber
+  // trees. A component that renders null and other no-output children have no
+  // matching host node. Knockout-written nodes have neither marker.
+  return (
+    [...children].some(hasReactTag) ||
+    fiberOwnsNode(reactFiber?.child, children) ||
+    fiberOwnsNode(reactFiber?.alternate?.child, children)
+  )
 }
 
 /**

@@ -54,6 +54,61 @@ describe('RootKnockoutProvider', () => {
     expect(screen.getByText('Updated')).toBeDefined()
   })
 
+  describe.each([
+    ['text', 'text: label'],
+    ['html', 'html: markup'],
+    ['options', 'options: choices'],
+  ] as const)('%s binding with no-output React children', (kind, binding) => {
+    function NoOutput() {
+      return null
+    }
+
+    it.each([
+      ['an empty array', () => []],
+      ['an empty string', () => ''],
+      ['a null-rendering component', () => <NoOutput />],
+    ] as const)('keeps observable updates bound for %s', async (_, renderChildren) => {
+      const vm = {
+        label: ko.observable('Initial'),
+        markup: ko.observable('<strong>Initial</strong>'),
+        choices: ko.observable(['Initial']),
+      }
+      const value = kind === 'text' ? vm.label : kind === 'html' ? vm.markup : vm.choices
+      const children = renderChildren()
+
+      render(
+        <RootKnockoutProvider viewModel={vm}>
+          {kind === 'options' ? (
+            <select data-testid="no-output-owner" data-bind={binding}>
+              {children}
+            </select>
+          ) : (
+            <div data-testid="no-output-owner" data-bind={binding}>
+              {children}
+            </div>
+          )}
+        </RootKnockoutProvider>
+      )
+
+      const owner = screen.getByTestId('no-output-owner')
+      await waitFor(() => {
+        expect(owner.textContent).toBe('Initial')
+        expect(value.getSubscriptionsCount()).toBeGreaterThan(0)
+      })
+
+      act(() => {
+        if (kind === 'text') vm.label('Updated')
+        else if (kind === 'html') vm.markup('<em>Updated</em>')
+        else vm.choices(['Updated'])
+      })
+
+      await waitFor(() => {
+        expect(owner.textContent).toBe('Updated')
+        expect(value.getSubscriptionsCount()).toBeGreaterThan(0)
+      })
+    })
+  })
+
   it('binds ordinary React descendants mounted after the initial pass', async () => {
     const vm = { label: ko.observable('Mounted later') }
 
