@@ -1095,40 +1095,88 @@ describe('RootKnockoutProvider', () => {
     unmount()
   })
 
-  it.each([
+  describe.each([
     ['click', 'click: handle', 'click'],
     ['event', 'event: { mouseover: handle }', 'mouseover'],
-    ['submit', 'submit: handle', 'submit'],
-  ] as const)('removes the listener owned by a retired %s binding', (_, source, eventType) => {
+  ] as const)('%s listener cleanup', (_, source, eventType) => {
+    it.each([
+      ['removed', undefined],
+      ['replaced', 'attr: { title: replacementTitle }'],
+    ] as const)('removes the listener when data-bind is %s', (_, nextBinding) => {
+      const handle = vi.fn()
+      const vm = { handle, replacementTitle: 'Replacement binding is active' }
+
+      function Harness({ dataBind }: { dataBind: string | undefined }) {
+        return (
+          <RootKnockoutProvider viewModel={vm}>
+            <button data-testid="listener-owner" data-bind={dataBind} />
+          </RootKnockoutProvider>
+        )
+      }
+
+      const { rerender } = render(<Harness dataBind={source} />)
+      const element = screen.getByTestId('listener-owner')
+      const boundEvent = new Event(eventType, { bubbles: true, cancelable: true })
+      fireEvent(element, boundEvent)
+      expect(handle).toHaveBeenCalledWith(vm, boundEvent)
+
+      rerender(<Harness dataBind={nextBinding} />)
+      if (nextBinding !== undefined) {
+        expect(element.title).toBe('Replacement binding is active')
+      }
+      fireEvent(element, new Event(eventType, { bubbles: true, cancelable: true }))
+
+      expect(handle).toHaveBeenCalledTimes(1)
+    })
+
+    it.each([
+      ['normally', false],
+      ['under StrictMode', true],
+    ] as const)('removes the listener when the binding root unmounts %s', (_, strict) => {
+      const handle = vi.fn()
+      const vm = { handle }
+      const root = (
+        <RootKnockoutProvider viewModel={vm}>
+          <button data-testid="listener-owner" data-bind={source} />
+        </RootKnockoutProvider>
+      )
+
+      const { unmount } = render(strict ? <StrictMode>{root}</StrictMode> : root)
+      const element = screen.getByTestId('listener-owner')
+      const boundEvent = new Event(eventType, { bubbles: true, cancelable: true })
+      fireEvent(element, boundEvent)
+      expect(handle).toHaveBeenCalledWith(vm, boundEvent)
+
+      unmount()
+      expect(element.isConnected).toBe(false)
+      fireEvent(element, new Event(eventType, { bubbles: true, cancelable: true }))
+
+      expect(handle).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  it('removes the listener owned by a retired submit binding', () => {
     const handle = vi.fn()
     const vm = { handle }
 
     function Harness({ bound }: { bound: boolean }) {
-      const dataBind = bound ? source : undefined
-
       return (
         <RootKnockoutProvider viewModel={vm}>
-          {eventType === 'submit' ? (
-            <form data-testid="listener-owner" data-bind={dataBind} />
-          ) : (
-            <button data-testid="listener-owner" data-bind={dataBind} />
-          )}
+          <form
+            data-testid="listener-owner"
+            data-bind={bound ? 'submit: handle' : undefined}
+          />
         </RootKnockoutProvider>
       )
     }
 
     const { rerender } = render(<Harness bound />)
     const element = screen.getByTestId('listener-owner')
-    const boundEvent = new Event(eventType, { bubbles: true, cancelable: true })
-    fireEvent(element, boundEvent)
-    if (eventType === 'submit') {
-      expect(handle).toHaveBeenCalledWith(element)
-    } else {
-      expect(handle).toHaveBeenCalledWith(vm, boundEvent)
-    }
+    fireEvent.submit(element)
+    expect(handle).toHaveBeenCalledWith(element)
 
     rerender(<Harness bound={false} />)
-    fireEvent(element, new Event(eventType, { bubbles: true, cancelable: true }))
+    fireEvent.submit(element)
 
     expect(handle).toHaveBeenCalledTimes(1)
   })
