@@ -53,10 +53,18 @@ export interface ProjectAdapter {
   scanWorktreeSetup?: WorktreeSetupStep[]
 }
 
-export async function loadProject(name: string): Promise<ProjectAdapter> {
+let reloadSequence = 0
+
+export async function loadProject(name: string, fresh = false): Promise<ProjectAdapter> {
   switch (name) {
     case 'react-ko': {
-      const mod = await import('./project-reactko.ts')
+      // The daemon may merge changes to its adapter while it is still running. A
+      // query makes Node evaluate the current file instead of returning the module
+      // instance cached when the loop started.
+      const specifier = fresh
+        ? new URL(`./project-reactko.ts?reload=${++reloadSequence}`, import.meta.url).href
+        : './project-reactko.ts'
+      const mod = await import(specifier) as typeof import('./project-reactko.ts')
       return mod.reactKoProject
     }
     default:

@@ -43,6 +43,8 @@ export interface LoopDeps {
   forge: Forge
   runner: Runner
   project: ProjectAdapter
+  /** Reload adapter declarations that may have changed during this daemon run. */
+  reloadProject?: (() => Promise<ProjectAdapter>) | undefined
   log: (line: string) => void
   now: () => Date
   orchestrationDepsRuntime?: OrchestrationDepsRuntime | undefined
@@ -59,7 +61,9 @@ interface FindingDispatch {
 }
 
 export function createLoop(deps: LoopDeps) {
-  const { paths, config, forge, runner, project, log, now, orchestrationDepsRuntime } = deps
+  const {
+    paths, config, forge, runner, project, reloadProject, log, now, orchestrationDepsRuntime,
+  } = deps
   const queueFile = join(paths.queueDir, 'backlog.txt')
   const stopFile = join(paths.queueDir, 'stop')
   const scannedDir = join(paths.queueDir, 'scanned')
@@ -1099,10 +1103,11 @@ export function createLoop(deps: LoopDeps) {
         : `This scan runs alongside ${nScans - 1} partner scan(s). Perform only sections ${(sectionGroups[nScans] as string[])[i - 1]}; the partners cover the rest. Stay inside them — overlapping findings merge away, duplicated reading does not.`
       if (generateScanTask(scanId, scope)) {
         try {
+          const currentProject = reloadProject === undefined ? project : await reloadProject()
           await startTask(paths, runner, scanId, {
             effort: config.scanEffort as 'high',
             model: config.scanModel === '' ? undefined : config.scanModel,
-            setup: project.scanWorktreeSetup,
+            setup: currentProject.scanWorktreeSetup,
           })
           event('Started', `${shortTaskId(scanId)}  scan ${i}/${nScans}`)
         } catch (error) {
