@@ -1,1 +1,6 @@
-export { AppViewModelContext, useAppViewModel } from './AppViewModelContext'
+export {
+  AppViewModelContext,
+  createAppViewModelContext,
+  useAppViewModel,
+  type AppViewModelContextHandle,
+} from './AppViewModelContext'

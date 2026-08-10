@@ -9,5 +9,5 @@
     "allowSyntheticDefaultImports": false,
     "skipLibCheck": false
   },
-  "files": ["../../dist/index.d.ts"]
+  "files": ["../../dist/index.d.ts", "app-view-model-context.ts"]
 }
