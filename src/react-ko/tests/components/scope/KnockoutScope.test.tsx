@@ -22,6 +22,19 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean
 }
 
 describe('KnockoutScope', () => {
+  it('requires an enclosing app view model provider without leaking subscriptions', () => {
+    const vm = { name: ko.observable('Unbound') }
+
+    expect(() =>
+      render(
+        <KnockoutScope viewModel={vm}>
+          <span data-bind="text: name" />
+        </KnockoutScope>
+      )
+    ).toThrow('useAppViewModel must be used within an AppViewModelContext.Provider.')
+    expect(vm.name.getSubscriptionsCount()).toBe(0)
+  })
+
   it('binds directly beneath AppViewModelContext.Provider without a root provider', () => {
     const appVm = { name: ko.observable('App') }
     const scopeVm = { name: ko.observable('Scoped') }
