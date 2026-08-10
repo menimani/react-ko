@@ -71,6 +71,30 @@ describe('RootKnockoutProvider', () => {
     expect(screen.getByText('Still bound')).toBeDefined()
   })
 
+  it('preserves a let descendant context for children mounted later', async () => {
+    const vm = { label: ko.observable('Late alias') }
+
+    function Harness({ show }: { show: boolean }) {
+      return (
+        <RootKnockoutProvider viewModel={vm}>
+          <div data-bind="let: { alias: label }">
+            {show ? <span data-bind="text: alias" /> : null}
+          </div>
+        </RootKnockoutProvider>
+      )
+    }
+
+    const { rerender } = render(<Harness show={false} />)
+    rerender(<Harness show />)
+
+    await waitFor(() => expect(screen.getByText('Late alias')).toBeDefined())
+
+    act(() => {
+      vm.label('Updated alias')
+    })
+    expect(screen.getByText('Updated alias')).toBeDefined()
+  })
+
   it('sends a late binding error to a React error boundary with a stable view model', async () => {
     const vm = {}
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
@@ -142,6 +166,59 @@ describe('RootKnockoutProvider', () => {
 
     rerender(<Harness binding="second" />)
     expect(vm.second.getSubscriptionsCount()).toBe(1)
+  })
+
+  it('preserves a let descendant context when data-bind changes', async () => {
+    const vm = {
+      first: ko.observable('First alias'),
+      second: ko.observable('Second alias'),
+    }
+
+    function Harness({ binding }: { binding: 'firstAlias' | 'secondAlias' }) {
+      return (
+        <RootKnockoutProvider viewModel={vm}>
+          <div data-bind="let: { firstAlias: first, secondAlias: second }">
+            <span data-bind={`text: ${binding}`} />
+          </div>
+        </RootKnockoutProvider>
+      )
+    }
+
+    const { rerender } = render(<Harness binding="firstAlias" />)
+    expect(screen.getByText('First alias')).toBeDefined()
+
+    rerender(<Harness binding="secondAlias" />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Second alias')).toBeDefined()
+      expect(vm.first.getSubscriptionsCount()).toBe(0)
+      expect(vm.second.getSubscriptionsCount()).toBe(1)
+    })
+  })
+
+  it('rejects React children added while a content binding remains active', async () => {
+    const vm = { label: ko.observable('Knockout text') }
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    function Harness({ show }: { show: boolean }) {
+      return (
+        <ErrorBoundary>
+          <RootKnockoutProvider viewModel={vm}>
+            <div data-bind="text: label">{show ? <button>React child</button> : null}</div>
+          </RootKnockoutProvider>
+        </ErrorBoundary>
+      )
+    }
+
+    try {
+      const { rerender } = render(<Harness show={false} />)
+      rerender(<Harness show />)
+
+      await waitFor(() => expect(screen.getByText('Binding failed')).toBeDefined())
+      expect(vm.label.getSubscriptionsCount()).toBe(0)
+    } finally {
+      consoleError.mockRestore()
+    }
   })
 
   it.each([

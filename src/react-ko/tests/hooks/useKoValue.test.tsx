@@ -17,6 +17,11 @@ function Probe<T>({ source }: { source: ko.Observable<T> | ko.Computed<T> | T })
   return <span data-testid="value">{String(value)}</span>
 }
 
+function ObjectProbe({ source }: { source: ko.Observable<{ label: string }> }) {
+  const value = useKoValue(source)
+  return <span data-testid="value">{value.label}</span>
+}
+
 describe('useKoValue', () => {
   it('returns the current value of an observable', () => {
     const name = ko.observable('Hello')
@@ -116,6 +121,24 @@ describe('useKoValue', () => {
     )
 
     expect(screen.getByTestId('value').textContent).toBe('A,B')
+  })
+
+  it('catches an in-place object change fired between render and subscription', () => {
+    const state = ko.observable({ label: 'Before' })
+
+    render(
+      <>
+        <ObjectProbe source={state} />
+        <LayoutMutator
+          run={() => {
+            state().label = 'After'
+            state.valueHasMutated()
+          }}
+        />
+      </>
+    )
+
+    expect(screen.getByTestId('value').textContent).toBe('After')
   })
 
   it('disposes its subscription on unmount', () => {

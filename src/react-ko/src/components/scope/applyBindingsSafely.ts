@@ -1,5 +1,6 @@
 import ko from 'knockout'
 import { DESCENDANT_BINDING_BOUNDARY } from './descendantBindingBoundary'
+import { prepareDescendantBindingContextCapture } from './descendantBindingContexts'
 
 const REACT_UNSAFE_BINDINGS = new Set(['if', 'ifnot', 'foreach', 'template', 'with'])
 const REACT_CHILD_UNSAFE_BINDINGS = new Set(['text', 'html', 'component', 'options'])
@@ -49,7 +50,7 @@ export function hasReactOwnedChildren(element: Element): boolean {
  * nodes owned by React. Descendant scopes validate their own trees, so an
  * ancestor must stop scanning at their binding boundaries.
  */
-function assertNoReactUnsafeBindings(root: HTMLElement) {
+export function assertNoReactUnsafeBindings(root: HTMLElement) {
   function visit(element: Element) {
     const names = bindingNames(element)
     const unsafeBinding = [...names].find(
@@ -87,6 +88,7 @@ function assertNoReactUnsafeBindings(root: HTMLElement) {
  */
 export function applyBindingsSafely(viewModel: unknown, node: HTMLElement) {
   assertNoReactUnsafeBindings(node)
+  const removeContextMarkers = prepareDescendantBindingContextCapture(node)
 
   try {
     ko.applyBindings(viewModel, node)
@@ -97,5 +99,7 @@ export function applyBindingsSafely(viewModel: unknown, node: HTMLElement) {
       // Preserve the binding error even if cleanup itself fails.
       throw error
     }
+  } finally {
+    removeContextMarkers()
   }
 }
