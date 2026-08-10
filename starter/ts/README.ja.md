@@ -27,7 +27,9 @@ npx degit menimani/react-ko/starter/js my-app-js
 
 - React + TypeScript + Vite（公式テンプレート）
 - Knockout.js と react-ko インストール済み
-- ルートプロバイダーとネストしたスコープによる双方向の `data-bind`
+- `RootKnockoutProvider` でバインドするアプリレベルの ViewModel
+- 対応関係が保証された `createAppViewModelContext` の Provider と `useAppViewModel` フック
+- ネストしたスコープによる双方向の `data-bind`
 - `KoIf` / `KoIfNot`、キー付き `KoForeach` 行、nullable な `KoWith` 詳細表示で
   作った動作する todo リスト
 - `observableArray` のインプレース更新を React の表示につなぐ `useKoValue`
