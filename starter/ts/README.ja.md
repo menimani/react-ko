@@ -40,10 +40,16 @@ npx degit menimani/react-ko/starter/js my-app-js
 ```tsx
 const itemCount = useKoValue(vm.list).length
 
-<KoForeach items={vm.list} itemKey={(todo) => todo.id}>
-  {(_todo, index) => <li>{index + 1}. <span data-bind="text: title" /></li>}
-</KoForeach>
+<ul>
+  <KoForeach items={vm.list} itemKey={(todo) => todo.id} boundaryAs="li" as="div">
+    {(_todo, index) => <div>{index + 1}. <span data-bind="text: title" /></div>}
+  </KoForeach>
+</ul>
 ```
+
+`boundaryAs` により各行が `ul` 直下のセマンティックな `li` になり、`as` で
+内側のバインディングホストを選べます。`button` などフレージングコンテンツのみを
+許す要素内のスコープでは `boundaryAs="span" as="span"` を使います。
 
 完全な例は [`src/components/TodoForm.tsx`](./src/components/TodoForm.tsx)、
 API は [react-ko の README](https://github.com/menimani/react-ko/blob/main/README.ja.md) を参照してください。

@@ -5,8 +5,9 @@ import { ScopeViewModelContext } from '@/context/ScopeViewModelContext'
 import { ScopeBindGenerationContext } from '@/context/ScopeBindGenerationContext'
 import { DESCENDANT_BINDING_BOUNDARY } from './descendantBindingBoundary'
 import { useBindingRoot } from './useBindingRoot'
+import { semanticHostComponent, type SemanticHostProps } from './semanticHost'
 
-type Props<T> = {
+type Props<T> = SemanticHostProps & {
   viewModel: T
   children: React.ReactNode
 }
@@ -17,7 +18,14 @@ type Props<T> = {
  * (rows of a KoForeach, children of a KoIf) are still bound, and unbinds
  * them with `ko.cleanNode` on unmount so subscriptions do not leak.
  */
-export const KnockoutScope = React.memo(function KnockoutScope<T>({ viewModel, children }: Props<T>) {
+export const KnockoutScope = React.memo(function KnockoutScope<T>({
+  viewModel,
+  children,
+  boundaryAs = 'div',
+  as = 'div',
+}: Props<T>) {
+  const BoundaryHost = semanticHostComponent(boundaryAs)
+  const BindingHost = semanticHostComponent(as)
   useAppViewModel()
 
   const parentGeneration = useContext(ScopeBindGenerationContext)
@@ -38,11 +46,11 @@ export const KnockoutScope = React.memo(function KnockoutScope<T>({ viewModel, c
   return (
     <ScopeViewModelContext.Provider value={viewModel}>
       <ScopeBindGenerationContext.Provider value={generation}>
-        <div data-bind={`${DESCENDANT_BINDING_BOUNDARY}: true`} style={{ display: 'contents' }}>
-          <div ref={container} style={{ display: 'contents' }}>
+        <BoundaryHost data-bind={`${DESCENDANT_BINDING_BOUNDARY}: true`} style={{ display: 'contents' }}>
+          <BindingHost ref={container} style={{ display: 'contents' }}>
             {children}
-          </div>
-        </div>
+          </BindingHost>
+        </BoundaryHost>
       </ScopeBindGenerationContext.Provider>
     </ScopeViewModelContext.Provider>
   )

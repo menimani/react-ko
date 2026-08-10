@@ -9,7 +9,7 @@ import {
 } from './observeBindingDescendants'
 
 type ActiveBinding = {
-  node: HTMLDivElement
+  node: HTMLElement
   viewModel: unknown
   parentGeneration: number
   stopObserving: () => void
@@ -20,7 +20,7 @@ export function useBindingRoot(
   parentGeneration: number,
   onError: (error: unknown) => void
 ) {
-  const container = useRef<HTMLDivElement | null>(null)
+  const container = useRef<HTMLElement | null>(null)
   const activeBinding = useRef<ActiveBinding | null>(null)
   const replacedBinding = useRef(false)
   const [generation, setGeneration] = useState(0)
@@ -36,7 +36,7 @@ export function useBindingRoot(
     activeBinding.current = null
   }
 
-  function bind(node: HTMLDivElement, replacing: boolean) {
+  function bind(node: HTMLElement, replacing: boolean) {
     const bindingStates = prepareBindingDescendants(node)
     applyBindingsSafely(viewModel, node)
     const stopObserving = observeBindingDescendants(

@@ -7,7 +7,7 @@ export const KoText = React.memo(function KoText({ text, color }) {
   const vm = { text, color }
 
   return (
-    <KnockoutScope viewModel={vm}>
+    <KnockoutScope viewModel={vm} boundaryAs="span" as="span">
       <span className={styles.text} data-bind="text: text, style: { color: color }"></span>
     </KnockoutScope>
   )

@@ -54,15 +54,15 @@ export function TodoForm() {
         </KoIfNot>
         <KoIf condition={itemCount > 0}>
           <ul className={styles.list}>
-            <KoForeach items={vm.list} itemKey={(todo) => todo.id}>
+            <KoForeach items={vm.list} itemKey={(todo) => todo.id} boundaryAs="li" as="div">
               {(todo, index) => (
-                <li className={styles.item}>
+                <div className={styles.item}>
                   <span>{index + 1}. </span>
                   <input type="checkbox" data-bind="checked: done" />
                   <span data-bind="text: title, css: { completed: done }" />
                   <button type="button" onClick={() => vm.selectedTodo(todo)}>Details</button>
                   <button type="button" onClick={() => vm.remove(todo)}>Remove</button>
-                </li>
+                </div>
               )}
             </KoForeach>
           </ul>

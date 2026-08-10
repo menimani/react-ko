@@ -1,8 +1,9 @@
 import * as React from 'react'
 import type * as ko from 'knockout'
 import { KnockoutScope, useKoValue } from '@/index'
+import type { SemanticHostProps } from '@/components/scope/semanticHost'
 
-type Props<T> = {
+type Props<T> = SemanticHostProps & {
   items: ko.ObservableArray<T> | ko.Observable<T[]> | ko.Computed<T[]> | T[]
   children: (item: T, index: number) => React.ReactNode
   itemKey?: (item: T, index: number) => React.Key
@@ -41,7 +42,7 @@ function defaultItemKey(
  * Iteration is owned by React: `$data`, `$index`, and `$parent` are
  * replaced by the function arguments and closures.
  */
-export function KoForeach<T>({ items, children, itemKey }: Props<T>) {
+export function KoForeach<T>({ items, children, itemKey, boundaryAs, as }: Props<T>) {
   const array = useKoValue<T[]>(items)
   const occurrences = new WeakMap<object, number>()
 
@@ -51,6 +52,8 @@ export function KoForeach<T>({ items, children, itemKey }: Props<T>) {
         <KnockoutScope
           key={itemKey ? itemKey(item, index) : defaultItemKey(item, index, occurrences)}
           viewModel={item}
+          boundaryAs={boundaryAs}
+          as={as}
         >
           {children(item, index)}
         </KnockoutScope>
