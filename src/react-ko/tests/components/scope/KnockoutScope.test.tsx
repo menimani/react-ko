@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, act, waitFor } from '@testing-library/react'
-import { Component, StrictMode, type ReactNode } from 'react'
+import { Component, StrictMode, useLayoutEffect, useRef, type ReactNode } from 'react'
 import ko from 'knockout'
 import { RootKnockoutProvider, KnockoutScope, KoScope } from '@/index'
 
@@ -274,6 +274,40 @@ describe('KnockoutScope', () => {
     expect(screen.getByText('Second')).toBeDefined()
     expect(first.name.getSubscriptionsCount()).toBe(0)
     expect(second.name.getSubscriptionsCount()).toBeGreaterThan(0)
+  })
+
+  it('rebinds a replacement view model before descendant layout effects dispatch change events', () => {
+    const first = { name: ko.observable('First') }
+    const second = { name: ko.observable('Second') }
+
+    function ChangeInLayout({ value }: { value: string | null }) {
+      const input = useRef<HTMLInputElement>(null)
+
+      useLayoutEffect(() => {
+        if (value !== null && input.current !== null) {
+          input.current.value = value
+          input.current.dispatchEvent(new Event('change', { bubbles: true }))
+        }
+      }, [value])
+
+      return <input ref={input} data-bind="value: name" />
+    }
+
+    function Harness({ viewModel, value }: { viewModel: typeof first; value: string | null }) {
+      return (
+        <RootKnockoutProvider viewModel={{}}>
+          <KnockoutScope viewModel={viewModel}>
+            <ChangeInLayout value={value} />
+          </KnockoutScope>
+        </RootKnockoutProvider>
+      )
+    }
+
+    const { rerender } = render(<Harness viewModel={first} value={null} />)
+    rerender(<Harness viewModel={second} value="Changed in layout" />)
+
+    expect(first.name()).toBe('First')
+    expect(second.name()).toBe('Changed in layout')
   })
 
   it('makes the scoped view model the Knockout $root', () => {

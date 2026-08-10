@@ -41,7 +41,7 @@ npx degit menimani/react-ko/starter/ts my-app-ts
 ```
 
 See [`src/components/TodoForm.jsx`](./src/components/TodoForm.jsx) for the
-full example, and the [react-ko README](../../README.md) for the API.
+full example, and the [react-ko README](https://github.com/menimani/react-ko/blob/main/README.md) for the API.
 
 ## License
 

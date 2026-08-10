@@ -10,6 +10,9 @@ if (ko.bindingHandlers[CAPTURE_DESCENDANT_CONTEXT] === undefined) {
       const parent = element.parentNode
       if (parent !== null) {
         descendantBindingContexts.set(parent, bindingContext)
+        ko.utils.domNodeDisposal.addDisposeCallback(parent, () => {
+          descendantBindingContexts.delete(parent)
+        })
       }
 
       // Remove the marker before childrenComplete callbacks run and before
