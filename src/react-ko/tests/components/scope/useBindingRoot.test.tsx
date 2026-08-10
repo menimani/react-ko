@@ -1,8 +1,15 @@
 import { describe, it, expect } from 'vitest'
-import { render, screen } from '@testing-library/react'
-import { Component, type ReactNode } from 'react'
+import { render, screen, act } from '@testing-library/react'
+import { Component, useLayoutEffect, useRef, type ReactElement, type ReactNode } from 'react'
 import ko from 'knockout'
-import { RootKnockoutProvider, KnockoutScope } from '@/index'
+import {
+  RootKnockoutProvider,
+  KnockoutScope,
+  KoForeach,
+  KoIf,
+  KoIfNot,
+  KoWith,
+} from '@/index'
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
   state = { failed: false }
@@ -17,6 +24,101 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean
 }
 
 describe('useBindingRoot', () => {
+  type StructuralToggle = (label: ko.Observable<string>) => {
+    element: ReactElement
+    reveal: () => void
+  }
+
+  const structuralToggles: Array<[string, StructuralToggle]> = [
+    [
+      'KoIf',
+      (label) => {
+        const visible = ko.observable(false)
+        return {
+          element: (
+            <RootKnockoutProvider viewModel={{ label }}>
+              <KoIf condition={visible}>
+                <LayoutInput />
+              </KoIf>
+            </RootKnockoutProvider>
+          ),
+          reveal: () => visible(true),
+        }
+      },
+    ],
+    [
+      'KoIfNot',
+      (label) => {
+        const hidden = ko.observable(true)
+        return {
+          element: (
+            <RootKnockoutProvider viewModel={{ label }}>
+              <KoIfNot condition={hidden}>
+                <LayoutInput />
+              </KoIfNot>
+            </RootKnockoutProvider>
+          ),
+          reveal: () => hidden(false),
+        }
+      },
+    ],
+    [
+      'KoForeach',
+      (label) => {
+        const items = ko.observableArray<{ label: ko.Observable<string> }>([])
+        return {
+          element: (
+            <RootKnockoutProvider viewModel={{}}>
+              <KoForeach items={items}>{() => <LayoutInput />}</KoForeach>
+            </RootKnockoutProvider>
+          ),
+          reveal: () => items.push({ label }),
+        }
+      },
+    ],
+    [
+      'KoWith',
+      (label) => {
+        const value = ko.observable<{ label: ko.Observable<string> } | null>(null)
+        return {
+          element: (
+            <RootKnockoutProvider viewModel={{}}>
+              <KoWith value={value}>{() => <LayoutInput />}</KoWith>
+            </RootKnockoutProvider>
+          ),
+          reveal: () => value({ label }),
+        }
+      },
+    ],
+  ]
+
+  function LayoutInput() {
+    const input = useRef<HTMLInputElement>(null)
+    useLayoutEffect(() => {
+      if (input.current === null) return
+      input.current.value = 'Changed during layout'
+      input.current.dispatchEvent(new Event('input', { bubbles: true }))
+    }, [])
+    return <input ref={input} data-testid="layout-input" data-bind="textInput: label" />
+  }
+
+  it.each(structuralToggles)(
+    'binds a newly revealed %s scope before descendant layout effects',
+    (_, createToggle) => {
+      const label = ko.observable('Initial')
+      const { element, reveal } = createToggle(label)
+      render(element)
+
+      act(reveal)
+
+      expect(label()).toBe('Changed during layout')
+      expect(screen.getByTestId('layout-input')).toHaveProperty(
+        'value',
+        'Changed during layout'
+      )
+    }
+  )
+
   it('unmounts cleanly when a rebind fails after the old binding was disposed', () => {
     const vmA = { label: ko.observable('First') }
     const vmB = { label: ko.observable('Second'), items: ko.observableArray<string>([]) }

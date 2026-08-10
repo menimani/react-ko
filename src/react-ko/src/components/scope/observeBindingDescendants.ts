@@ -111,7 +111,9 @@ function bindingNames(source: string | null) {
   return new Set(
     ko.expressionRewriting
       .parseObjectLiteral(source)
-      .flatMap(({ key }) => (key === undefined ? [] : [key]))
+      .flatMap(({ key }) =>
+        key === undefined ? [] : [key === 'textinput' ? 'textInput' : key]
+      )
   )
 }
 
@@ -856,9 +858,9 @@ function restoreRetiredDomEffects(element: HTMLElement, state: BindingState) {
   }
   if (names.has('attr')) {
     for (const name of state.ownedAttributes) {
-      if (name !== 'class' && name !== 'style') {
-        restoreAttribute(element, state.beforeBinding, name)
-      }
+      if (name === 'class' && names.has('css')) continue
+      if (name === 'style' && names.has('style')) continue
+      restoreAttribute(element, state.beforeBinding, name)
     }
   }
   if (names.has('uniqueName')) {
