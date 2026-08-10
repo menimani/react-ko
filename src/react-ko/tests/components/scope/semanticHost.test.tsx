@@ -97,10 +97,17 @@ describe('semantic hosts', () => {
         )
       }
 
-      const { rerender } = render(<Harness replace={false} />)
+      const { rerender, unmount } = render(<Harness replace={false} />)
+
+      expect(vm.label.getSubscriptionsCount()).toBe(1)
       rerender(<Harness replace />)
 
       expect(vm.label()).toBe('Changed during layout')
+      expect(vm.label.getSubscriptionsCount()).toBe(1)
+
+      unmount()
+
+      expect(vm.label.getSubscriptionsCount()).toBe(0)
     }
   )
 
