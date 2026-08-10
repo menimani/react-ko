@@ -151,4 +151,24 @@ describe('KoIf', () => {
     expect(screen.queryByText('Gone')).toBeNull()
     expect(vm.label.getSubscriptionsCount()).toBe(0)
   })
+
+  it('binds children to the root view model when there is no enclosing scope', () => {
+    const vm = { isVisible: ko.observable(true), label: ko.observable('Root') }
+
+    render(
+      <RootKnockoutProvider viewModel={vm}>
+        <KoIf condition={vm.isVisible}>
+          <span data-bind="text: label" />
+        </KoIf>
+      </RootKnockoutProvider>
+    )
+
+    expect(screen.getByText('Root')).toBeDefined()
+
+    act(() => {
+      vm.label('Updated')
+    })
+
+    expect(screen.getByText('Updated')).toBeDefined()
+  })
 })

@@ -71,6 +71,27 @@ describe('useKoValue', () => {
     expect(screen.getByTestId('value').textContent).toBe('42')
   })
 
+  it('moves its subscription when the source changes', () => {
+    const first = ko.observable('First')
+    const second = ko.observable('Second')
+
+    const { rerender } = render(<Probe source={first} />)
+    expect(first.getSubscriptionsCount()).toBe(1)
+
+    rerender(<Probe source={second} />)
+
+    expect(screen.getByTestId('value').textContent).toBe('Second')
+    expect(first.getSubscriptionsCount()).toBe(0)
+    expect(second.getSubscriptionsCount()).toBe(1)
+
+    act(() => {
+      first('Ignored')
+      second('Updated')
+    })
+
+    expect(screen.getByTestId('value').textContent).toBe('Updated')
+  })
+
   it('catches a change fired between render and subscription', () => {
     const name = ko.observable('Hello')
 
