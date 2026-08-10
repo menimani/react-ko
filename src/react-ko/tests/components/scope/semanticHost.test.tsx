@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { render } from '@testing-library/react'
-import { useLayoutEffect, useRef } from 'react'
+import { createElement, type ComponentType, useLayoutEffect, useRef } from 'react'
 import ko from 'knockout'
 import {
   KnockoutScope,
@@ -12,6 +12,17 @@ import {
 } from '@/index'
 
 describe('semantic hosts', () => {
+  function renderWithJavaScriptHost(hostProp: 'as' | 'boundaryAs', host: string) {
+    const Provider = RootKnockoutProvider as unknown as ComponentType<Record<string, unknown>>
+    return render(
+      createElement(Provider, {
+        viewModel: {},
+        children: createElement('span'),
+        [hostProp]: host,
+      })
+    )
+  }
+
   it('uses selected hosts for roots and scopes without changing binding behavior', () => {
     const vm = { label: ko.observable('Bound') }
     const { container } = render(
@@ -125,4 +136,23 @@ describe('semantic hosts', () => {
       consoleError.mockRestore()
     }
   })
+
+  it.each([
+    ['as', 'svg'],
+    ['boundaryAs', 'svg'],
+    ['as', 'custom-host'],
+    ['boundaryAs', 'custom-host'],
+  ] as const)(
+    'rejects the JavaScript %s value <%s> when it is not a non-void HTML tag',
+    (hostProp, host) => {
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+      try {
+        expect(() => renderWithJavaScriptHost(hostProp, host)).toThrow(
+          `cannot use <${host}> as a semantic host because scope hosts require a non-void HTML element`
+        )
+      } finally {
+        consoleError.mockRestore()
+      }
+    }
+  )
 })
