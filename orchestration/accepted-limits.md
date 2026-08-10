@@ -1,0 +1,4 @@
+- Forge listing lag beyond the reconciliation window can leave duplicate issues open — accepted 2026-08-08: issue mode is off by default and multi-worker hardening is deferred until team operation starts.
+- A claim can materialize an issue that a concurrent reconciliation is closing — accepted 2026-08-08: this multi-worker race does not affect the supported single-worker operation.
+- Two workers sharing one forge login defeat the claim tie-break — accepted 2026-08-08: concurrently claiming workers are documented to require distinct forge logins.
+- Promotion delayed beyond the issue lease retains a residual merged-issue refresh gap — accepted 2026-08-08: periodic merge-comment refresh is sufficient for the supported single-worker operation until promotion.
