@@ -75,11 +75,16 @@ export async function startTask(
       options.report?.(`Preparing worktree: ${step.label}`)
       const setupLogFd = openSync(log, 'a')
       try {
-        execSync(step.command, {
-          cwd: join(worktree, step.cwd),
-          stdio: ['ignore', setupLogFd, setupLogFd],
-          windowsHide: true,
-        })
+        try {
+          execSync(step.command, {
+            cwd: join(worktree, step.cwd),
+            stdio: ['ignore', setupLogFd, setupLogFd],
+            windowsHide: true,
+          })
+        } catch (error) {
+          const cwd = step.cwd === '' ? '.' : step.cwd
+          throw new Error(`Worktree setup failed during "${step.label}" in ${cwd}`, { cause: error })
+        }
       } finally {
         closeSync(setupLogFd)
       }

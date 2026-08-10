@@ -98,6 +98,8 @@ describe('startTask', () => {
 
     expect(start).not.toHaveBeenCalled()
     expect(readStatus(paths, taskId)?.status).toBe('failed')
-    expect(readFileSync(logFile(paths, taskId), 'utf8')).toContain('setup exploded')
+    const taskLog = readFileSync(logFile(paths, taskId), 'utf8')
+    expect(taskLog).toContain('setup exploded')
+    expect(taskLog).toContain('Worktree setup failed during "Failing setup" in .')
   })
 })
