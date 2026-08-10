@@ -43,4 +43,20 @@ describe('descendantBindingContexts', () => {
     removeMarkers()
     ko.cleanNode(root)
   })
+
+  it('rejects an unrelated handler registered under the capture name', async () => {
+    const registered = ko.bindingHandlers[CAPTURE_DESCENDANT_CONTEXT]
+    ko.bindingHandlers[CAPTURE_DESCENDANT_CONTEXT] = { init: () => undefined }
+
+    try {
+      vi.resetModules()
+      await expect(
+        import('@/components/scope/descendantBindingContexts'),
+      ).rejects.toThrow(
+        `react-ko cannot register the "${CAPTURE_DESCENDANT_CONTEXT}" Knockout binding because that name is already registered by another handler.`,
+      )
+    } finally {
+      ko.bindingHandlers[CAPTURE_DESCENDANT_CONTEXT] = registered
+    }
+  })
 })

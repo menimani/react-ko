@@ -1,4 +1,5 @@
 import ko from 'knockout'
+import { registerReactKoBindingHandler } from './bindingHandlerOwnership'
 
 const CAPTURE_DESCENDANT_CONTEXT = 'reactKoCaptureDescendantContext'
 const DESCENDANT_BINDING_CONTEXTS = Symbol.for('react-ko.descendantBindingContexts')
@@ -8,31 +9,40 @@ type CaptureDescendantContextHandler = ko.BindingHandler & {
   [DESCENDANT_BINDING_CONTEXTS]: WeakMap<Node, ko.BindingContext<unknown>>
 }
 
-const registeredHandler = ko.bindingHandlers[CAPTURE_DESCENDANT_CONTEXT] as
-  | CaptureDescendantContextHandler
-  | undefined
+const registeredHandler = registerReactKoBindingHandler<CaptureDescendantContextHandler>(
+  CAPTURE_DESCENDANT_CONTEXT,
+  () => {
+    const descendantBindingContexts = new WeakMap<
+      Node,
+      ko.BindingContext<unknown>
+    >()
+
+    return {
+      [DESCENDANT_BINDING_CONTEXTS]: descendantBindingContexts,
+      init: (
+        element,
+        _valueAccessor,
+        _allBindings,
+        _viewModel,
+        bindingContext,
+      ) => {
+        const parent = element.parentNode
+        if (parent !== null) {
+          descendantBindingContexts.set(parent, bindingContext)
+          ko.utils.domNodeDisposal.addDisposeCallback(parent, () => {
+            descendantBindingContexts.delete(parent)
+          })
+        }
+
+        // Remove the marker before childrenComplete callbacks run and before
+        // React can observe a node outside its own tree.
+        element.remove()
+      },
+    }
+  },
+)
 const descendantBindingContexts =
-  registeredHandler?.[DESCENDANT_BINDING_CONTEXTS] ??
-  new WeakMap<Node, ko.BindingContext<unknown>>()
-
-if (registeredHandler === undefined) {
-  ko.bindingHandlers[CAPTURE_DESCENDANT_CONTEXT] = {
-    [DESCENDANT_BINDING_CONTEXTS]: descendantBindingContexts,
-    init: (element, _valueAccessor, _allBindings, _viewModel, bindingContext) => {
-      const parent = element.parentNode
-      if (parent !== null) {
-        descendantBindingContexts.set(parent, bindingContext)
-        ko.utils.domNodeDisposal.addDisposeCallback(parent, () => {
-          descendantBindingContexts.delete(parent)
-        })
-      }
-
-      // Remove the marker before childrenComplete callbacks run and before
-      // React can observe a node outside its own tree.
-      element.remove()
-    },
-  }
-}
+  registeredHandler[DESCENDANT_BINDING_CONTEXTS]
 
 function establishesDescendantContext(element: Element) {
   const source = element.getAttribute('data-bind')
