@@ -1312,6 +1312,54 @@ describe('RootKnockoutProvider', () => {
     expect(element.title).toBe('React committed')
   })
 
+  it('restores updated overloaded boolean React props when attr bindings retire', async () => {
+    const vm = {
+      download: ko.observable('knockout.zip'),
+      capture: ko.observable('knockout-capture'),
+    }
+
+    function LocallyUpdatedElements() {
+      const [phase, setPhase] = useState(0)
+      const binding = phase < 2
+
+      return (
+        <>
+          <button onClick={() => setPhase((current) => current + 1)}>
+            advance overloaded props
+          </button>
+          <a
+            data-testid="download-owner"
+            download={phase === 0 ? 'react.txt' : true}
+            data-bind={binding ? 'attr: { download: download }' : undefined}
+          />
+          <input
+            data-testid="capture-owner"
+            capture={phase === 0 ? 'user' : true}
+            data-bind={binding ? 'attr: { capture: capture }' : undefined}
+          />
+        </>
+      )
+    }
+
+    render(
+      <RootKnockoutProvider viewModel={vm}>
+        <LocallyUpdatedElements />
+      </RootKnockoutProvider>
+    )
+    const download = screen.getByTestId('download-owner')
+    const capture = screen.getByTestId('capture-owner')
+
+    fireEvent.click(screen.getByText('advance overloaded props'))
+    await waitFor(() => {
+      expect(download.getAttribute('download')).toBe('knockout.zip')
+      expect(capture.getAttribute('capture')).toBe('knockout-capture')
+    })
+
+    fireEvent.click(screen.getByText('advance overloaded props'))
+    expect(download.getAttribute('download')).toBe('')
+    expect(capture.getAttribute('capture')).toBe('')
+  })
+
   it('reapplies selectedOptions after a controlled multiple value update', async () => {
     const vm = { choices: ko.observableArray(['knockout']) }
 

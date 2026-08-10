@@ -120,6 +120,8 @@ if its DOM effects cannot be safely retired.
 React prop updates and active Knockout bindings can also share an element: React's
 latest classes, inline styles, attributes, and form-property defaults are retained,
 while the active Knockout binding continues to own the DOM effects it declares.
+When an `attr` binding is removed, React attribute props are restored with React DOM
+serialization, including empty presence values for boolean `download` and `capture`.
 
 ---
 
