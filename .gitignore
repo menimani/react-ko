@@ -3,6 +3,8 @@
 !src/**/*
 !tests/
 !tests/**/*
+!starter/
+!starter/**/*
 
 !.gitignore
 !LICENSE
