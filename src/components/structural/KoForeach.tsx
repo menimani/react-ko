@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useMemo } from 'react'
 import ko from 'knockout'
 import { KnockoutScope } from '@/index'
 
@@ -12,7 +12,7 @@ type Props = {
  * Uses Knockout's `foreach:` binding internally.
  */
 export const KoForeach = React.memo(function KoForeach({ items, children }: Props) {
-  const vm = React.useMemo(() => ({ items }), [items])
+  const vm = useMemo(() => ({ items }), [items])
 
   return (
     <KnockoutScope viewModel={vm}>
