@@ -1,6 +1,6 @@
 # react-ko
 
-en English | [ja 日本語](./README.ja.md)
+en English | [ja Japanese](./README.ja.md)
 
 [![npm version](https://img.shields.io/npm/v/react-ko)](https://www.npmjs.com/package/react-ko)
 

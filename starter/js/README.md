@@ -1,6 +1,6 @@
 # react-ko starter (JavaScript)
 
-en English | [ja 日本語](./README.ja.md)
+en English | [ja Japanese](./README.ja.md)
 
 The official JavaScript starter template for
 [react-ko](https://github.com/menimani/react-ko), a minimal bridge between
