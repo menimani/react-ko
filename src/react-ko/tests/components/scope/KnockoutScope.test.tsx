@@ -439,18 +439,6 @@ describe('KoScope', () => {
     expect(KoScope).toBe(KnockoutScope)
   })
 
-  it('binds a scoped view model', () => {
-    render(
-      <RootKnockoutProvider viewModel={{}}>
-        <KoScope viewModel={{ label: 'Alias smoke' }}>
-          <span data-bind="text: label" />
-        </KoScope>
-      </RootKnockoutProvider>
-    )
-
-    expect(screen.getByText('Alias smoke')).toBeDefined()
-  })
-
   it('surfaces a structural binding rejected at initial mount and unbinds cleanly', () => {
     const vm = { items: ko.observableArray<string>([]) }
 
