@@ -3,6 +3,7 @@ import ko from 'knockout'
 import { applyBindingsSafely } from './applyBindingsSafely'
 import {
   observeBindingDescendants,
+  prepareBindingDescendants,
   reconcileBindingDescendants,
   restoreDescendantBindingRoots,
 } from './observeBindingDescendants'
@@ -36,8 +37,14 @@ export function useBindingRoot(
   }
 
   function bind(node: HTMLDivElement, replacing: boolean) {
+    const bindingStates = prepareBindingDescendants(node)
     applyBindingsSafely(viewModel, node)
-    const stopObserving = observeBindingDescendants(viewModel, node, onError)
+    const stopObserving = observeBindingDescendants(
+      viewModel,
+      node,
+      onError,
+      bindingStates
+    )
     activeBinding.current = { node, viewModel, parentGeneration, stopObserving }
 
     if (replacing) {

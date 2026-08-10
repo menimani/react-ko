@@ -86,14 +86,18 @@ Root providers and scopes can be nested: each is a descendant-binding boundary,
 so its children use only its own `viewModel` and are cleaned up with that binding
 root.
 React-rendered descendants mounted after the initial binding pass are also bound
-automatically to the nearest root or scope. When mounted below an existing
-Knockout `using` or `let` binding, they retain that binding's descendant context.
+automatically to the nearest root or scope, before their layout effects run. When
+mounted below an existing Knockout `using` or `let` binding, they retain that
+binding's descendant context.
 Their bindings are disposed when React removes them. Errors from these late-applied
 bindings also reach the nearest React error boundary. When React changes an existing
 element's `data-bind` attribute, the previous binding is disposed and the new
 expression is applied in that same descendant context. Retiring a `text`, `html`,
 `component`, or `options` binding also removes the content Knockout created before
-the current binding or React-rendered children take ownership.
+the current binding or React-rendered children take ownership. Other replaced
+bindings restore the attributes, classes, styles, and form properties owned by
+the previous expression before applying the next one; a custom binding is rejected
+if its DOM effects cannot be safely retired.
 
 ---
 
