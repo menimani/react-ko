@@ -1,5 +1,6 @@
-import React, { useRef, useLayoutEffect, useMemo } from 'react'
-import ko from 'knockout'
+import * as React from 'react'
+import { useRef, useLayoutEffect, useMemo } from 'react'
+import * as ko from 'knockout'
 import { AppViewModelContext } from '@/index'
 import { ScopeViewModelContext } from '@/context/ScopeViewModelContext'
 

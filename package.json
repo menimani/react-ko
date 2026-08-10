@@ -33,7 +33,7 @@
   },
   "homepage": "https://github.com/menimani/react-ko#readme",
   "scripts": {
-    "build": "tsup",
+    "build": "tsup && tsc --project tests/declarations/tsconfig.json",
     "test": "npx vitest run --reporter verbose"
   },
   "peerDependencies": {

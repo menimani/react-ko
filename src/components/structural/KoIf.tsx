@@ -1,5 +1,5 @@
-import React from 'react'
-import ko from 'knockout'
+import * as React from 'react'
+import * as ko from 'knockout'
 import { KnockoutScope, useKoValue } from '@/index'
 import { useScopeViewModel } from '@/context/ScopeViewModelContext'
 
