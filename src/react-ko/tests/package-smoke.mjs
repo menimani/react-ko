@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
+import knockout from 'knockout'
 
 const expectedExports = [
   'AppViewModelContext',
@@ -20,3 +21,4 @@ assert.deepEqual(Object.keys(esm).sort(), expectedExports)
 assert.deepEqual(Object.keys(cjs).sort(), expectedExports)
 assert.equal(esm.KoScope, esm.KnockoutScope)
 assert.equal(cjs.KoScope, cjs.KnockoutScope)
+assert.equal(typeof knockout.bindingHandlers.reactKoScopeBoundary?.init, 'function')
