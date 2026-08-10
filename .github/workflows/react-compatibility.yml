@@ -1,0 +1,44 @@
+name: React compatibility
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: React ${{ matrix.react }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        react:
+          - "18"
+          - "19"
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Select React ${{ matrix.react }} compatibility peers
+        run: >-
+          npm pkg set --workspace=src/react-ko
+          "devDependencies.react=${{ matrix.react }}"
+          "devDependencies.react-dom=${{ matrix.react }}"
+          "devDependencies.@types/react=${{ matrix.react }}"
+          "devDependencies.@types/react-dom=${{ matrix.react }}"
+          "devDependencies.knockout=3.5.1"
+      - run: npm install --package-lock=false
+      - name: Verify selected peers
+        run: >-
+          npm ls --workspace=src/react-ko --depth=0
+          react react-dom @types/react @types/react-dom knockout
+      - run: npm test
+      - run: npm run build
