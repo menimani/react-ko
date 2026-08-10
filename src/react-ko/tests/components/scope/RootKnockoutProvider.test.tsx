@@ -275,6 +275,183 @@ describe('RootKnockoutProvider', () => {
     expect(vm.second.getSubscriptionsCount()).toBe(1)
   })
 
+  it('preserves Knockout DOM ownership when React updates bound attributes', () => {
+    const vm = {
+      oldClass: ko.observable(true),
+      nextClass: ko.observable(true),
+      color: ko.observable('red'),
+      title: ko.observable('Knockout title'),
+      value: ko.observable('Knockout value'),
+    }
+
+    function Harness({ next }: { next: boolean }) {
+      return (
+        <RootKnockoutProvider viewModel={vm}>
+          <input
+            readOnly
+            className={next ? 'react-next' : 'react-old'}
+            style={{ backgroundColor: next ? 'black' : 'white' }}
+            title={next ? 'React next title' : 'React old title'}
+            value={next ? 'React next value' : 'React old value'}
+            data-testid="react-knockout-ownership"
+            data-bind={
+              next
+                ? 'css: { next: nextClass }, style: { color: color }, attr: { title: title }, value: value'
+                : 'css: { old: oldClass }, style: { color: color }, attr: { title: title }, value: value'
+            }
+          />
+        </RootKnockoutProvider>
+      )
+    }
+
+    const { rerender } = render(<Harness next={false} />)
+    const element = screen.getByTestId('react-knockout-ownership') as HTMLInputElement
+    expect(element.className).toBe('react-old old')
+    expect(element.style.cssText).toContain('background-color: white')
+    expect(element.style.color).toBe('red')
+    expect(element.title).toBe('Knockout title')
+    expect(element.value).toBe('Knockout value')
+
+    rerender(<Harness next />)
+
+    expect(element.className).toBe('react-next next')
+    expect(element.style.cssText).toContain('background-color: black')
+    expect(element.style.color).toBe('red')
+    expect(element.title).toBe('Knockout title')
+    expect(element.value).toBe('Knockout value')
+  })
+
+  it('reapplies an unchanged binding after React updates its owned values', async () => {
+    const vm = {
+      active: ko.observable(true),
+      color: ko.observable('red'),
+      title: ko.observable('Knockout title'),
+      value: ko.observable('Knockout value'),
+    }
+    const binding =
+      'css: { active: active }, style: { color: color }, attr: { title: title }, value: value'
+
+    function Harness({ next }: { next: boolean | null }) {
+      return (
+        <RootKnockoutProvider viewModel={vm}>
+          <input
+            readOnly
+            className={next === null ? undefined : next ? 'react-next' : 'react-old'}
+            style={
+              next === null ? undefined : { backgroundColor: next ? 'black' : 'white' }
+            }
+            title={next === null ? undefined : next ? 'React next title' : 'React old title'}
+            value={next ? 'React next value' : 'React old value'}
+            data-testid="unchanged-binding-ownership"
+            data-bind={binding}
+          />
+        </RootKnockoutProvider>
+      )
+    }
+
+    const { rerender } = render(<Harness next={false} />)
+    const element = screen.getByTestId('unchanged-binding-ownership') as HTMLInputElement
+
+    rerender(<Harness next />)
+
+    await waitFor(() => {
+      expect(element.className).toBe('react-next active')
+      expect(element.style.cssText).toContain('background-color: black')
+      expect(element.style.color).toBe('red')
+      expect(element.title).toBe('Knockout title')
+      expect(element.value).toBe('Knockout value')
+    })
+
+    rerender(<Harness next={null} />)
+
+    await waitFor(() => {
+      expect(element.className).toBe('active')
+      expect(element.style.backgroundColor).toBe('')
+      expect(element.style.color).toBe('red')
+      expect(element.title).toBe('Knockout title')
+      expect(element.value).toBe('Knockout value')
+    })
+  })
+
+  it('reapplies form-property bindings after React updates their properties', async () => {
+    const vm = {
+      checked: ko.observable(true),
+      enabled: ko.observable(true),
+    }
+
+    function Harness({ next }: { next: boolean }) {
+      return (
+        <RootKnockoutProvider viewModel={vm}>
+          <input
+            type="checkbox"
+            readOnly
+            checked={!next}
+            disabled={next}
+            data-testid="form-property-ownership"
+            data-bind="checked: checked, enable: enabled"
+          />
+        </RootKnockoutProvider>
+      )
+    }
+
+    const { rerender } = render(<Harness next={false} />)
+    const element = screen.getByTestId('form-property-ownership') as HTMLInputElement
+    expect(element.checked).toBe(true)
+    expect(element.disabled).toBe(false)
+
+    rerender(<Harness next />)
+
+    await waitFor(() => {
+      expect(element.checked).toBe(true)
+      expect(element.disabled).toBe(false)
+    })
+  })
+
+  it('reapplies form-property bindings after a descendant local-state update', async () => {
+    const vm = {
+      checked: ko.observable(true),
+      value: ko.observable('Knockout value'),
+    }
+    let update = () => undefined
+
+    function LocalOwner() {
+      const [next, setNext] = useState(false)
+      update = () => setNext(true)
+      return (
+        <>
+          <input
+            readOnly
+            value={next ? 'React next value' : 'React old value'}
+            data-testid="local-value-ownership"
+            data-bind="value: value"
+          />
+          <input
+            type="checkbox"
+            readOnly
+            checked={!next}
+            data-testid="local-checked-ownership"
+            data-bind="checked: checked"
+          />
+        </>
+      )
+    }
+
+    render(
+      <RootKnockoutProvider viewModel={vm}>
+        <LocalOwner />
+      </RootKnockoutProvider>
+    )
+    const value = screen.getByTestId('local-value-ownership') as HTMLInputElement
+    const checked = screen.getByTestId('local-checked-ownership') as HTMLInputElement
+
+    act(() => update())
+
+    await waitFor(() => {
+      expect(value.value).toBe('Knockout value')
+      expect(checked.checked).toBe(true)
+    })
+  })
+
   it('preserves a let descendant context when data-bind changes', async () => {
     const vm = {
       first: ko.observable('First alias'),

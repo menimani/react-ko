@@ -115,15 +115,25 @@ describe('observeBindingDescendants', () => {
 
   it('restores prototype interceptors only after the last root unmounts', () => {
     const originalAppendChild = Node.prototype.appendChild
+    const originalValueSetter = Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      'value'
+    )?.set
     const first = render(<Host vm={{}} />)
     const second = render(<Host vm={{}} />)
     expect(Node.prototype.appendChild).not.toBe(originalAppendChild)
+    expect(Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set).not.toBe(
+      originalValueSetter
+    )
 
     first.unmount()
     expect(Node.prototype.appendChild).not.toBe(originalAppendChild)
 
     second.unmount()
     expect(Node.prototype.appendChild).toBe(originalAppendChild)
+    expect(Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set).toBe(
+      originalValueSetter
+    )
   })
 
   it('retires css classes owned by a replaced binding', async () => {
