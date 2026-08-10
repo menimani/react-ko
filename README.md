@@ -423,6 +423,15 @@ npm install
 npm run build
 ```
 
+Enable the repository hooks once per clone:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+The autonomous improvement loop that maintains this repository lives in
+`orchestration/`; `orchestration/CLAUDE.md` explains how to run and resume it.
+
 ---
 
 ## License

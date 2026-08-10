@@ -417,6 +417,15 @@ npm install
 npm run build
 ```
 
+リポジトリのフックはクローンごとに一度有効化してください：
+
+```bash
+git config core.hooksPath .githooks
+```
+
+このリポジトリを保守する自律改善ループは `orchestration/` にあります。
+起動と再開の方法は `orchestration/CLAUDE.md` を参照してください。
+
 ---
 
 ## ライセンス
