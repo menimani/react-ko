@@ -129,6 +129,31 @@ describe('RootKnockoutProvider', () => {
     expect(screen.getByText('Updated alias')).toBeDefined()
   })
 
+  it('preserves a using descendant context for children mounted later and context replacement', async () => {
+    const current = ko.observable({ label: 'First context' })
+    const vm = { current }
+
+    function Harness({ show }: { show: boolean }) {
+      return (
+        <RootKnockoutProvider viewModel={vm}>
+          <div data-bind="using: current">
+            {show ? <span data-bind="text: label" /> : null}
+          </div>
+        </RootKnockoutProvider>
+      )
+    }
+
+    const { rerender } = render(<Harness show={false} />)
+    rerender(<Harness show />)
+
+    await waitFor(() => expect(screen.getByText('First context')).toBeDefined())
+
+    act(() => {
+      current({ label: 'Replacement context' })
+    })
+    expect(screen.getByText('Replacement context')).toBeDefined()
+  })
+
   it('sends a late binding error to a React error boundary with a stable view model', async () => {
     const vm = {}
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
