@@ -17,7 +17,7 @@ function bindingNames(element: Element): Set<string> {
   )
 }
 
-function hasReactOwnedChildren(element: Element): boolean {
+export function hasReactOwnedChildren(element: Element): boolean {
   if (!element.hasChildNodes()) {
     return false
   }

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, act, waitFor } from '@testing-library/react'
+import { render, screen, act, fireEvent, waitFor } from '@testing-library/react'
 import { Component, StrictMode, type ReactNode } from 'react'
 import ko from 'knockout'
 import { KnockoutScope, RootKnockoutProvider, useAppViewModel } from '@/index'
@@ -142,6 +142,126 @@ describe('RootKnockoutProvider', () => {
 
     rerender(<Harness binding="second" />)
     expect(vm.second.getSubscriptionsCount()).toBe(1)
+  })
+
+  it.each([
+    ['text', 'text: text'],
+    ['html', 'html: markup'],
+    ['options', 'options: choices'],
+  ] as const)('removes content left by a retired %s binding', async (kind, source) => {
+    const vm = {
+      text: 'Knockout text',
+      markup: '<strong>Knockout HTML</strong>',
+      choices: ['First', 'Second'],
+    }
+
+    function Harness({ bound }: { bound: boolean }) {
+      return (
+        <RootKnockoutProvider viewModel={vm}>
+          {kind === 'options' ? (
+            <select data-testid="content-owner" data-bind={bound ? source : undefined} />
+          ) : (
+            <div data-testid="content-owner" data-bind={bound ? source : undefined} />
+          )}
+        </RootKnockoutProvider>
+      )
+    }
+
+    const { rerender } = render(<Harness bound />)
+    const element = screen.getByTestId('content-owner')
+    await waitFor(() => expect(element.childNodes.length).toBeGreaterThan(0))
+
+    rerender(<Harness bound={false} />)
+
+    await waitFor(() => expect(element.childNodes).toHaveLength(0))
+  })
+
+  it('removes content left by a retired component binding', async () => {
+    const componentName = 'react-ko-retired-component-test'
+    const vm = {}
+    ko.components.register(componentName, {
+      template: '<strong>Knockout component</strong>',
+    })
+
+    function Harness({ bound }: { bound: boolean }) {
+      return (
+        <RootKnockoutProvider viewModel={vm}>
+          <div
+            data-testid="component-owner"
+            data-bind={bound ? `component: '${componentName}'` : undefined}
+          />
+        </RootKnockoutProvider>
+      )
+    }
+
+    try {
+      const { rerender } = render(<Harness bound />)
+      const element = screen.getByTestId('component-owner')
+      await waitFor(() => expect(element.textContent).toBe('Knockout component'))
+
+      rerender(<Harness bound={false} />)
+
+      await waitFor(() => expect(element.childNodes).toHaveLength(0))
+    } finally {
+      ko.components.unregister(componentName)
+    }
+  })
+
+  it('removes retired Knockout content when data-bind is replaced', async () => {
+    const vm = { label: 'Knockout text', title: 'Current title' }
+
+    function Harness({ contentBinding }: { contentBinding: boolean }) {
+      return (
+        <RootKnockoutProvider viewModel={vm}>
+          <span
+            data-testid="replaced-binding"
+            data-bind={contentBinding ? 'text: label' : 'attr: { title: title }'}
+          />
+        </RootKnockoutProvider>
+      )
+    }
+
+    const { rerender } = render(<Harness contentBinding />)
+    const element = screen.getByTestId('replaced-binding')
+    expect(element.textContent).toBe('Knockout text')
+
+    rerender(<Harness contentBinding={false} />)
+
+    await waitFor(() => {
+      expect(element.childNodes).toHaveLength(0)
+      expect(element.title).toBe('Current title')
+    })
+  })
+
+  it('preserves React children added while a content binding is retired', async () => {
+    const vm = { label: 'Retired Knockout text' }
+    const handleClick = vi.fn()
+
+    function Harness({ bound, childLabel }: { bound: boolean; childLabel: string }) {
+      return (
+        <RootKnockoutProvider viewModel={vm}>
+          <span data-testid="react-child-owner" data-bind={bound ? 'text: label' : undefined}>
+            {bound ? null : <button onClick={handleClick}>{childLabel}</button>}
+          </span>
+        </RootKnockoutProvider>
+      )
+    }
+
+    const { rerender, unmount } = render(<Harness bound childLabel="First React child" />)
+    const element = screen.getByTestId('react-child-owner')
+    expect(element.textContent).toBe('Retired Knockout text')
+
+    rerender(<Harness bound={false} childLabel="First React child" />)
+
+    await waitFor(() => expect(element.textContent).toBe('First React child'))
+    const button = screen.getByRole('button')
+    fireEvent.click(button)
+    expect(handleClick).toHaveBeenCalledOnce()
+
+    rerender(<Harness bound={false} childLabel="Updated React child" />)
+    expect(screen.getByRole('button')).toBe(button)
+    expect(button.textContent).toBe('Updated React child')
+    expect(() => unmount()).not.toThrow()
   })
 
   it('rebinds a changed ancestor and restores nested scopes in their own context', async () => {

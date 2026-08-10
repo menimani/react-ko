@@ -19,7 +19,10 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "README.md",
+    "README.ja.md",
+    "LICENSE"
   ],
   "repository": {
     "type": "git",
