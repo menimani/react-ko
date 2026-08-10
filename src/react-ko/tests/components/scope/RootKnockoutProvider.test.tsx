@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { render, screen, act } from '@testing-library/react'
-import { StrictMode } from 'react'
+import { Component, StrictMode, type ReactNode } from 'react'
 import ko from 'knockout'
 import { KnockoutScope, RootKnockoutProvider, useAppViewModel } from '@/index'
 
@@ -11,6 +11,18 @@ import { KnockoutScope, RootKnockoutProvider, useAppViewModel } from '@/index'
 function ViewModelConsumer() {
   useAppViewModel<unknown>()
   return null
+}
+
+class ErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false }
+
+  static getDerivedStateFromError() {
+    return { failed: true }
+  }
+
+  render() {
+    return this.state.failed ? <span>Binding failed</span> : this.props.children
+  }
 }
 
 describe('RootKnockoutProvider', () => {
@@ -99,6 +111,27 @@ describe('RootKnockoutProvider', () => {
 
     unmount()
 
+    expect(vm.label.getSubscriptionsCount()).toBe(0)
+  })
+
+  it('disposes bindings created before a later binding throws', () => {
+    const vm = { label: ko.observable('Subscribed') }
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    try {
+      render(
+        <ErrorBoundary>
+          <RootKnockoutProvider viewModel={vm}>
+            <span data-bind="text: label" />
+            <span data-bind="text: missing.value" />
+          </RootKnockoutProvider>
+        </ErrorBoundary>
+      )
+    } finally {
+      consoleError.mockRestore()
+    }
+
+    expect(screen.getByText('Binding failed')).toBeDefined()
     expect(vm.label.getSubscriptionsCount()).toBe(0)
   })
 

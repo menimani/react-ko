@@ -80,7 +80,8 @@ const viewModel = {
 
 `RootKnockoutProvider` または `KnockoutScope` の `viewModel` を置き換えると、
 Knockout バインディングが再適用されます。どちらのコンポーネントも、置き換え時と
-アンマウント時にバインディングを破棄します。
+アンマウント時にバインディングを破棄します。バインディングツリーの適用中に例外が
+発生した場合も、それより前に作成された購読を Error Boundary に例外が届く前に破棄します。
 
 ---
 

@@ -4,6 +4,7 @@ import ko from 'knockout'
 import { useAppViewModel } from '@/index'
 import { ScopeViewModelContext } from '@/context/ScopeViewModelContext'
 import { ScopeBindGenerationContext } from '@/context/ScopeBindGenerationContext'
+import { applyBindingsSafely } from './applyBindingsSafely'
 
 type Props<T> = {
   viewModel: T
@@ -39,7 +40,7 @@ export const KnockoutScope = React.memo(function KnockoutScope<T>({ viewModel, c
     if (node === null) {
       return
     }
-    ko.applyBindings(viewModel, node)
+    applyBindingsSafely(viewModel, node)
 
     // Rebinding means the cleanup's ko.cleanNode just disposed every nested
     // binding, and the fresh pass stopped at nested scope boundaries.

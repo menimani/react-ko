@@ -80,7 +80,8 @@ refer to the same component.
 
 Replacing a `RootKnockoutProvider` or `KnockoutScope` `viewModel` reapplies its
 Knockout bindings. Both components dispose their bindings when replaced or
-unmounted.
+unmounted. If applying a binding tree throws, subscriptions created earlier in
+that pass are also disposed before the error reaches a React error boundary.
 
 ---
 
