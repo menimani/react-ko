@@ -1,5 +1,10 @@
 import ko from 'knockout'
-import { applyBindingsSafely, hasReactOwnedChildren } from './applyBindingsSafely'
+import {
+  applyBindingsSafely,
+  assertNoReactUnsafeBindings,
+  hasReactOwnedChildren,
+} from './applyBindingsSafely'
+import { descendantBindingContextFor } from './descendantBindingContexts'
 
 // Observers on enclosing roots also see mutations inside nested scopes. Keep
 // track of each binding root so only the nearest one handles a changed subtree.
@@ -132,6 +137,10 @@ function refreshOwnedContent(
     const element = record.target as HTMLElement
     const state = bindingStates.get(element)
     if (state !== undefined && state.ownedContent !== null && !changedElements.has(element)) {
+      // An element that was empty at bind time can gain React children later.
+      // Reject before treating those nodes as content created by Knockout.
+      assertNoReactUnsafeBindings(element)
+
       // While a content binding remains active, its direct children belong to
       // Knockout. Refresh the snapshot after text/html/component/options updates.
       state.ownedContent = new Set(element.childNodes)
@@ -169,9 +178,11 @@ function rebindChangedAttributes(
 ) {
   for (const element of changedElements) {
     const previousState = bindingStates.get(element)
+    const bindingContext =
+      ko.contextFor(element) ?? descendantBindingContextFor(element, root) ?? viewModel
     ko.cleanNode(element)
     removeRetiredContent(element, previousState)
-    applyBindingsSafely(viewModel, element)
+    applyBindingsSafely(bindingContext, element)
     trackBindingTree(element, root, bindingStates)
     restoreDescendantBindingRoots(element, root)
   }
@@ -207,7 +218,8 @@ function bindAddedNodes(
 
       // Binding the highest added element covers its subtree and respects any
       // descendant scope boundary encountered during that pass.
-      applyBindingsSafely(viewModel, node as HTMLElement)
+      const bindingContext = descendantBindingContextFor(node, root)
+      applyBindingsSafely(bindingContext ?? viewModel, node as HTMLElement)
       trackBindingTree(node as HTMLElement, root, bindingStates)
     }
   }

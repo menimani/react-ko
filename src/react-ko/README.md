@@ -86,13 +86,14 @@ Root providers and scopes can be nested: each is a descendant-binding boundary,
 so its children use only its own `viewModel` and are cleaned up with that binding
 root.
 React-rendered descendants mounted after the initial binding pass are also bound
-automatically to the nearest root or scope. Their bindings are disposed when
-React removes them. Errors from these late-applied bindings also reach the nearest
-React error boundary. When React changes an existing element's `data-bind`
-attribute, the previous binding is disposed and the new expression is applied
-in that same nearest root or scope. Retiring a `text`, `html`, `component`, or
-`options` binding also removes the content Knockout created before the current
-binding or React-rendered children take ownership.
+automatically to the nearest root or scope. When mounted below an existing
+Knockout `using` or `let` binding, they retain that binding's descendant context.
+Their bindings are disposed when React removes them. Errors from these late-applied
+bindings also reach the nearest React error boundary. When React changes an existing
+element's `data-bind` attribute, the previous binding is disposed and the new
+expression is applied in that same descendant context. Retiring a `text`, `html`,
+`component`, or `options` binding also removes the content Knockout created before
+the current binding or React-rendered children take ownership.
 
 ---
 
@@ -168,7 +169,8 @@ Use `KoIf`, `KoIfNot`, `KoForeach`, and `KoWith` instead.
 The `text`, `html`, `component`, and `options` bindings also replace an
 element's contents. They are supported only when the bound element has no
 React-rendered children; otherwise the binding is rejected before it can detach
-those children. Leave the element empty when Knockout should own its contents.
+those children. This remains enforced if React conditionally adds children after
+the binding was applied. Leave the element empty while Knockout owns its contents.
 
 ### `KoForeach`
 
