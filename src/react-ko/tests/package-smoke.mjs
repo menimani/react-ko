@@ -9,6 +9,7 @@ const expectedExports = [
   'KoIf',
   'KoIfNot',
   'KoScope',
+  'KoWith',
   'RootKnockoutProvider',
   'useAppViewModel',
   'useKoValue'

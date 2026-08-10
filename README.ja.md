@@ -144,7 +144,7 @@ React が描画した children を制御するために、Knockout の `if`、`i
 `foreach`、`template` などの制御フローバインディングを使わないでください。
 これらのバインディングは React が所有している子 DOM ノードを削除または複製するため、
 React の DOM 状態と食い違う可能性があります。代わりに `KoIf`、`KoIfNot`、
-`KoForeach` を使ってください。
+`KoForeach`、`KoWith` を使ってください。
 
 ### `KoForeach`
 
@@ -205,6 +205,24 @@ const vm = { todos: ko.observableArray<Todo>([]) }
 <KoIf condition={vm.isVisible}>
   <p data-bind="text: message" />
 </KoIf>
+```
+
+### `KoWith`
+
+nullish でない値の children を描画し、返された JSX をその値にバインドします。
+render prop が `$data` の代わりになり、外側スコープの値にはクロージャを使えます。
+`value` は observable、computed、または nullable な素の値を受け付けます。
+`false`、`0`、`''` などの falsy 値も、有効な値として扱います。
+
+```tsx
+<KoWith value={vm.selectedTodo}>
+  {(todo) => (
+    <section>
+      <input data-bind="value: title" />
+      <button onClick={() => vm.remove(todo)}>削除</button>
+    </section>
+  )}
+</KoWith>
 ```
 
 ---

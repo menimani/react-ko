@@ -143,7 +143,7 @@ const vm = {
 Do not use Knockout control-flow bindings such as `if`, `ifnot`, `foreach`,
 or `template` to control React-rendered children. Those bindings remove or
 clone child DOM nodes that React still owns, which can leave React's DOM state
-out of sync. Use `KoIf`, `KoIfNot`, and `KoForeach` instead.
+out of sync. Use `KoIf`, `KoIfNot`, `KoForeach`, and `KoWith` instead.
 
 ### `KoForeach`
 
@@ -204,6 +204,24 @@ Render children while the condition is true (`KoIf`) or false (`KoIfNot`).
 <KoIf condition={vm.isVisible}>
   <p data-bind="text: message" />
 </KoIf>
+```
+
+### `KoWith`
+
+Render children for a non-nullish value and bind the returned JSX to that
+value. The render prop replaces `$data`; use closures for values from outer
+scopes. `value` accepts an observable, computed, or plain nullable value.
+Falsy values such as `false`, `0`, and `''` are present values.
+
+```tsx
+<KoWith value={vm.selectedTodo}>
+  {(todo) => (
+    <section>
+      <input data-bind="value: title" />
+      <button onClick={() => vm.remove(todo)}>Remove</button>
+    </section>
+  )}
+</KoWith>
 ```
 
 ---
