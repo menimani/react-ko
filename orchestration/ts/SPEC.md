@@ -19,14 +19,12 @@ from or equivalent to `orchestration/tests/*.sh`.
   it protected — values read from status files compare clean — still holds and is tested).
 - The command surface is the `scripts` block of `orchestration/ts/package.json` —
   `orchestrate.sh` is not kept (decided 2026-08-08; supersedes the frozen-wrapper plan).
-  Each current command maps to a script of the same name (`npm run -C orchestration/ts
-  loop`, `... delegate -- "<description>"`, `... loop-status`, `queue`, `stop`, `start`,
-  `status`, `logs`, `merge`, `cleanup`, `prune`, `new`, `enqueue`), all dispatching into
-  `src/cli.ts`. The skills (`loop-start`, `loop-stop`, `loop-delegate`) are updated to
-  the npm form as part of the cutover. What stays frozen: the environment variable
-  names (they pass through npm unchanged, so launch commands keep their shape) and the
-  output lines the skills and tests key on (`Enqueued:`, `Created:`, `CYCLE_COMPLETE:`,
-  `LOOP_DONE:`, `FAILED:`, `[loop]` prefixes).
+  Each command dispatches into `src/cli.ts`. The skills (`loop-start`, `loop-stop`,
+  `loop-delegate`) are updated to the npm form as part of the cutover. What stays
+  frozen: the environment variable names (they pass through npm unchanged, so launch
+  commands keep their shape) and the output lines the skills and tests key on
+  (`Enqueued:`, `Created:`, `CYCLE_COMPLETE:`, `LOOP_DONE:`, `FAILED:`, `[loop]`
+  prefixes).
 
 ## Task lifecycle
 
@@ -162,9 +160,7 @@ from or equivalent to `orchestration/tests/*.sh`.
 29. All forge access goes through `adapters/forge.ts` (`FORGE=github` selects
     `forge-github.ts`; gitea/gitlab implementations can be added without touching the
     core). The interface returns normalized values only: PR state plus `name:conclusion`
-    check lines; draft-vs-ready is a forge-neutral flag. Planned issue-queue operations
-    (create/list-ready/claim/close, fingerprint dedup, files-touched metadata,
-    stale-lease reaping) belong to this interface but ship after the parity cutover.
+    check lines; draft-vs-ready is a forge-neutral flag.
 30. The runner is invoked only through `adapters/runner.ts` (`RUNNER=codex` selects
     `runner-codex.ts`). The runner contract is the output markers — `TASK_COMPLETE`,
     `NEXT_TASK:`, `DECISION_REQUIRED:` in the final-message file — plus effort/model
