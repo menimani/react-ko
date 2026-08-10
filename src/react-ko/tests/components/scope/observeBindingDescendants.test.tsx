@@ -233,6 +233,56 @@ describe('observeBindingDescendants', () => {
     })
   })
 
+  it.each([
+    ['class', 'class', 'knockout-class'],
+    ['style', 'style', 'color: red;'],
+  ] as const)(
+    'restores the %s attribute owned by a retired attr binding',
+    async (attribute, bindingKey, knockoutValue) => {
+      const vm = { value: ko.observable(knockoutValue) }
+      render(<Host vm={vm} />)
+      const host = screen.getByTestId('host')
+
+      const el = document.createElement('span')
+      el.setAttribute(attribute, attribute === 'class' ? 'react-class' : 'color: blue;')
+      el.setAttribute('data-bind', `attr: { ${bindingKey}: value }`)
+      act(() => {
+        host.appendChild(el)
+      })
+      await waitFor(() => expect(el.getAttribute(attribute)).toBe(knockoutValue))
+
+      act(() => {
+        el.removeAttribute('data-bind')
+      })
+
+      await waitFor(() => {
+        expect(el.getAttribute(attribute)).toBe(
+          attribute === 'class' ? 'react-class' : 'color: blue;'
+        )
+      })
+    }
+  )
+
+  it('retires the textinput alias and restores the previous value', async () => {
+    const vm = { value: ko.observable('Knockout') }
+    render(<Host vm={vm} />)
+    const host = screen.getByTestId('host')
+
+    const el = document.createElement('input')
+    el.value = 'Before binding'
+    el.setAttribute('data-bind', 'textinput: value')
+    act(() => {
+      host.appendChild(el)
+    })
+    await waitFor(() => expect(el.value).toBe('Knockout'))
+
+    act(() => {
+      el.removeAttribute('data-bind')
+    })
+
+    await waitFor(() => expect(el.value).toBe('Before binding'))
+  })
+
   it('retires a binding whose data-bind attribute is removed', async () => {
     const vm = { flag: ko.observable(true) }
     render(<Host vm={vm} />)

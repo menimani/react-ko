@@ -1,4 +1,4 @@
-import { useInsertionEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useInsertionEffect, useLayoutEffect, useRef, useState } from 'react'
 import ko from 'knockout'
 import { applyBindingsSafely } from './applyBindingsSafely'
 import {
@@ -18,12 +18,19 @@ type ActiveBinding = {
 export function useBindingRoot(
   viewModel: unknown,
   parentGeneration: number,
-  onError: (error: unknown) => void
+  onError: (error: unknown) => void,
+  notifyBindingEstablished = false
 ) {
   const container = useRef<HTMLElement | null>(null)
   const activeBinding = useRef<ActiveBinding | null>(null)
   const replacedBinding = useRef(false)
+  const bindingEstablishedRef = useRef(false)
+  const [bindingEstablished, setBindingEstablished] = useState(false)
   const [generation, setGeneration] = useState(0)
+  const getBindingRoot = useCallback(
+    () => activeBinding.current?.node ?? container.current,
+    []
+  )
 
   function disposeBinding() {
     const active = activeBinding.current
@@ -46,6 +53,10 @@ export function useBindingRoot(
       bindingStates
     )
     activeBinding.current = { node, viewModel, parentGeneration, stopObserving }
+    if (notifyBindingEstablished && !bindingEstablishedRef.current) {
+      bindingEstablishedRef.current = true
+      setBindingEstablished(true)
+    }
 
     if (replacing) {
       // Cleaning an ancestor also cleans nested binding roots. Restore them now
@@ -104,5 +115,10 @@ export function useBindingRoot(
     []
   )
 
-  return { container, generation }
+  return {
+    container,
+    generation,
+    bindingEstablished,
+    getBindingRoot,
+  }
 }
