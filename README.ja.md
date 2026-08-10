@@ -200,7 +200,10 @@ React が直接描画するテキストと `dangerouslySetInnerHTML` で挿入�
 children として扱います。この制約はバインディングの適用後に React が条件付きで children を
 追加した場合にも適用されます。React 要素の挿入はその子の layout effect が実行される前に
 同期的に拒否され、直接のテキストまたは HTML の挿入は後続の再調整で拒否されます。Knockout が
-内容を所有している間は、その要素を空にしてください。
+内容を所有している間は、その要素を空にしてください。空文字列の children または空の
+`dangerouslySetInnerHTML` ペイロードをバインディング後に明示的に追加する更新も、Knockout が
+所有する内容を消去するため拒否されます。一方、既存のテキストまたは HTML を削除するのと同じ
+レンダーで内容バインディングを追加すれば、その要素の所有権を React から Knockout へ引き渡せます。
 
 ### `KoForeach`
 
