@@ -1,0 +1,119 @@
+#!/bin/bash
+
+# ==============================
+# pre-commit
+# ==============================
+
+printf "\033[37;1m== pre-commit ==\033[0m\n"
+
+# Get current branch name
+BRANCH_NAME=$(git rev-parse --abbrev-ref HEAD)
+readonly BRANCH_NAME
+
+# Exit code: 0 = OK, 1 = NG
+code=0
+
+# ------------------------------
+# Branch name check
+# ------------------------------
+printf " - Checking commit target branch name: "
+
+# Prohibited branches
+readonly INCORRECT_BRANCHES=("master" "main")
+
+if echo "${INCORRECT_BRANCHES[@]}" | grep -q "$BRANCH_NAME"; then
+  printf "\033[31;22mNG\033[0m\n"
+  printf "\033[31;22m================================================================\n"
+  printf "Commits to the '%s' branch are prohibited.\n\n" "$BRANCH_NAME"
+  printf "Prohibited branches:\n"
+  printf "  %s\n" "${INCORRECT_BRANCHES[*]}"
+  printf "================================================================\033[0m\n"
+  code=1
+else
+  printf "\033[32;22mOK\033[0m\n"
+fi
+
+# ------------------------------
+# Detect staged changes
+# ------------------------------
+# Only staged files are considered.
+STAGED_FILES="$(git diff --cached --name-only --diff-filter=ACMR)"
+readonly STAGED_FILES
+
+library_changed=0
+orchestration_changed=0
+
+# Library:
+# - Run checks when ANY staged file is outside orchestration/ and .githooks/
+if echo "$STAGED_FILES" | grep -Evq '^(orchestration/|\.githooks/)' ; then
+  library_changed=1
+fi
+
+# Orchestration:
+# - Run checks when ANY file under orchestration/ is included
+if echo "$STAGED_FILES" | grep -Eq '^orchestration/'; then
+  orchestration_changed=1
+fi
+
+# ------------------------------
+# Library (tsup build = type gate) checks
+# ------------------------------
+printf " - Checking library (build): "
+
+if [ "${code}" -eq 0 ]; then
+  if [ "${library_changed}" -eq 1 ]; then
+    # Run the build when the library is part of the commit.
+    # Tests are intentionally skipped here; the merge gate runs them.
+    if npm run build >/dev/null 2>&1; then
+      printf "\033[32;22mOK\033[0m\n"
+    else
+      printf "\033[31;22mNG\033[0m\n"
+      printf "\033[31;22m================================================================\n"
+      printf "Library build failed.\n"
+      printf "Fix build errors before committing.\n"
+      printf "================================================================\033[0m\n"
+      code=1
+    fi
+  else
+    printf "\033[33;22mSKIPPED\033[0m\n"
+  fi
+else
+  printf "\033[33;22mSKIPPED\033[0m\n"
+fi
+
+# ------------------------------
+# Orchestration (TypeScript) checks
+# ------------------------------
+printf " - Checking orchestration (typecheck): "
+
+if [ "${code}" -eq 0 ]; then
+  if [ "${orchestration_changed}" -eq 1 ]; then
+    # Typecheck when the orchestration is part of the commit.
+    # Its vitest suite is intentionally skipped here; the merge gate runs it.
+    if ( cd orchestration/ts && npm run typecheck ) >/dev/null 2>&1; then
+      printf "\033[32;22mOK\033[0m\n"
+    else
+      printf "\033[31;22mNG\033[0m\n"
+      printf "\033[31;22m================================================================\n"
+      printf "Orchestration typecheck failed.\n"
+      printf "Fix TypeScript errors before committing.\n"
+      printf "================================================================\033[0m\n"
+      code=1
+    fi
+  else
+    printf "\033[33;22mSKIPPED\033[0m\n"
+  fi
+else
+  printf "\033[33;22mSKIPPED\033[0m\n"
+fi
+
+# ------------------------------
+# Summary
+# ------------------------------
+if [ "${code}" -eq 0 ]; then
+  printf "\n\033[32;1mALL CHECKS PASSED\033[0m\n\n"
+else
+  printf "\n\033[31;1mpre-commit FAILED\033[0m\n\n"
+fi
+
+exit "${code}"

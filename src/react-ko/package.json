@@ -1,0 +1,67 @@
+{
+  "name": "react-ko",
+  "version": "2.0.0",
+  "type": "module",
+  "description": "React + Knockout integration library",
+  "main": "dist/index.cjs",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "README.ja.md",
+    "LICENSE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/menimani/react-ko.git"
+  },
+  "keywords": [
+    "react",
+    "knockout",
+    "binding",
+    "bridge",
+    "integration",
+    "viewmodel"
+  ],
+  "author": "",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/menimani/react-ko/issues"
+  },
+  "homepage": "https://github.com/menimani/react-ko#readme",
+  "scripts": {
+    "build": "tsup && npm run test:types && npm run test:package",
+    "test:types": "tsc --project tests/declarations/tsconfig.json && tsc --project tests/consumers/esm/tsconfig.json && tsc --project tests/consumers/cjs/tsconfig.json && tsc --project tests/consumers/cjs/tsconfig.nodenext.json",
+    "test:package": "node tests/package-smoke.mjs",
+    "test": "npx vitest run --reporter verbose --coverage"
+  },
+  "peerDependencies": {
+    "knockout": "^3.5.1",
+    "react": "^18.0.0 || ^19.0.0",
+    "react-dom": "^18.0.0 || ^19.0.0"
+  },
+  "devDependencies": {
+    "@testing-library/react": "^16.2.0",
+    "@types/react": "^18.2.45",
+    "@types/react-dom": "^18.2.17",
+    "@vitest/coverage-v8": "^4.1.8",
+    "jsdom": "^26.0.0",
+    "tsup": "^8.4.0",
+    "typescript": "^5.8.2",
+    "vite-tsconfig-paths": "^5.1.4",
+    "vitest": "^4.1.0"
+  }
+}

@@ -1,0 +1,51 @@
+.formContainer {
+  margin-top: 2rem;
+  text-align: center;
+}
+.inputField {
+  padding: 0.5rem;
+  font-size: 1rem;
+  width: 200px;
+}
+
+.addButton {
+  margin-left: 0.5rem;
+  padding: 0.5rem 1rem;
+  font-size: 1rem;
+  background-color: #4caf50;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.addButton:hover {
+  background-color: #45a049;
+}
+
+.list {
+  margin-top: 1rem;
+  padding: 0;
+  list-style: none;
+}
+
+.item {
+  margin: 0.5rem 0;
+  font-size: 1.1rem;
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  justify-content: center;
+}
+
+.item :global(.completed) {
+  text-decoration: line-through;
+  opacity: 0.65;
+}
+
+.details {
+  margin-top: 1.5rem;
+  padding: 1rem;
+  border: 1px solid #888;
+  border-radius: 8px;
+}
