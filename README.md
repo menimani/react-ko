@@ -4,38 +4,37 @@ en English | [ja 日本語](./README.ja.md)
 
 [![npm version](https://img.shields.io/npm/v/react-ko)](https://www.npmjs.com/package/react-ko)
 
-> 🧠 A minimal bridge to use Knockout.js inside React components.  
-> Combine Knockout's reactivity with React's component architecture — clean, scoped, and type-safe.
+> A minimal bridge to use Knockout.js inside React components. Combine Knockout's reactivity with React's component architecture — clean, scoped, and type-safe.
 
 ---
 
-## ✨ Features
+## Features
 
-- ✅ Seamless two-way data binding with Knockout observables
-- ✅ Use `data-bind="..."` directly in JSX / TSX
-- ✅ Scoped ViewModel logic via `<KnockoutScope>`
-- ✅ One-line root binding via `<RootKnockoutProvider>`
-- ✅ Type-safe list rendering with the `<KoForeach>` render prop
-- ✅ `useKoValue` to read observables as React state
-- ✅ Zero boilerplate — no event handlers or local state
-- ✅ Full TypeScript & JavaScript support with zero-config
-- ✅ No runtime dependencies other than Knockout & React
+- Seamless two-way data binding with Knockout observables
+- Use `data-bind="..."` directly in JSX / TSX
+- Scoped ViewModel logic via `<KnockoutScope>`
+- One-line root binding via `<RootKnockoutProvider>`
+- Type-safe list rendering with the `<KoForeach>` render prop
+- `useKoValue` to read observables as React state
+- Zero boilerplate — no event handlers or local state
+- Full TypeScript & JavaScript support with zero-config
+- No runtime dependencies other than Knockout & React
 
 ---
 
-## 📦 Installation
+## Installation
 
 ```bash
 npm install react-ko knockout
 ```
 
-> ⚠️ This library requires `react` (v18+) and `knockout` (v3.5+) as peer dependencies.
+> This library requires `react` (v18+) and `knockout` (v3.5+) as peer dependencies.
 
 ---
 
-## ⚡ Quick Start with Starter Template
+## Quick Start with Starter Template
 
-### ▶ TypeScript
+### TypeScript
 
 ```bash
 npx degit menimani/react-ko-starter-ts my-app-ts
@@ -43,11 +42,11 @@ cd my-app-ts
 npm install && npm run dev
 ```
 
-🔗 GitHub: [react-ko-starter-ts](https://github.com/menimani/react-ko-starter-ts)
+GitHub: [react-ko-starter-ts](https://github.com/menimani/react-ko-starter-ts)
 
 ---
 
-### ▶ JavaScript
+### JavaScript
 
 ```bash
 npx degit menimani/react-ko-starter-js my-app-js
@@ -55,11 +54,11 @@ cd my-app-js
 npm install && npm run dev
 ```
 
-🔗 GitHub: [react-ko-starter-js](https://github.com/menimani/react-ko-starter-js)
+GitHub: [react-ko-starter-js](https://github.com/menimani/react-ko-starter-js)
 
 ---
 
-## 🚀 Quick Usage (JSX / TSX)
+## Quick Usage (JSX / TSX)
 
 ```tsx
 import ko from 'knockout'
@@ -78,9 +77,9 @@ const viewModel = {
 
 ---
 
-## 🧩 Custom Component Example
+## Custom Component Example
 
-### ▶️ JavaScript (JSX)
+### JavaScript (JSX)
 
 ```jsx
 import { KnockoutScope } from 'react-ko'
@@ -96,7 +95,7 @@ export function KoInput({ value }) {
 }
 ```
 
-### ▶️ TypeScript (TSX)
+### TypeScript (TSX)
 
 ```tsx
 import ko from 'knockout'
@@ -117,7 +116,7 @@ export function KoInput({ value }: Props) {
 }
 ```
 
-### ▶️ Component Usage
+### Component Usage
 
 ```tsx
 const vm = {
@@ -131,7 +130,7 @@ const vm = {
 
 ---
 
-## 🔁 Structural Components
+## Structural Components
 
 ### `KoForeach`
 
@@ -196,7 +195,7 @@ Render children while the condition is true (`KoIf`) or false (`KoIfNot`).
 
 ---
 
-## 🪝 useKoValue
+## useKoValue
 
 Reads a Knockout observable, computed, or plain value as React state: it
 returns the current value and re-renders the component when it changes.
@@ -214,7 +213,7 @@ function Greeting({ name }: { name: ko.Observable<string> }) {
 
 ---
 
-## 🚨 Migrating from v1
+## Migrating from v1
 
 v2 contains breaking changes:
 
@@ -232,7 +231,7 @@ v2 contains breaking changes:
 
 ---
 
-## 🤔 Why react-ko?
+## Why react-ko?
 
 Without react-ko (pure React):
 
@@ -255,7 +254,7 @@ Let Knockout observables do the work — even in modern React.
 
 ---
 
-## 📁 Folder Structure
+## Folder Structure
 
 ```
 src/
@@ -275,7 +274,7 @@ src/
 
 ---
 
-## 🛠 Development
+## Development
 
 ```bash
 npm install
@@ -284,6 +283,6 @@ npm run build
 
 ---
 
-## 📄 License
+## License
 
 MIT
