@@ -198,7 +198,11 @@ function directReactContent(props: ReactHostProps | ReadonlyMap<string, unknown>
   }
 
   const children = get('children')
-  if (typeof children === 'string' || typeof children === 'number') {
+  if (
+    typeof children === 'string' ||
+    typeof children === 'number' ||
+    typeof children === 'bigint'
+  ) {
     return { kind: 'text', value: String(children) } as const
   }
 

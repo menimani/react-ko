@@ -95,8 +95,10 @@ available on `RootKnockoutProvider`, `KoIf`, `KoIfNot`, `KoForeach`, and
 The host elements remain structural: they receive only the binding boundary or
 binding-root ref and `display: contents`, not styling or ARIA props. Because both
 hosts always contain children, `boundaryAs` and `as` accept only non-void HTML
-elements in both TypeScript and JavaScript; tags such as `input`, `img`, `br`,
-`svg`, and custom element names are rejected.
+elements and valid custom-element names in both TypeScript and JavaScript. Custom
+elements added through `HTMLElementTagNameMap` declaration merging are supported;
+void tags such as `input`, `img`, and `br`, SVG tags such as `svg`, and invalid
+custom-element names are rejected.
 
 Replacing a `RootKnockoutProvider` or `KnockoutScope` `viewModel` reapplies its
 Knockout bindings. Both components dispose their bindings when replaced or
@@ -123,7 +125,11 @@ the previous expression before applying the next one; a custom binding is reject
 if its DOM effects cannot be safely retired.
 Custom bindings are also rejected on elements with React-rendered children because
 their descendant behavior cannot be audited before they run. Put a custom binding on
-an empty element when it needs to own that element's contents.
+an empty element when it needs to own that element's contents. Audited Knockout
+built-ins that do not control descendants, including `class` and `hidden`, remain
+supported with React children. Replacing a built-in handler or registering a handler
+under an otherwise allowlisted option name makes that binding custom and it is rejected
+there too.
 React prop updates and active Knockout bindings can also share an element: React's
 latest classes, inline styles, attributes, and form-property defaults are retained,
 while the active Knockout binding continues to own the DOM effects it declares.
@@ -206,7 +212,7 @@ Use `KoIf`, `KoIfNot`, `KoForeach`, and `KoWith` instead.
 The `text`, `html`, `component`, and `options` bindings also replace an
 element's contents. They are supported only when the bound element has no
 React-rendered children; otherwise the binding is rejected before it can detach
-those children. Direct React text and content inserted with
+those children. Direct React scalar text, including `bigint`, and content inserted with
 `dangerouslySetInnerHTML` are treated as React-rendered children too. This
 remains enforced if React conditionally adds children after
 the binding was applied. React element insertion is rejected synchronously,

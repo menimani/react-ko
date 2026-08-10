@@ -94,8 +94,9 @@ const viewModel = {
 ホスト要素は構造用のままで、バインディング境界またはルート用 ref と
 `display: contents` 以外のスタイルや ARIA prop は受け取りません。どちらのホストも
 常に子要素を持つため、`boundaryAs` と `as` に指定できるのは非 void HTML 要素だけです。
-この制約は TypeScript と JavaScript の両方に適用され、`input`、`img`、`br`、`svg`、
-カスタム要素名などは拒否されます。
+TypeScript と JavaScript の両方で、有効なカスタム要素名も指定できます。
+`HTMLElementTagNameMap` の宣言マージで追加したカスタム要素にも対応します。一方、`input`、
+`img`、`br` などの void 要素、`svg` などの SVG 要素、無効なカスタム要素名は拒否されます。
 
 `RootKnockoutProvider` または `KnockoutScope` の `viewModel` を置き換えると、
 Knockout バインディングが再適用されます。どちらのコンポーネントも、置き換え時と
@@ -120,7 +121,10 @@ react-ko は Knockout バインディング名 `reactKoScopeBoundary` と
 プロパティを復元します。DOM 効果を安全に破棄できないカスタムバインディングは拒否されます。
 カスタムバインディングは、実行前に子孫への動作を検証できないため、React が描画した children を
 持つ要素でも拒否されます。カスタムバインディングが要素の内容を所有する必要がある場合は、
-空の要素に指定してください。
+空の要素に指定してください。子孫を制御しないことを確認済みの Knockout 組み込みバインディングは、
+`class` と `hidden` を含め、React children を持つ要素でも引き続き使用できます。組み込みハンドラーを
+置き換えた場合や、本来はオプション名として許可されている名前にハンドラーを登録した場合、その
+バインディングはカスタムとして扱われ、この位置では拒否されます。
 React の props 更新と有効な Knockout バインディングは同じ要素を共有することもできます。
 React 側の最新のクラス、インラインスタイル、属性、フォームプロパティの初期値を保持しつつ、
 有効な Knockout バインディングが宣言した DOM 効果は引き続きそのバインディングが所有します。
@@ -203,7 +207,7 @@ React が描画した children を制御するために、Knockout の `if`、`i
 `text`、`html`、`component`、`options` バインディングも要素の内容を置き換えます。
 これらを使用できるのは、バインド対象の要素に React が描画した children がない場合
 だけです。children がある場合は、その DOM が切り離される前にバインディングを拒否します。
-React が直接描画するテキストと `dangerouslySetInnerHTML` で挿入する内容も、React が描画した
+`bigint` を含む React が直接描画するスカラーのテキストと `dangerouslySetInnerHTML` で挿入する内容も、React が描画した
 children として扱います。この制約はバインディングの適用後に React が条件付きで children を
 追加した場合にも適用されます。React 要素の挿入はその子の layout effect が実行される前に
 同期的に拒否され、直接のテキストまたは HTML の挿入は後続の再調整で拒否されます。Knockout が
