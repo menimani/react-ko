@@ -75,6 +75,9 @@ const viewModel = {
 </RootKnockoutProvider>
 ```
 
+`KoScope` is also exported as a shorter alias of `KnockoutScope`; both names
+refer to the same component.
+
 ---
 
 ## Custom Component Example
