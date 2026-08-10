@@ -25,6 +25,25 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean
   }
 }
 
+class ErrorMessageBoundary extends Component<
+  { children: ReactNode },
+  { error: Error | null }
+> {
+  state: { error: Error | null } = { error: null }
+
+  static getDerivedStateFromError(error: Error) {
+    return { error }
+  }
+
+  render() {
+    return this.state.error === null ? (
+      this.props.children
+    ) : (
+      <span>{this.state.error.message}</span>
+    )
+  }
+}
+
 describe('RootKnockoutProvider', () => {
   it('binds direct children to the root view model', () => {
     const vm = { label: ko.observable('Initial') }
@@ -226,6 +245,50 @@ describe('RootKnockoutProvider', () => {
     rerender(<Harness binding="second" />)
     expect(vm.second.getSubscriptionsCount()).toBe(1)
   })
+
+  it.each([
+    ['removed', undefined],
+    ['replaced', 'text: label'],
+  ] as const)(
+    'rejects an unknown custom binding when data-bind is %s and cleans it up',
+    (_, nextBinding) => {
+      const binding = 'temporaryCustomBinding'
+      const dispose = vi.fn()
+      const vm = { label: 'Replacement' }
+      ko.bindingHandlers[binding] = {
+        init(element) {
+          ko.utils.domNodeDisposal.addDisposeCallback(element, dispose)
+        },
+      }
+
+      function Harness({ dataBind }: { dataBind: string | undefined }) {
+        return (
+          <ErrorMessageBoundary>
+            <RootKnockoutProvider viewModel={vm}>
+              <span data-bind={dataBind} />
+            </RootKnockoutProvider>
+          </ErrorMessageBoundary>
+        )
+      }
+
+      try {
+        const { rerender } = render(<Harness dataBind={`${binding}: true`} />)
+
+        rerender(<Harness dataBind={nextBinding} />)
+
+        expect(
+          screen.getByText(
+            `react-ko cannot replace the Knockout "${binding}" binding because its DOM effects cannot be safely retired.`
+          )
+        ).toBeDefined()
+        expect(dispose).toHaveBeenCalledTimes(1)
+      } finally {
+        delete ko.bindingHandlers[binding]
+      }
+
+      expect(ko.bindingHandlers[binding]).toBeUndefined()
+    }
+  )
 
   it('removes DOM effects owned by retired bindings before applying replacements', () => {
     const vm = {
