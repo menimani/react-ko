@@ -1,7 +1,20 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { render, screen, act, waitFor } from '@testing-library/react'
+import { Component, StrictMode, type ReactNode } from 'react'
 import ko from 'knockout'
 import { RootKnockoutProvider, KnockoutScope, KoScope } from '@/index'
+
+class ErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false }
+
+  static getDerivedStateFromError() {
+    return { failed: true }
+  }
+
+  render() {
+    return this.state.failed ? <span>Binding failed</span> : this.props.children
+  }
+}
 
 describe('KnockoutScope', () => {
   it('binds and cleans ordinary React descendants mounted later', async () => {
@@ -128,6 +141,50 @@ describe('KnockoutScope', () => {
     )
 
     expect(vm.name.getSubscriptionsCount()).toBeGreaterThan(0)
+
+    unmount()
+
+    expect(vm.name.getSubscriptionsCount()).toBe(0)
+  })
+
+  it('disposes bindings created before a later binding throws', () => {
+    const vm = { name: ko.observable('Subscribed') }
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    try {
+      render(
+        <ErrorBoundary>
+          <RootKnockoutProvider viewModel={{}}>
+            <KnockoutScope viewModel={vm}>
+              <span data-bind="text: name" />
+              <span data-bind="text: missing.value" />
+            </KnockoutScope>
+          </RootKnockoutProvider>
+        </ErrorBoundary>
+      )
+    } finally {
+      consoleError.mockRestore()
+    }
+
+    expect(screen.getByText('Binding failed')).toBeDefined()
+    expect(vm.name.getSubscriptionsCount()).toBe(0)
+  })
+
+  it('binds once and cleans up correctly under StrictMode', () => {
+    const vm = { name: ko.observable('Strict') }
+
+    const { unmount } = render(
+      <StrictMode>
+        <RootKnockoutProvider viewModel={{}}>
+          <KnockoutScope viewModel={vm}>
+            <span data-bind="text: name" />
+          </KnockoutScope>
+        </RootKnockoutProvider>
+      </StrictMode>
+    )
+
+    expect(screen.getByText('Strict')).toBeDefined()
+    expect(vm.name.getSubscriptionsCount()).toBe(1)
 
     unmount()
 
