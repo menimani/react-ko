@@ -174,6 +174,9 @@ index, and the JSX it returns is bound to that item — `data-bind` inside a
 row refers to the row item directly.
 
 ```tsx
+import ko from 'knockout'
+import { KoForeach, RootKnockoutProvider } from 'react-ko'
+
 type Todo = {
   title: ko.Observable<string>
   done: ko.Observable<boolean>
@@ -181,16 +184,18 @@ type Todo = {
 
 const vm = { todos: ko.observableArray<Todo>([]) }
 
-<KoForeach items={vm.todos}>
-  {(todo, index) => (
-    <li>
-      <span>{index + 1}.</span>
-      <input type="checkbox" data-bind="checked: done" />
-      <input data-bind="value: title" />
-      <button onClick={() => vm.todos.remove(todo)}>Remove</button>
-    </li>
-  )}
-</KoForeach>
+<RootKnockoutProvider viewModel={vm}>
+  <KoForeach items={vm.todos}>
+    {(todo, index) => (
+      <li>
+        <span>{index + 1}.</span>
+        <input type="checkbox" data-bind="checked: done" />
+        <input data-bind="value: title" />
+        <button onClick={() => vm.todos.remove(todo)}>Remove</button>
+      </li>
+    )}
+  </KoForeach>
+</RootKnockoutProvider>
 ```
 
 - `items` accepts `ko.ObservableArray<T>`, `ko.Observable<T[]>`,
@@ -224,9 +229,19 @@ Render children while the condition is true (`KoIf`) or false (`KoIfNot`).
 `data-bind` inside the children refers to the enclosing scope's view model.
 
 ```tsx
-<KoIf condition={vm.isVisible}>
-  <p data-bind="text: message" />
-</KoIf>
+import ko from 'knockout'
+import { KoIf, RootKnockoutProvider } from 'react-ko'
+
+const vm = {
+  isVisible: ko.observable(true),
+  message: ko.observable('Hello')
+}
+
+<RootKnockoutProvider viewModel={vm}>
+  <KoIf condition={vm.isVisible}>
+    <p data-bind="text: message" />
+  </KoIf>
+</RootKnockoutProvider>
 ```
 
 ### `KoWith`
@@ -237,14 +252,27 @@ scopes. `value` accepts an observable, computed, or plain nullable value.
 Falsy values such as `false`, `0`, and `''` are present values.
 
 ```tsx
-<KoWith value={vm.selectedTodo}>
-  {(todo) => (
-    <section>
-      <input data-bind="value: title" />
-      <button onClick={() => vm.remove(todo)}>Remove</button>
-    </section>
-  )}
-</KoWith>
+import ko from 'knockout'
+import { KoWith, RootKnockoutProvider } from 'react-ko'
+
+type Todo = { title: ko.Observable<string> }
+
+const vm = {
+  selectedTodo: ko.observable<Todo | null>({
+    title: ko.observable('Write documentation')
+  })
+}
+
+<RootKnockoutProvider viewModel={vm}>
+  <KoWith value={vm.selectedTodo}>
+    {() => (
+      <section>
+        <input data-bind="value: title" />
+        <button onClick={() => vm.selectedTodo(null)}>Remove</button>
+      </section>
+    )}
+  </KoWith>
+</RootKnockoutProvider>
 ```
 
 ---

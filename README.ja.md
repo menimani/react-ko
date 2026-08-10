@@ -174,6 +174,9 @@ Knockout に要素の内容を所有させる場合は、その要素を空に�
 は行アイテムを直接参照できます。
 
 ```tsx
+import ko from 'knockout'
+import { KoForeach, RootKnockoutProvider } from 'react-ko'
+
 type Todo = {
   title: ko.Observable<string>
   done: ko.Observable<boolean>
@@ -181,16 +184,18 @@ type Todo = {
 
 const vm = { todos: ko.observableArray<Todo>([]) }
 
-<KoForeach items={vm.todos}>
-  {(todo, index) => (
-    <li>
-      <span>{index + 1}.</span>
-      <input type="checkbox" data-bind="checked: done" />
-      <input data-bind="value: title" />
-      <button onClick={() => vm.todos.remove(todo)}>削除</button>
-    </li>
-  )}
-</KoForeach>
+<RootKnockoutProvider viewModel={vm}>
+  <KoForeach items={vm.todos}>
+    {(todo, index) => (
+      <li>
+        <span>{index + 1}.</span>
+        <input type="checkbox" data-bind="checked: done" />
+        <input data-bind="value: title" />
+        <button onClick={() => vm.todos.remove(todo)}>削除</button>
+      </li>
+    )}
+  </KoForeach>
+</RootKnockoutProvider>
 ```
 
 - `items` は `ko.ObservableArray<T>`、`ko.Observable<T[]>`、
@@ -224,9 +229,19 @@ const vm = { todos: ko.observableArray<Todo>([]) }
 します。children 内の `data-bind` は外側スコープの ViewModel を参照します。
 
 ```tsx
-<KoIf condition={vm.isVisible}>
-  <p data-bind="text: message" />
-</KoIf>
+import ko from 'knockout'
+import { KoIf, RootKnockoutProvider } from 'react-ko'
+
+const vm = {
+  isVisible: ko.observable(true),
+  message: ko.observable('こんにちは')
+}
+
+<RootKnockoutProvider viewModel={vm}>
+  <KoIf condition={vm.isVisible}>
+    <p data-bind="text: message" />
+  </KoIf>
+</RootKnockoutProvider>
 ```
 
 ### `KoWith`
@@ -237,14 +252,27 @@ render prop が `$data` の代わりになり、外側スコープの値には�
 `false`、`0`、`''` などの falsy 値も、有効な値として扱います。
 
 ```tsx
-<KoWith value={vm.selectedTodo}>
-  {(todo) => (
-    <section>
-      <input data-bind="value: title" />
-      <button onClick={() => vm.remove(todo)}>削除</button>
-    </section>
-  )}
-</KoWith>
+import ko from 'knockout'
+import { KoWith, RootKnockoutProvider } from 'react-ko'
+
+type Todo = { title: ko.Observable<string> }
+
+const vm = {
+  selectedTodo: ko.observable<Todo | null>({
+    title: ko.observable('ドキュメントを書く')
+  })
+}
+
+<RootKnockoutProvider viewModel={vm}>
+  <KoWith value={vm.selectedTodo}>
+    {() => (
+      <section>
+        <input data-bind="value: title" />
+        <button onClick={() => vm.selectedTodo(null)}>削除</button>
+      </section>
+    )}
+  </KoWith>
+</RootKnockoutProvider>
 ```
 
 ---
