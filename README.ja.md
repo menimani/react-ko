@@ -28,7 +28,7 @@
 npm install react-ko knockout
 ```
 
-> このライブラリは `react` (v18+) と `knockout` (v3.5+) をピア依存としています。
+> このライブラリは `react` (`^18.0.0 || ^19.0.0`)、`react-dom` (`^18.0.0 || ^19.0.0`)、`knockout` (`^3.5.1`) をピア依存としています。
 
 ---
 
