@@ -1,0 +1,75 @@
+import { describe, it, expect } from 'vitest'
+import { render, screen, act } from '@testing-library/react'
+import ko from 'knockout'
+import { useKoValue } from '@/index'
+
+function Probe<T>({ source }: { source: ko.Observable<T> | ko.Computed<T> | T }) {
+  const value = useKoValue(source)
+  return <span data-testid="value">{String(value)}</span>
+}
+
+describe('useKoValue', () => {
+  it('returns the current value of an observable', () => {
+    const name = ko.observable('Hello')
+
+    render(<Probe source={name} />)
+
+    expect(screen.getByTestId('value').textContent).toBe('Hello')
+  })
+
+  it('re-renders when the observable changes', () => {
+    const name = ko.observable('Hello')
+
+    render(<Probe source={name} />)
+
+    act(() => {
+      name('World')
+    })
+
+    expect(screen.getByTestId('value').textContent).toBe('World')
+  })
+
+  it('re-renders when a computed changes', () => {
+    const count = ko.observable(1)
+    const doubled = ko.computed(() => count() * 2)
+
+    render(<Probe source={doubled} />)
+    expect(screen.getByTestId('value').textContent).toBe('2')
+
+    act(() => {
+      count(5)
+    })
+
+    expect(screen.getByTestId('value').textContent).toBe('10')
+  })
+
+  it('re-renders when an observableArray mutates in place', () => {
+    const items = ko.observableArray(['A'])
+
+    render(<Probe source={items} />)
+    expect(screen.getByTestId('value').textContent).toBe('A')
+
+    act(() => {
+      items.push('B')
+    })
+
+    expect(screen.getByTestId('value').textContent).toBe('A,B')
+  })
+
+  it('passes plain values through unchanged', () => {
+    render(<Probe source={42} />)
+
+    expect(screen.getByTestId('value').textContent).toBe('42')
+  })
+
+  it('disposes its subscription on unmount', () => {
+    const name = ko.observable('Hello')
+
+    const { unmount } = render(<Probe source={name} />)
+    expect(name.getSubscriptionsCount()).toBe(1)
+
+    unmount()
+
+    expect(name.getSubscriptionsCount()).toBe(0)
+  })
+})
