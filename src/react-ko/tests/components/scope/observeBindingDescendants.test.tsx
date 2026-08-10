@@ -27,6 +27,30 @@ function Host({ vm }: { vm: unknown }) {
 }
 
 describe('observeBindingDescendants', () => {
+  it('degrades to a no-op observer in a document without a window', async () => {
+    const detached = document.implementation.createHTMLDocument('detached')
+    expect(detached.defaultView).toBeNull()
+
+    const { prepareBindingDescendants, observeBindingDescendants } = await import(
+      '@/components/scope/observeBindingDescendants'
+    )
+    const root = detached.createElement('div')
+    detached.body.appendChild(root)
+
+    const errors: unknown[] = []
+    const stop = observeBindingDescendants(
+      {},
+      root,
+      (error) => errors.push(error),
+      prepareBindingDescendants(root)
+    )
+
+    root.appendChild(detached.createElement('span'))
+    stop()
+
+    expect(errors).toEqual([])
+  })
+
   it('surfaces a binding error raised by a late non-React descendant of a scope', async () => {
     render(
       <ErrorBoundary>

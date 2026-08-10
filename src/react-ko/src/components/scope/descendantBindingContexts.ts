@@ -4,7 +4,6 @@ const CAPTURE_DESCENDANT_CONTEXT = 'reactKoCaptureDescendantContext'
 const CONTEXT_ESTABLISHING_BINDINGS = new Set(['let', 'using'])
 const descendantBindingContexts = new WeakMap<Node, ko.BindingContext<unknown>>()
 
-/* v8 ignore next -- the module registers its handler once per process */
 if (ko.bindingHandlers[CAPTURE_DESCENDANT_CONTEXT] === undefined) {
   ko.bindingHandlers[CAPTURE_DESCENDANT_CONTEXT] = {
     init: (element, _valueAccessor, _allBindings, _viewModel, bindingContext) => {

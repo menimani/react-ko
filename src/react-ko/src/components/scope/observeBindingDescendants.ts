@@ -257,7 +257,6 @@ function releaseAttributeInterceptor(prototype: typeof Element.prototype) {
 
 function interceptDataBindChanges(root: HTMLElement) {
   const view = root.ownerDocument.defaultView
-  /* v8 ignore next 3 -- attached documents always have a window in jsdom and browsers */
   if (view === null) {
     return () => undefined
   }
@@ -320,7 +319,6 @@ function releaseChildListInterceptor(prototype: typeof Node.prototype) {
 
 function interceptChildListInsertions(root: HTMLElement) {
   const view = root.ownerDocument.defaultView
-  /* v8 ignore next 3 -- attached documents always have a window in jsdom and browsers */
   if (view === null) {
     return () => undefined
   }
