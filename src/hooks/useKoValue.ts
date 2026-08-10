@@ -1,5 +1,5 @@
 import { useCallback, useRef, useSyncExternalStore } from 'react'
-import ko from 'knockout'
+import * as ko from 'knockout'
 
 /**
  * Returns the current value of a Knockout observable or computed and
