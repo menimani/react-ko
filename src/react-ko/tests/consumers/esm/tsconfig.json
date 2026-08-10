@@ -3,6 +3,10 @@
     "target": "ES2020",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
+    "baseUrl": ".",
+    "paths": {
+      "react-ko": ["../../../dist/index.d.ts"]
+    },
     "strict": true,
     "noEmit": true,
     "skipLibCheck": false
