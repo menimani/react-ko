@@ -8,12 +8,12 @@ export const AppViewModelContext = createContext<unknown | null>(null)
 
 /**
  * Hook to access the current AppViewModel.
- * Must be used within a RootKnockoutProvider.
+ * Must be used within an AppViewModelContext.Provider.
  */
 export function useAppViewModel<T>(): T {
   const context = useContext(AppViewModelContext)
   if (context === null) {
-    throw new Error('useAppViewModel must be used within a RootKnockoutProvider.')
+    throw new Error('useAppViewModel must be used within an AppViewModelContext.Provider.')
   }
   return context as T
 }

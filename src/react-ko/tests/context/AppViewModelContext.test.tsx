@@ -32,7 +32,7 @@ describe('AppViewModelContext', () => {
     }
   
     expect(errorFn).toThrow(
-      'useAppViewModel must be used within a RootKnockoutProvider.'
+      'useAppViewModel must be used within an AppViewModelContext.Provider.'
     )
   })
 })
