@@ -1503,4 +1503,57 @@ describe('RootKnockoutProvider', () => {
     fireEvent.click(screen.getByText('select advance'))
     expect([...select.selectedOptions].map(({ value }) => value)).toEqual(['react-next'])
   })
+
+  it.each([
+    ['value', 'value', 'Knockout value', 'React initial', 'React latest'],
+    ['checked', 'checked', false, false, true],
+    ['disabled', 'disable', true, true, false],
+  ] as const)(
+    'restores the latest controlled React %s when its binding retires',
+    async (property, binding, knockoutValue, reactInitial, reactLatest) => {
+      const vm = { current: ko.observable(knockoutValue) }
+
+      function LocallyUpdatedInput() {
+        const [phase, setPhase] = useState(0)
+        const reactValue = phase === 0 ? reactInitial : reactLatest
+        const controlledProps =
+          property === 'value'
+            ? { readOnly: true, value: reactValue as string }
+            : property === 'checked'
+              ? { type: 'checkbox', readOnly: true, checked: reactValue as boolean }
+              : { disabled: reactValue as boolean }
+
+        return (
+          <>
+            <button onClick={() => setPhase((current) => current + 1)}>
+              advance {property}
+            </button>
+            <input
+              {...controlledProps}
+              data-testid={`controlled-${property}-retirement`}
+              data-bind={phase < 2 ? `${binding}: current` : undefined}
+            />
+          </>
+        )
+      }
+
+      render(
+        <RootKnockoutProvider viewModel={vm}>
+          <LocallyUpdatedInput />
+        </RootKnockoutProvider>
+      )
+      const input = screen.getByTestId(
+        `controlled-${property}-retirement`
+      ) as HTMLInputElement
+      const currentValue = () => input[property]
+
+      expect(currentValue()).toBe(knockoutValue)
+
+      fireEvent.click(screen.getByText(`advance ${property}`))
+      await waitFor(() => expect(currentValue()).toBe(knockoutValue))
+
+      fireEvent.click(screen.getByText(`advance ${property}`))
+      expect(currentValue()).toBe(reactLatest)
+    }
+  )
 })
