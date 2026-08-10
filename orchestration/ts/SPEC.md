@@ -141,7 +141,9 @@ from or equivalent to `orchestration/tests/*.sh`.
 25. The stop file (`queue/stop`) is checked at the top of every poll; stopping does not
     kill running runner processes — they finish in their worktrees with nobody left to
     merge them, and `loop-status` says so.
-26. The daemon holds the code it started with; the wrapper prints where the log lives
+26. The daemon holds the core modules it started with, so edits there require a restart.
+    The project adapter is the exception: it is reloaded before each scan so changes to
+    its scan-worktree setup apply to the next scan. The wrapper prints where the log lives
     and how to stop.
 27. `prune --days N` deletes logs/status/generated specs/queue markers of tasks finished
     more than N days ago; it never touches an unmerged or failed task, a worktree still
