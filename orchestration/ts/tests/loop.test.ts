@@ -131,6 +131,42 @@ describe('daemon startup', () => {
     expect(install).toHaveBeenCalledWith(join(repoRoot, 'orchestration', 'ts'))
     expect(logged).toContain('Installed  orchestration deps  at startup')
   })
+
+  it('reloads the project adapter before starting each scan', async () => {
+    initializeGitRepo()
+    mkdirSync(join(paths.root, 'templates'), { recursive: true })
+    writeFileSync(join(paths.root, 'templates', 'scan-template.md'), '# {{SCAN_ID}}\n{{SCAN_SCOPE}}\n')
+    git(['add', 'orchestration/templates/scan-template.md'])
+    git(['commit', '-m', 'test: add scan template'])
+
+    const currentProject: ProjectAdapter = {
+      ...stubProject,
+      scanWorktreeSetup: [{
+        label: 'Current setup',
+        cwd: '',
+        command: 'node -e "require(\'node:fs\').writeFileSync(\'fresh-setup\', \'\')"',
+      }],
+    }
+    const reloadProject = vi.fn(async () => currentProject)
+    const loop = createLoop({
+      paths,
+      config: { ...loadConfig({}), autoPr: false, reviewEnabled: false, scanParallel: 2 },
+      forge: makeForge(),
+      runner: makeRunner(),
+      project: stubProject,
+      reloadProject,
+      log: (line) => logged.push(line),
+      now: () => new Date(2026, 7, 8, 12, 0, 0),
+    })
+
+    expect(await loop.triggerScanIfIdle()).toBe('continue')
+
+    expect(reloadProject).toHaveBeenCalledTimes(2)
+    const scanWorktrees = readdirSync(paths.worktreesDir)
+    expect(scanWorktrees).toHaveLength(2)
+    expect(scanWorktrees.every((name) =>
+      existsSync(join(paths.worktreesDir, name, 'fresh-setup')))).toBe(true)
+  })
 })
 
 describe('actionable findings', () => {

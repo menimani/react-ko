@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { loadProject } from '../src/adapters/project.ts'
 import { reactKoProject } from '../src/adapters/project-reactko.ts'
 
 // The project adapter carries the repository's own knowledge: gate commands per
@@ -11,6 +12,13 @@ function check(label: string, taskGate: 'full' | 'light' = 'full') {
 }
 
 describe('gate commands', () => {
+  it('can reload adapter declarations for a running daemon', async () => {
+    const reloaded = await loadProject('react-ko', true)
+
+    expect(reloaded).not.toBe(reactKoProject)
+    expect(reloaded.scanWorktreeSetup).toEqual(reactKoProject.scanWorktreeSetup)
+  })
+
   it('prepares runtime dependencies before a scan starts', () => {
     expect(reactKoProject.scanWorktreeSetup).toEqual([
       {

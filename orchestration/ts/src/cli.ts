@@ -534,7 +534,16 @@ async function runLoopDaemon(
         log(`WARN could not reconcile closed issue lifecycle labels: ${(error as Error).message}`)
       }
     }
-    const loop = createLoop({ paths, config, forge, runner, project, log, now: () => new Date() })
+    const loop = createLoop({
+      paths,
+      config,
+      forge,
+      runner,
+      project,
+      reloadProject: () => loadProject(config.project, true),
+      log,
+      now: () => new Date(),
+    })
 
     loop.initializeSessionStateForBranch()
 
