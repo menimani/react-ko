@@ -118,6 +118,9 @@ the current binding or React-rendered children take ownership. Other replaced
 bindings restore the attributes, classes, styles, and form properties owned by
 the previous expression before applying the next one; a custom binding is rejected
 if its DOM effects cannot be safely retired.
+Custom bindings are also rejected on elements with React-rendered children because
+their descendant behavior cannot be audited before they run. Put a custom binding on
+an empty element when it needs to own that element's contents.
 React prop updates and active Knockout bindings can also share an element: React's
 latest classes, inline styles, attributes, and form-property defaults are retained,
 while the active Knockout binding continues to own the DOM effects it declares.

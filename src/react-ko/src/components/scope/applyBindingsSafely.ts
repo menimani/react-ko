@@ -4,6 +4,47 @@ import { prepareDescendantBindingContextCapture } from './descendantBindingConte
 
 const REACT_UNSAFE_BINDINGS = new Set(['if', 'ifnot', 'foreach', 'template', 'with'])
 const REACT_CHILD_UNSAFE_BINDINGS = new Set(['text', 'html', 'component', 'options'])
+const REACT_CHILD_AUDITED_BINDINGS = new Set([
+  'attr',
+  'checked',
+  'checkedValue',
+  'childrenComplete',
+  'click',
+  'component',
+  'css',
+  'descendantsComplete',
+  'disable',
+  'enable',
+  'event',
+  'foreach',
+  'hasFocus',
+  'hasfocus',
+  'html',
+  'if',
+  'ifnot',
+  'let',
+  'options',
+  'optionsAfterRender',
+  'optionsCaption',
+  'optionsIncludeDestroyed',
+  'optionsText',
+  'optionsValue',
+  'selectedOptions',
+  'style',
+  'submit',
+  'template',
+  'text',
+  'textInput',
+  'textinput',
+  'uniqueName',
+  'using',
+  'value',
+  'valueAllowUnset',
+  'valueUpdate',
+  'visible',
+  'with',
+  DESCENDANT_BINDING_BOUNDARY,
+])
 
 function bindingNames(element: Element): Set<string> {
   const source = element.getAttribute('data-bind')
@@ -177,18 +218,22 @@ export function assertNoReactUnsafeBindings(
 ) {
   function visit(element: Element) {
     const names = bindingNames(element)
+    const hasOwnedChildren =
+      hasReactOwnedChildren(element) || (element === root && rootHadReactContentMutation)
     const unsafeBinding = [...names].find(
       (name) =>
         REACT_UNSAFE_BINDINGS.has(name) ||
-        ((hasReactOwnedChildren(element) ||
-          (element === root && rootHadReactContentMutation)) &&
-          REACT_CHILD_UNSAFE_BINDINGS.has(name))
+        (hasOwnedChildren &&
+          (REACT_CHILD_UNSAFE_BINDINGS.has(name) ||
+            !REACT_CHILD_AUDITED_BINDINGS.has(name)))
     )
 
     if (unsafeBinding !== undefined) {
       const advice = REACT_UNSAFE_BINDINGS.has(unsafeBinding)
         ? 'Use KoIf, KoIfNot, KoForeach, or KoWith instead.'
-        : 'Leave the bound element empty so Knockout can own its contents.'
+        : REACT_CHILD_UNSAFE_BINDINGS.has(unsafeBinding)
+          ? 'Leave the bound element empty so Knockout can own its contents.'
+          : 'Custom bindings on elements with React-owned children are not supported.'
 
       throw new Error(
         `react-ko cannot apply the Knockout "${unsafeBinding}" binding because it controls React-owned child nodes. ` +

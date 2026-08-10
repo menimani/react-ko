@@ -120,6 +120,63 @@ describe('applyBindingsSafely', () => {
     expect(cleanup).toHaveBeenLastCalledWith(null)
   })
 
+  it('rejects a custom binding that controls descendants before its handler runs', () => {
+    const binding = 'customDescendantController'
+    const init = vi.fn(() => ({ controlsDescendantBindings: true }))
+    ko.bindingHandlers[binding] = { init }
+
+    try {
+      const { container } = render(
+        <div data-bind={`${binding}: true`}>
+          <span>React child</span>
+        </div>
+      )
+
+      expect(() => applyBindingsSafely({}, container)).toThrow(
+        `react-ko cannot apply the Knockout "${binding}" binding`
+      )
+      expect(init).not.toHaveBeenCalled()
+      expect(container.querySelector('span')?.textContent).toBe('React child')
+    } finally {
+      delete ko.bindingHandlers[binding]
+    }
+  })
+
+  it('keeps later React renders live after rejecting a custom child-replacement binding', () => {
+    const binding = 'customChildReplacement'
+    const init = vi.fn((element: Element) => {
+      element.replaceChildren(document.createTextNode('Knockout replacement'))
+    })
+    ko.bindingHandlers[binding] = { init }
+
+    function Child({ label }: { label: string }) {
+      return <span>{label}</span>
+    }
+
+    try {
+      const { container, rerender } = render(
+        <div data-bind={`${binding}: true`}>
+          <Child label="First render" />
+        </div>
+      )
+
+      expect(() => applyBindingsSafely({}, container)).toThrow(
+        `react-ko cannot apply the Knockout "${binding}" binding`
+      )
+      expect(init).not.toHaveBeenCalled()
+
+      rerender(
+        <div data-bind={`${binding}: true`}>
+          <Child label="Second render" />
+        </div>
+      )
+
+      expect(container.querySelector('span')?.textContent).toBe('Second render')
+    } finally {
+      delete ko.bindingHandlers[binding]
+    }
+  })
+
   it('allows a descendant-mutating binding when its element has no children', () => {
     const container = document.createElement('div')
     container.innerHTML = '<span data-bind="text: label"></span>'
