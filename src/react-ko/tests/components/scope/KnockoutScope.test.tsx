@@ -2,7 +2,12 @@ import { describe, it, expect, vi } from 'vitest'
 import { render, screen, act, waitFor } from '@testing-library/react'
 import { Component, StrictMode, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import ko from 'knockout'
-import { RootKnockoutProvider, KnockoutScope, KoScope } from '@/index'
+import {
+  AppViewModelContext,
+  RootKnockoutProvider,
+  KnockoutScope,
+  KoScope,
+} from '@/index'
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
   state = { failed: false }
@@ -17,6 +22,29 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean
 }
 
 describe('KnockoutScope', () => {
+  it('binds directly beneath AppViewModelContext.Provider without a root provider', () => {
+    const appVm = { name: ko.observable('App') }
+    const scopeVm = { name: ko.observable('Scoped') }
+
+    render(
+      <AppViewModelContext.Provider value={appVm}>
+        <KnockoutScope viewModel={scopeVm}>
+          <span data-bind="text: name" />
+        </KnockoutScope>
+      </AppViewModelContext.Provider>
+    )
+
+    expect(screen.getByText('Scoped')).toBeDefined()
+    expect(screen.queryByText('App')).toBeNull()
+
+    act(() => {
+      scopeVm.name('Updated')
+    })
+
+    expect(screen.getByText('Updated')).toBeDefined()
+    expect(screen.queryByText('Scoped')).toBeNull()
+  })
+
   it('binds and cleans ordinary React descendants mounted later', async () => {
     const vm = { name: ko.observable('Scoped later') }
 
