@@ -27,6 +27,29 @@ function Host({ vm }: { vm: unknown }) {
 }
 
 describe('observeBindingDescendants', () => {
+  it('leaves html binding descendants unbound after observable updates', async () => {
+    const vm = {
+      label: 'Bound unexpectedly',
+      markup: ko.observable('<span data-bind="text: label">Initial markup</span>'),
+    }
+    render(
+      <RootKnockoutProvider viewModel={{}}>
+        <KnockoutScope viewModel={vm}>
+          <div data-testid="html-owner" data-bind="html: markup" />
+        </KnockoutScope>
+      </RootKnockoutProvider>
+    )
+
+    const owner = screen.getByTestId('html-owner')
+    expect(owner.textContent).toBe('Initial markup')
+
+    act(() => {
+      vm.markup('<span data-bind="text: label">Updated markup</span>')
+    })
+
+    await waitFor(() => expect(owner.textContent).toBe('Updated markup'))
+  })
+
   it('degrades to a no-op observer in a document without a window', async () => {
     const detached = document.implementation.createHTMLDocument('detached')
     expect(detached.defaultView).toBeNull()

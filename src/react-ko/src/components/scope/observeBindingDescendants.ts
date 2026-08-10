@@ -554,7 +554,31 @@ function interceptChildListInsertions(root: HTMLElement) {
   return () => releaseChildListInterceptor(prototype)
 }
 
-function addedBindingRoots(records: MutationRecord[], root: Node) {
+function isKnockoutOwnedContentAddition(
+  record: MutationRecord,
+  node: Node,
+  bindingStates: BindingStateStore
+) {
+  if (record.target.nodeType !== Node.ELEMENT_NODE) {
+    return false
+  }
+
+  const target = record.target as HTMLElement
+  const state = bindingStates.get(target)
+  // Content bindings own their output but do not bind its descendants. Keep
+  // later output consistent with the initial binding pass.
+  return (
+    state !== undefined &&
+    state.ownedContent !== null &&
+    !hasReactOwnership(node, target)
+  )
+}
+
+function addedBindingRoots(
+  records: MutationRecord[],
+  root: Node,
+  bindingStates: BindingStateStore
+) {
   const addedRoots: HTMLElement[] = []
 
   for (const record of records) {
@@ -562,7 +586,8 @@ function addedBindingRoots(records: MutationRecord[], root: Node) {
       if (
         node.nodeType === Node.ELEMENT_NODE &&
         belongsToBindingRoot(node, root) &&
-        ko.contextFor(node) === undefined
+        ko.contextFor(node) === undefined &&
+        !isKnockoutOwnedContentAddition(record, node, bindingStates)
       ) {
         addedRoots.push(node as HTMLElement)
       }
@@ -1258,7 +1283,8 @@ function bindAddedNodes(
       if (
         node.nodeType !== Node.ELEMENT_NODE ||
         !belongsToBindingRoot(node, root) ||
-        ko.contextFor(node) !== undefined
+        ko.contextFor(node) !== undefined ||
+        isKnockoutOwnedContentAddition(record, node, bindingStates)
       ) {
         continue
       }
@@ -1288,7 +1314,7 @@ export function observeBindingDescendants(
 
   const reconcile = (records: MutationRecord[], reactCommitInProgress = false) => {
     cleanRemovedNodes(records, root)
-    const addedRoots = addedBindingRoots(records, root)
+    const addedRoots = addedBindingRoots(records, root, bindingStates)
     const changedElements = changedBindingElements(records, root, addedRoots)
     recordOwnedAttributeChanges(records, bindingStates)
     for (const element of refreshReactOwnedDom(
