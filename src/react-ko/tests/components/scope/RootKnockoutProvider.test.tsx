@@ -1094,4 +1094,123 @@ describe('RootKnockoutProvider', () => {
 
     unmount()
   })
+
+  it.each([
+    ['click', 'click: handle', 'click'],
+    ['event', 'event: { mouseover: handle }', 'mouseover'],
+    ['submit', 'submit: handle', 'submit'],
+  ] as const)('removes the listener owned by a retired %s binding', (_, source, eventType) => {
+    const handle = vi.fn()
+    const vm = { handle }
+
+    function Harness({ bound }: { bound: boolean }) {
+      const dataBind = bound ? source : undefined
+
+      return (
+        <RootKnockoutProvider viewModel={vm}>
+          {eventType === 'submit' ? (
+            <form data-testid="listener-owner" data-bind={dataBind} />
+          ) : (
+            <button data-testid="listener-owner" data-bind={dataBind} />
+          )}
+        </RootKnockoutProvider>
+      )
+    }
+
+    const { rerender } = render(<Harness bound />)
+    const element = screen.getByTestId('listener-owner')
+    const boundEvent = new Event(eventType, { bubbles: true, cancelable: true })
+    fireEvent(element, boundEvent)
+    if (eventType === 'submit') {
+      expect(handle).toHaveBeenCalledWith(element)
+    } else {
+      expect(handle).toHaveBeenCalledWith(vm, boundEvent)
+    }
+
+    rerender(<Harness bound={false} />)
+    fireEvent(element, new Event(eventType, { bubbles: true, cancelable: true }))
+
+    expect(handle).toHaveBeenCalledTimes(1)
+  })
+
+  it('restores the input value owned by React when textInput is retired', () => {
+    const vm = { name: ko.observable('Knockout value') }
+
+    function Harness({ bound }: { bound: boolean }) {
+      return (
+        <RootKnockoutProvider viewModel={vm}>
+          <input
+            data-testid="text-input-owner"
+            defaultValue="React value"
+            data-bind={bound ? 'textInput: name' : undefined}
+          />
+        </RootKnockoutProvider>
+      )
+    }
+
+    const { rerender } = render(<Harness bound />)
+    const input = screen.getByTestId('text-input-owner') as HTMLInputElement
+    expect(input.value).toBe('Knockout value')
+
+    rerender(<Harness bound={false} />)
+
+    expect(input.value).toBe('React value')
+    fireEvent.input(input, { target: { value: 'After retirement' } })
+    expect(vm.name()).toBe('Knockout value')
+  })
+
+  it('restores the input value owned by React when checkedValue is retired', () => {
+    const vm = { choice: ko.observable('Knockout value') }
+
+    function Harness({ bound }: { bound: boolean }) {
+      return (
+        <RootKnockoutProvider viewModel={vm}>
+          <input
+            type="checkbox"
+            data-testid="checked-value-owner"
+            defaultValue="React value"
+            data-bind={bound ? 'checkedValue: choice' : undefined}
+          />
+        </RootKnockoutProvider>
+      )
+    }
+
+    const { rerender } = render(<Harness bound />)
+    const input = screen.getByTestId('checked-value-owner') as HTMLInputElement
+    expect(input.value).toBe('Knockout value')
+
+    rerender(<Harness bound={false} />)
+
+    expect(input.value).toBe('React value')
+  })
+
+  it('restores the options selected by React when selectedOptions is retired', () => {
+    const vm = { choices: ko.observableArray(['knockout']) }
+
+    function Harness({ bound }: { bound: boolean }) {
+      return (
+        <RootKnockoutProvider viewModel={vm}>
+          <select
+            multiple
+            data-testid="selected-options-owner"
+            defaultValue={['react']}
+            data-bind={bound ? 'selectedOptions: choices' : undefined}
+          >
+            <option value="react">React choice</option>
+            <option value="knockout">Knockout choice</option>
+          </select>
+        </RootKnockoutProvider>
+      )
+    }
+
+    const { rerender } = render(<Harness bound />)
+    const select = screen.getByTestId('selected-options-owner') as HTMLSelectElement
+    expect([...select.selectedOptions].map(({ value }) => value)).toEqual(['knockout'])
+
+    rerender(<Harness bound={false} />)
+
+    expect([...select.selectedOptions].map(({ value }) => value)).toEqual(['react'])
+    fireEvent.change(select)
+    expect(vm.choices()).toEqual(['knockout'])
+  })
 })
