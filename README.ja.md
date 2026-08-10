@@ -4,38 +4,37 @@
 
 [![npm version](https://img.shields.io/npm/v/react-ko)](https://www.npmjs.com/package/react-ko)
 
-> 🧠 Knockout.js を React コンポーネント内で使うための最小限のブリッジライブラリ  
-> Knockout のリアクティブ性と React のコンポーネント構造をクリーンに融合します
+> Knockout.js を React コンポーネント内で使うための最小限のブリッジライブラリ。Knockout のリアクティブ性と React のコンポーネント構造をクリーンに融合します
 
 ---
 
-## ✨ 特長
+## 特長
 
-- ✅ Knockout の observable による双方向データバインディング
-- ✅ JSX / TSX 上でそのまま `data-bind="..."` を使用可能
-- ✅ `<KnockoutScope>` によるスコープ付き ViewModel
-- ✅ `<RootKnockoutProvider>` による1行ルートバインディング
-- ✅ `<KoForeach>` の render prop による型安全なリスト描画
-- ✅ observable を React の state として読める `useKoValue`
-- ✅ イベントハンドラや状態管理のボイラープレート不要
-- ✅ TypeScript / JavaScript の両対応（設定不要）
-- ✅ Knockout と React 以外のランタイム依存なし
+- Knockout の observable による双方向データバインディング
+- JSX / TSX 上でそのまま `data-bind="..."` を使用可能
+- `<KnockoutScope>` によるスコープ付き ViewModel
+- `<RootKnockoutProvider>` による1行ルートバインディング
+- `<KoForeach>` の render prop による型安全なリスト描画
+- observable を React の state として読める `useKoValue`
+- イベントハンドラや状態管理のボイラープレート不要
+- TypeScript / JavaScript の両対応（設定不要）
+- Knockout と React 以外のランタイム依存なし
 
 ---
 
-## 📦 インストール
+## インストール
 
 ```bash
 npm install react-ko knockout
 ```
 
-> ⚠️ このライブラリは `react` (v18+) と `knockout` (v3.5+) をピア依存としています。
+> このライブラリは `react` (v18+) と `knockout` (v3.5+) をピア依存としています。
 
 ---
 
-## ⚡ クイックスタート（スターターテンプレート）
+## クイックスタート（スターターテンプレート）
 
-### ▶ TypeScript
+### TypeScript
 
 ```bash
 npx degit menimani/react-ko-starter-ts my-app-ts
@@ -43,11 +42,11 @@ cd my-app-ts
 npm install && npm run dev
 ```
 
-🔗 GitHub: [react-ko-starter-ts](https://github.com/menimani/react-ko-starter-ts)
+GitHub: [react-ko-starter-ts](https://github.com/menimani/react-ko-starter-ts)
 
 ---
 
-### ▶ JavaScript
+### JavaScript
 
 ```bash
 npx degit menimani/react-ko-starter-js my-app-js
@@ -55,11 +54,11 @@ cd my-app-js
 npm install && npm run dev
 ```
 
-🔗 GitHub: [react-ko-starter-js](https://github.com/menimani/react-ko-starter-js)
+GitHub: [react-ko-starter-js](https://github.com/menimani/react-ko-starter-js)
 
 ---
 
-## 🚀 クイック使用例（JSX / TSX）
+## クイック使用例（JSX / TSX）
 
 ```tsx
 import ko from 'knockout'
@@ -78,9 +77,9 @@ const viewModel = {
 
 ---
 
-## 🧩 カスタムコンポーネント例
+## カスタムコンポーネント例
 
-### ▶️ JavaScript (JSX)
+### JavaScript (JSX)
 
 ```jsx
 import { KnockoutScope } from 'react-ko'
@@ -96,7 +95,7 @@ export function KoInput({ value }) {
 }
 ```
 
-### ▶️ TypeScript (TSX)
+### TypeScript (TSX)
 
 ```tsx
 import ko from 'knockout'
@@ -117,7 +116,7 @@ export function KoInput({ value }: Props) {
 }
 ```
 
-### ▶️ コンポーネント使用例
+### コンポーネント使用例
 
 ```tsx
 const vm = {
@@ -131,7 +130,7 @@ const vm = {
 
 ---
 
-## 🔁 構造コンポーネント
+## 構造コンポーネント
 
 ### `KoForeach`
 
@@ -196,7 +195,7 @@ const vm = { todos: ko.observableArray<Todo>([]) }
 
 ---
 
-## 🪝 useKoValue
+## useKoValue
 
 Knockout の observable / computed / 素の値を React の state として読み
 ます。現在値を返し、変更されるとコンポーネントを再レンダーします。
@@ -214,7 +213,7 @@ function Greeting({ name }: { name: ko.Observable<string> }) {
 
 ---
 
-## 🚨 v1 からの移行
+## v1 からの移行
 
 v2 には破壊的変更が含まれます：
 
@@ -232,7 +231,7 @@ v2 には破壊的変更が含まれます：
 
 ---
 
-## 🤔 なぜ react-ko？
+## なぜ react-ko？
 
 従来の React：
 
@@ -255,7 +254,7 @@ Knockout の observable に任せるだけで、UI がリアクティブに更�
 
 ---
 
-## 📁 フォルダ構成
+## フォルダ構成
 
 ```
 src/
@@ -275,7 +274,7 @@ src/
 
 ---
 
-## 🛠 開発
+## 開発
 
 ```bash
 npm install
@@ -284,6 +283,6 @@ npm run build
 
 ---
 
-## 📄 ライセンス
+## ライセンス
 
 MIT
