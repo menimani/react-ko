@@ -13,6 +13,7 @@ src/react-ko/node_modules/
 !.gitignore
 !LICENSE
 !package.json
+!package-lock.json
 !README.ja.md
 !README.md
 !tsconfig.json
