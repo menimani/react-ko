@@ -214,4 +214,19 @@ describe('KoIfNot', () => {
 
     expect(screen.getByText('Root')).toBeDefined()
   })
+
+  it('disposes its condition subscription on unmount', () => {
+    const condition = ko.observable(false)
+    const { unmount } = render(
+      <RootKnockoutProvider viewModel={{}}>
+        <KoIfNot condition={condition}>
+          <span>Visible</span>
+        </KoIfNot>
+      </RootKnockoutProvider>
+    )
+
+    expect(condition.getSubscriptionsCount()).toBe(1)
+    unmount()
+    expect(condition.getSubscriptionsCount()).toBe(0)
+  })
 })
