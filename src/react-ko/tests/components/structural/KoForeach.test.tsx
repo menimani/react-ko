@@ -1,3 +1,4 @@
+import * as React from 'react'
 import { describe, it, expect } from 'vitest'
 import { render, screen, act } from '@testing-library/react'
 import ko from 'knockout'
@@ -7,6 +8,11 @@ type Row = { name: ko.Observable<string> }
 
 function row(name: string): Row {
   return { name: ko.observable(name) }
+}
+
+function StatefulIndex({ index }: { index: number }) {
+  const [initialIndex] = React.useState(index)
+  return <span>{`${index}:${initialIndex}`}</span>
 }
 
 describe('KoForeach', () => {
@@ -192,6 +198,27 @@ describe('KoForeach', () => {
     })
 
     expect(screen.getByText('A')).toBe(node)
+  })
+
+  it('keeps distinct state for repeated object references after a preceding row is removed', () => {
+    const before = row('Before')
+    const shared = row('Shared')
+    const items = ko.observableArray([before, shared, shared])
+
+    render(
+      <RootKnockoutProvider viewModel={{}}>
+        <KoForeach items={items}>
+          {(_, index) => <StatefulIndex index={index} />}
+        </KoForeach>
+      </RootKnockoutProvider>
+    )
+
+    act(() => {
+      items.splice(0, 1)
+    })
+
+    expect(screen.getByText('0:1')).toBeDefined()
+    expect(screen.getByText('1:2')).toBeDefined()
   })
 
   it('makes each object item the Knockout $root for its row', () => {

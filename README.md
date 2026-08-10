@@ -177,8 +177,9 @@ const vm = { todos: ko.observableArray<Todo>([]) }
   and closures — outer variables (like `vm` above) are simply in scope, and
   React components can be used inside rows.
 - Rows are keyed by `itemKey` when given; otherwise object items are keyed
-  by identity and primitive items fall back to their index. Pass `itemKey`
-  when rows hold state and items are primitive.
+  by identity and occurrence (so repeated references remain unique), while
+  primitive items fall back to their index. Pass `itemKey` when rows hold
+  state and items are primitive.
 
 Nesting is plain JSX:
 
