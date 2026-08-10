@@ -151,10 +151,11 @@ const vm = {
 
 ## Structural Components
 
-Do not use Knockout control-flow bindings such as `if`, `ifnot`, `foreach`,
-or `template` to control React-rendered children. Those bindings remove or
-clone child DOM nodes that React still owns, which can leave React's DOM state
-out of sync. Use `KoIf`, `KoIfNot`, `KoForeach`, and `KoWith` instead.
+Do not use Knockout control-flow bindings `if`, `ifnot`, `foreach`, `template`,
+or `with` to control React-rendered children. Those bindings remove or clone
+child DOM nodes that React still owns. `RootKnockoutProvider` and
+`KnockoutScope` reject them before applying any bindings in that binding root.
+Use `KoIf`, `KoIfNot`, `KoForeach`, and `KoWith` instead.
 
 ### `KoForeach`
 
