@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { useContext, useLayoutEffect, useRef, useState } from 'react'
-import * as ko from 'knockout'
+import ko from 'knockout'
 import { useAppViewModel } from '@/index'
 import { ScopeViewModelContext } from '@/context/ScopeViewModelContext'
 import { ScopeBindGenerationContext } from '@/context/ScopeBindGenerationContext'

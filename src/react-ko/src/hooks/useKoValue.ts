@@ -1,5 +1,6 @@
 import { useCallback, useRef, useSyncExternalStore } from 'react'
-import * as ko from 'knockout'
+import knockout from 'knockout'
+import type * as ko from 'knockout'
 
 /**
  * Returns the current value of a Knockout observable or computed and
@@ -15,7 +16,7 @@ export function useKoValue<T>(source: ko.Observable<T> | ko.Computed<T> | T): T 
   const rendered = useRef<unknown>(undefined)
 
   const subscribe = useCallback((onStoreChange: () => void) => {
-    if (!ko.isSubscribable(source)) {
+    if (!knockout.isSubscribable(source)) {
       return () => {}
     }
     const subscription = source.subscribe(() => {
@@ -25,7 +26,7 @@ export function useKoValue<T>(source: ko.Observable<T> | ko.Computed<T> | T): T 
     // A notification fired between render and this point (a sibling's layout
     // effect, a binding's init) left no trace in the counter; reconcile
     // against what the last render actually saw.
-    if (!sameAsRendered(ko.unwrap(source), rendered.current)) {
+    if (!sameAsRendered(knockout.unwrap(source), rendered.current)) {
       version.current += 1
       onStoreChange()
     }
@@ -36,7 +37,7 @@ export function useKoValue<T>(source: ko.Observable<T> | ko.Computed<T> | T): T 
 
   useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
 
-  const value = ko.unwrap(source)
+  const value = knockout.unwrap(source)
   // Arrays are kept as a shallow copy because the source mutates in place:
   // comparing the live array against itself would hide every change.
   rendered.current = Array.isArray(value) ? value.slice() : value

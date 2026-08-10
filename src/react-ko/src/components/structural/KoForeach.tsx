@@ -1,5 +1,5 @@
 import * as React from 'react'
-import * as ko from 'knockout'
+import type * as ko from 'knockout'
 import { KnockoutScope, useKoValue } from '@/index'
 
 type Props<T> = {
