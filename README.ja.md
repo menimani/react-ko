@@ -214,7 +214,8 @@ const vm = { todos: ko.observableArray<Todo>([]) }
 `useAppViewModel<T>()` は現在のアプリケーション ViewModel を取得します。このフックは
 `AppViewModelContext.Provider` の配下で使用する必要があります。`RootKnockoutProvider` は
 内部でこのコンテキストプロバイダーを提供しますが、利用側で
-`AppViewModelContext.Provider` を直接提供することもできます。
+`AppViewModelContext.Provider` を直接提供することもできます。指定した ViewModel は
+そのまま返され、`null` と `undefined` も有効な値として扱われます。
 
 ---
 

@@ -11,6 +11,11 @@ function ViewModelConsumer() {
   return null
 }
 
+function CapturingViewModelConsumer({ onValue }: { onValue: (value: unknown) => void }) {
+  onValue(useAppViewModel<unknown>())
+  return null
+}
+
 describe('AppViewModelContext', () => {
   it('does not throw when useAppViewModel is used inside AppViewModelContext.Provider', () => {
     const vm = {}
@@ -24,6 +29,22 @@ describe('AppViewModelContext', () => {
     }
   
     expect(renderSafeUsage).not.toThrow()
+  })
+
+  it.each([
+    ['object', {}],
+    ['null', null],
+    ['undefined', undefined],
+  ])('returns the exact %s ViewModel supplied by the Provider', (_label, vm) => {
+    let received: unknown = Symbol('not captured')
+
+    render(
+      <AppViewModelContext.Provider value={vm}>
+        <CapturingViewModelConsumer onValue={(value) => (received = value)} />
+      </AppViewModelContext.Provider>
+    )
+
+    expect(received).toBe(vm)
   })
 
   it('throws clear error when useAppViewModel is called without AppViewModelContext.Provider', () => {

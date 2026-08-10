@@ -213,6 +213,7 @@ Render children while the condition is true (`KoIf`) or false (`KoIfNot`).
 `useAppViewModel<T>()` reads the current application ViewModel. It must be used under an
 `AppViewModelContext.Provider`. `RootKnockoutProvider` supplies this context provider
 internally, and consumers may also supply `AppViewModelContext.Provider` directly.
+The supplied ViewModel is returned unchanged; `null` and `undefined` are valid values.
 
 ---
 
