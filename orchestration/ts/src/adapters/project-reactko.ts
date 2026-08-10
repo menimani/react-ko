@@ -2,10 +2,9 @@ import type { MergeCheck, ProjectAdapter, SuiteStep } from './project.ts'
 
 // What this repository's checks are and when they apply. react-ko is a single npm
 // package in the src/react-ko workspace, and the root package.json proxies test
-// and build into it, so every command here still runs at the repository root:
-// vitest is the suite and tsup the build, and the build is also the type gate,
-// because tsup emits declarations and there is no separate lint script. The
-// full/light distinction: "full" runs suite and build on every task merge;
+// and build into it. Vitest is the suite and tsup the build. The build is also
+// the type gate, because tsup emits declarations and there is no separate lint
+// script. The full/light distinction: "full" runs suite and build on every task merge;
 // "light" proves the tree builds, and leaves the suite to the cycle gate so a
 // cycle pays for it once instead of once per task.
 
