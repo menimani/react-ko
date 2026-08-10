@@ -8,7 +8,6 @@ if (ko.bindingHandlers[CAPTURE_DESCENDANT_CONTEXT] === undefined) {
   ko.bindingHandlers[CAPTURE_DESCENDANT_CONTEXT] = {
     init: (element, _valueAccessor, _allBindings, _viewModel, bindingContext) => {
       const parent = element.parentNode
-      /* v8 ignore next -- Knockout only binds attached markers, so a parent exists */
       if (parent !== null) {
         descendantBindingContexts.set(parent, bindingContext)
         ko.utils.domNodeDisposal.addDisposeCallback(parent, () => {
