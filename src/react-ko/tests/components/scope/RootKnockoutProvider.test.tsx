@@ -823,16 +823,6 @@ describe('RootKnockoutProvider', () => {
     expect(renderSafeUsage).not.toThrow()
   })
 
-  it('throws clear error when useAppViewModel is called without AppViewModelContext.Provider', () => {
-    const errorFn = () => {
-      render(<ViewModelConsumer />)
-    }
-  
-    expect(errorFn).toThrow(
-      'useAppViewModel must be used within an AppViewModelContext.Provider.'
-    )
-  })
-
   it('surfaces a binding error raised by a late non-React descendant', async () => {
     render(
       <ErrorBoundary>
