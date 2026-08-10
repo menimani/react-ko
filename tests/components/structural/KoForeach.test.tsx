@@ -1,53 +1,23 @@
 import { describe, it, expect } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, act } from '@testing-library/react'
 import ko from 'knockout'
-import { RootKnockoutProvider, KnockoutScope, KoForeach } from '@/index'
+import { RootKnockoutProvider, KoForeach } from '@/index'
+
+type Row = { name: ko.Observable<string> }
+
+function row(name: string): Row {
+  return { name: ko.observable(name) }
+}
 
 describe('KoForeach', () => {
-  it('does not re-register its view model when a parent re-renders', () => {
-    const items = ko.observableArray(['A'])
-    let registrations = 0
-    const appViewModel = new Proxy<Record<string, unknown>>({}, {
-      set(target, property, value) {
-        registrations += 1
-        return Reflect.set(target, property, value)
-      }
-    })
-
-    const { rerender } = render(
-      <RootKnockoutProvider viewModel={appViewModel}>
-        <KoForeach items={items}>
-          <span data-bind="text: $data" />
-        </KoForeach>
-      </RootKnockoutProvider>
-    )
-
-    expect(registrations).toBe(1)
-
-    rerender(
-      <RootKnockoutProvider viewModel={appViewModel}>
-        <KoForeach items={items}>
-          <span data-bind="text: $data" />
-        </KoForeach>
-      </RootKnockoutProvider>
-    )
-
-    expect(registrations).toBe(1)
-
-    items.push('B')
-    expect(screen.getByText('B')).toBeDefined()
-  })
-
-  it('renders children for each item in the array (observable)', () => {
+  it('renders the render prop once per item (observable array)', () => {
     const vm = { items: ko.observableArray(['A', 'B', 'C']) }
 
     render(
       <RootKnockoutProvider viewModel={{}}>
-        <KnockoutScope viewModel={vm}>
-          <KoForeach items={vm.items}>
-            <span data-bind="text: $data" />
-          </KoForeach>
-        </KnockoutScope>
+        <KoForeach items={vm.items}>
+          {(item) => <span>{item}</span>}
+        </KoForeach>
       </RootKnockoutProvider>
     )
 
@@ -56,134 +26,196 @@ describe('KoForeach', () => {
     expect(screen.getByText('C')).toBeDefined()
   })
 
-  it('renders nothing when the array is empty (observable)', () => {
-    const vm = { items: ko.observableArray([]) }
+  it('renders nothing when the array is empty', () => {
+    const vm = { items: ko.observableArray<string>([]) }
 
     render(
       <RootKnockoutProvider viewModel={{}}>
-        <KnockoutScope viewModel={vm}>
-          <KoForeach items={vm.items}>
-            <span data-bind="text: $data" />
-          </KoForeach>
-        </KnockoutScope>
+        <KoForeach items={vm.items}>
+          {(item) => <span>{item}</span>}
+        </KoForeach>
       </RootKnockoutProvider>
     )
 
     expect(screen.queryByText(/./)).toBeNull()
   })
 
-  it('reactively updates when items are added (observable)', async () => {
-    const vm = { items: ko.observableArray(['A']) }
-  
+  it('passes the index to the render prop', () => {
+    const vm = { items: ko.observableArray(['A', 'B']) }
+
     render(
       <RootKnockoutProvider viewModel={{}}>
-        <KnockoutScope viewModel={vm}>
-          <KoForeach items={vm.items}>
-            <span data-bind="text: $data" />
-          </KoForeach>
-        </KnockoutScope>
+        <KoForeach items={vm.items}>
+          {(item, index) => <span>{`${index}:${item}`}</span>}
+        </KoForeach>
       </RootKnockoutProvider>
     )
-  
-    expect(screen.getByText('A')).toBeDefined()
-  
-    vm.items.push('B')
-    expect(await screen.findByText('B')).toBeInTheDocument()
+
+    expect(screen.getByText('0:A')).toBeDefined()
+    expect(screen.getByText('1:B')).toBeDefined()
   })
 
-  it('renders children for each item in the array (computed)', () => {
-    const items = ko.observableArray(['A', 'B', 'C'])
-    const vm = {
-      items_computed: ko.computed<unknown[]>(() => items())
-    }
+  it('binds data-bind inside a row to the row item', () => {
+    const first = row('A')
+    const vm = { items: ko.observableArray([first]) }
 
     render(
       <RootKnockoutProvider viewModel={{}}>
-        <KnockoutScope viewModel={vm}>
-          <KoForeach items={vm.items_computed}>
-            <span data-bind="text: $data" />
-          </KoForeach>
-        </KnockoutScope>
+        <KoForeach items={vm.items}>
+          {() => <span data-bind="text: name" />}
+        </KoForeach>
+      </RootKnockoutProvider>
+    )
+
+    expect(screen.getByText('A')).toBeDefined()
+
+    act(() => {
+      first.name('Z')
+    })
+
+    expect(screen.getByText('Z')).toBeDefined()
+  })
+
+  it('binds rows added after the initial render', () => {
+    const vm = { items: ko.observableArray([row('A')]) }
+
+    render(
+      <RootKnockoutProvider viewModel={{}}>
+        <KoForeach items={vm.items}>
+          {() => <span data-bind="text: name" />}
+        </KoForeach>
+      </RootKnockoutProvider>
+    )
+
+    act(() => {
+      vm.items.push(row('New'))
+    })
+
+    expect(screen.getByText('New')).toBeDefined()
+  })
+
+  it('removes rows and disposes their bindings', () => {
+    const first = row('A')
+    const second = row('B')
+    const vm = { items: ko.observableArray([first, second]) }
+
+    render(
+      <RootKnockoutProvider viewModel={{}}>
+        <KoForeach items={vm.items}>
+          {() => <span data-bind="text: name" />}
+        </KoForeach>
+      </RootKnockoutProvider>
+    )
+
+    expect(first.name.getSubscriptionsCount()).toBeGreaterThan(0)
+
+    act(() => {
+      vm.items.remove(first)
+    })
+
+    expect(screen.queryByText('A')).toBeNull()
+    expect(screen.getByText('B')).toBeDefined()
+    expect(first.name.getSubscriptionsCount()).toBe(0)
+  })
+
+  it('re-renders when a computed array changes', () => {
+    const source = ko.observableArray(['A'])
+    const vm = { upper: ko.computed(() => source().map((item) => item.toUpperCase())) }
+
+    render(
+      <RootKnockoutProvider viewModel={{}}>
+        <KoForeach items={vm.upper}>
+          {(item) => <span>{item}</span>}
+        </KoForeach>
+      </RootKnockoutProvider>
+    )
+
+    expect(screen.getByText('A')).toBeDefined()
+
+    act(() => {
+      source.push('b')
+    })
+
+    expect(screen.getByText('B')).toBeDefined()
+  })
+
+  it('renders plain arrays', () => {
+    render(
+      <RootKnockoutProvider viewModel={{}}>
+        <KoForeach items={['A', 'B']}>
+          {(item) => <span>{item}</span>}
+        </KoForeach>
       </RootKnockoutProvider>
     )
 
     expect(screen.getByText('A')).toBeDefined()
     expect(screen.getByText('B')).toBeDefined()
-    expect(screen.getByText('C')).toBeDefined()
   })
 
-  it('renders nothing when the array is empty (computed)', () => {
-    const items = ko.observableArray([])
+  it('keeps row DOM identity across reorders for object items', () => {
+    const first = row('A')
+    const second = row('B')
+    const vm = { items: ko.observableArray([first, second]) }
+
+    render(
+      <RootKnockoutProvider viewModel={{}}>
+        <KoForeach items={vm.items}>
+          {() => <span data-bind="text: name" />}
+        </KoForeach>
+      </RootKnockoutProvider>
+    )
+
+    const node = screen.getByText('A')
+
+    act(() => {
+      vm.items.reverse()
+    })
+
+    expect(screen.getByText('A')).toBe(node)
+  })
+
+  it('keys rows with itemKey when provided', () => {
+    const vm = { items: ko.observableArray(['A', 'B']) }
+
+    render(
+      <RootKnockoutProvider viewModel={{}}>
+        <KoForeach items={vm.items} itemKey={(item) => item}>
+          {(item) => <span>{item}</span>}
+        </KoForeach>
+      </RootKnockoutProvider>
+    )
+
+    const node = screen.getByText('A')
+
+    act(() => {
+      vm.items.reverse()
+    })
+
+    expect(screen.getByText('A')).toBe(node)
+  })
+
+  it('exposes outer items to nested loops through closures', () => {
     const vm = {
-      items_computed: ko.computed<unknown[]>(() => items())
+      groups: ko.observableArray([
+        { name: 'G1', members: ko.observableArray(['x', 'y']) },
+        { name: 'G2', members: ko.observableArray(['z']) }
+      ])
     }
 
     render(
       <RootKnockoutProvider viewModel={{}}>
-        <KnockoutScope viewModel={vm}>
-          <KoForeach items={vm.items_computed}>
-            <span data-bind="text: $data" />
-          </KoForeach>
-        </KnockoutScope>
+        <KoForeach items={vm.groups}>
+          {(group) => (
+            <KoForeach items={group.members}>
+              {(member) => <span>{`${group.name}-${member}`}</span>}
+            </KoForeach>
+          )}
+        </KoForeach>
       </RootKnockoutProvider>
     )
 
-    expect(screen.queryByText(/./)).toBeNull()
-  })
-
-  it('reactively updates when items are added (computed)', async () => {
-    const items = ko.observableArray(['A'])
-    const vm = {
-      items_computed: ko.computed<unknown[]>(() => items())
-    }
-  
-    render(
-      <RootKnockoutProvider viewModel={{}}>
-        <KnockoutScope viewModel={vm}>
-          <KoForeach items={vm.items_computed}>
-            <span data-bind="text: $data" />
-          </KoForeach>
-        </KnockoutScope>
-      </RootKnockoutProvider>
-    )
-  
-    expect(screen.getByText('A')).toBeDefined()
-  
-    items.push('B')
-    expect(await screen.findByText('B')).toBeInTheDocument()
-  })
-
-  it('renders children for each item in the array (primitive)', () => {
-    const vm = { items: ['A', 'B', 'C'] }
-
-    render(
-      <RootKnockoutProvider viewModel={{}}>
-        <KnockoutScope viewModel={vm}>
-          <KoForeach items={vm.items}>
-            <span data-bind="text: $data" />
-          </KoForeach>
-        </KnockoutScope>
-      </RootKnockoutProvider>
-    )
-
-    expect(screen.getByText('A')).toBeDefined()
-    expect(screen.getByText('B')).toBeDefined()
-    expect(screen.getByText('C')).toBeDefined()
-  })
-
-  it('renders nothing when the array is empty (primitive)', () => {
-    const vm = { items: [] }
-
-    render(
-      <RootKnockoutProvider viewModel={{}}>
-        <KnockoutScope viewModel={vm}>
-          <KoForeach items={vm.items}>
-            <span data-bind="text: $data" />
-          </KoForeach>
-        </KnockoutScope>
-      </RootKnockoutProvider>
-    )
-
-    expect(screen.queryByText(/./)).toBeNull()
+    expect(screen.getByText('G1-x')).toBeDefined()
+    expect(screen.getByText('G1-y')).toBeDefined()
+    expect(screen.getByText('G2-z')).toBeDefined()
   })
 })

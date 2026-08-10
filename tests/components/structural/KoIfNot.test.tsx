@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, act } from '@testing-library/react'
 import ko from 'knockout'
 import { RootKnockoutProvider, KnockoutScope, KoIfNot } from '@/index'
 
@@ -98,5 +98,27 @@ describe('KoIfNot', () => {
     )
 
     expect(screen.queryByText('Hidden')).toBeNull()
+  })
+
+  it('binds children mounted after the condition becomes false', () => {
+    const vm = { isHidden: ko.observable(true), label: ko.observable('Late') }
+
+    render(
+      <RootKnockoutProvider viewModel={{}}>
+        <KnockoutScope viewModel={vm}>
+          <KoIfNot condition={vm.isHidden}>
+            <span data-bind="text: label" />
+          </KoIfNot>
+        </KnockoutScope>
+      </RootKnockoutProvider>
+    )
+
+    expect(screen.queryByText('Late')).toBeNull()
+
+    act(() => {
+      vm.isHidden(false)
+    })
+
+    expect(screen.getByText('Late')).toBeDefined()
   })
 })

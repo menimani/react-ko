@@ -1,6 +1,7 @@
 import React, { useRef, useLayoutEffect, useMemo } from 'react'
 import ko from 'knockout'
 import { AppViewModelContext } from '@/index'
+import { ScopeViewModelContext } from '@/context/ScopeViewModelContext'
 
 type Props<T> = {
   viewModel: T
@@ -30,9 +31,11 @@ export const RootKnockoutProvider = React.memo(function RootKnockoutProvider<T>(
 
   return (
     <AppViewModelContext.Provider value={appViewModel}>
-      <div ref={koContainer} style={{ display: 'contents' }}>
-        {children}
-      </div>
+      <ScopeViewModelContext.Provider value={appViewModel}>
+        <div ref={koContainer} style={{ display: 'contents' }}>
+          {children}
+        </div>
+      </ScopeViewModelContext.Provider>
     </AppViewModelContext.Provider>
   )
 })

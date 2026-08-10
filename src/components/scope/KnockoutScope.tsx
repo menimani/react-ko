@@ -1,31 +1,53 @@
-import React, { useMemo, useLayoutEffect } from 'react'
+import React, { useLayoutEffect, useRef } from 'react'
+import ko from 'knockout'
 import { useAppViewModel } from '@/index'
+import { ScopeViewModelContext } from '@/context/ScopeViewModelContext'
 
 type Props<T> = {
   viewModel: T
   children: React.ReactNode
 }
 
+// Every scope's outer element carries this binding so an ancestor binding
+// pass (the root provider or an enclosing scope) stops at the boundary
+// instead of descending into DOM this scope binds itself.
+const SCOPE_BOUNDARY = 'reactKoScopeBoundary'
+if (ko.bindingHandlers[SCOPE_BOUNDARY] === undefined) {
+  ko.bindingHandlers[SCOPE_BOUNDARY] = {
+    init: () => ({ controlsDescendantBindings: true })
+  }
+}
+
 /**
- * Wraps a child component with a Knockout `with:` binding scope
- * to isolate a sub-ViewModel within the global ViewModel.
+ * Binds its children to the given view model with its own
+ * `ko.applyBindings` call, so scopes mounted after the initial render
+ * (rows of a KoForeach, children of a KoIf) are still bound, and unbinds
+ * them with `ko.cleanNode` on unmount so subscriptions do not leak.
  */
 export const KnockoutScope = React.memo(function KnockoutScope<T>({ viewModel, children }: Props<T>) {
-  const appViewModel = useAppViewModel<Record<string, unknown>>()
+  useAppViewModel()
 
-  const uniqueKey = useMemo(() => crypto.randomUUID(), [])
+  const container = useRef<HTMLDivElement | null>(null)
 
   useLayoutEffect(() => {
-    appViewModel[uniqueKey] = viewModel
+    const node = container.current
+    if (node === null) {
+      return
+    }
+    ko.applyBindings(viewModel, node)
 
     return () => {
-      delete appViewModel[uniqueKey]
+      ko.cleanNode(node)
     }
-  }, [appViewModel, viewModel, uniqueKey])
+  }, [viewModel])
 
   return (
-    <div data-bind={`with: $root['${uniqueKey}']`} style={{ display: 'contents' }}>
-      {children}
-    </div>
+    <ScopeViewModelContext.Provider value={viewModel}>
+      <div data-bind={`${SCOPE_BOUNDARY}: true`} style={{ display: 'contents' }}>
+        <div ref={container} style={{ display: 'contents' }}>
+          {children}
+        </div>
+      </div>
+    </ScopeViewModelContext.Provider>
   )
 })

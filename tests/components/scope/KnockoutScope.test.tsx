@@ -133,6 +133,24 @@ describe('KnockoutScope', () => {
 
     expect(vm.name()).toBe('WrongValue') // intentionally incorrect
   })
+
+  it('disposes its bindings on unmount', () => {
+    const vm = { name: ko.observable('Hello') }
+
+    const { unmount } = render(
+      <RootKnockoutProvider viewModel={{}}>
+        <KnockoutScope viewModel={vm}>
+          <input data-bind="value: name" />
+        </KnockoutScope>
+      </RootKnockoutProvider>
+    )
+
+    expect(vm.name.getSubscriptionsCount()).toBeGreaterThan(0)
+
+    unmount()
+
+    expect(vm.name.getSubscriptionsCount()).toBe(0)
+  })
 })
 
 describe('KoScope', () => {

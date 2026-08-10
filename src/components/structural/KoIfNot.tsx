@@ -1,5 +1,6 @@
 import React from 'react'
-import { KnockoutScope } from '@/index'
+import { KnockoutScope, useKoValue } from '@/index'
+import { useScopeViewModel } from '@/context/ScopeViewModelContext'
 
 type Props = {
   condition: ko.Observable<boolean> | ko.Computed<boolean> | boolean
@@ -7,17 +8,17 @@ type Props = {
 }
 
 /**
- * Renders children only when the given condition is false.
- * Uses Knockout's `ifnot:` binding internally.
+ * Renders children only while the condition is false. The children are
+ * wrapped in a scope bound to the enclosing view model on every mount,
+ * so `data-bind` attributes inside keep working across toggles.
  */
 export const KoIfNot = React.memo(function KoIfNot({ condition, children }: Props) {
-  const vm = { condition }
+  const visible = useKoValue(condition)
+  const viewModel = useScopeViewModel()
 
-  return (
-    <KnockoutScope viewModel={vm}>
-      <div data-bind="ifnot: condition" style={{ display: 'contents' }}>
-        {children}
-      </div>
-    </KnockoutScope>
-  )
+  if (visible) {
+    return null
+  }
+
+  return <KnockoutScope viewModel={viewModel}>{children}</KnockoutScope>
 })

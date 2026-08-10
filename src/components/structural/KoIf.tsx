@@ -1,6 +1,7 @@
 import React from 'react'
 import ko from 'knockout'
-import { KnockoutScope } from '@/index'
+import { KnockoutScope, useKoValue } from '@/index'
+import { useScopeViewModel } from '@/context/ScopeViewModelContext'
 
 type Props = {
   condition: ko.Observable<boolean> | ko.Computed<boolean> | boolean
@@ -8,18 +9,17 @@ type Props = {
 }
 
 /**
- * Wraps children with a Knockout `if:` binding using a `div` container.
- * Safer and more efficient than comment-based bindings in React.
- * Recommended for standard usage when template compatibility is not required.
+ * Renders children only while the condition is true. The children are
+ * wrapped in a scope bound to the enclosing view model on every mount,
+ * so `data-bind` attributes inside keep working across toggles.
  */
 export const KoIf = React.memo(function KoIf({ condition, children }: Props) {
-  const vm = { condition }
+  const visible = useKoValue(condition)
+  const viewModel = useScopeViewModel()
 
-  return (
-    <KnockoutScope viewModel={vm}>
-      <div data-bind="if: condition" style={{ display: 'contents' }}>
-        {children}
-      </div>
-    </KnockoutScope>
-  )
+  if (!visible) {
+    return null
+  }
+
+  return <KnockoutScope viewModel={viewModel}>{children}</KnockoutScope>
 })
