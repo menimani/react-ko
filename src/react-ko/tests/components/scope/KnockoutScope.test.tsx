@@ -43,6 +43,39 @@ describe('KnockoutScope', () => {
     await waitFor(() => expect(vm.name.getSubscriptionsCount()).toBe(0))
   })
 
+  it('reapplies a changed data-bind in the nearest scope', async () => {
+    const root = {
+      first: ko.observable('Root first'),
+      second: ko.observable('Root second'),
+    }
+    const scope = {
+      first: ko.observable('Scope first'),
+      second: ko.observable('Scope second'),
+    }
+
+    function Harness({ binding }: { binding: 'first' | 'second' }) {
+      return (
+        <RootKnockoutProvider viewModel={root}>
+          <KnockoutScope viewModel={scope}>
+            <span data-bind={`text: ${binding}`} />
+          </KnockoutScope>
+        </RootKnockoutProvider>
+      )
+    }
+
+    const { rerender } = render(<Harness binding="first" />)
+    expect(screen.getByText('Scope first')).toBeDefined()
+
+    rerender(<Harness binding="second" />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Scope second')).toBeDefined()
+      expect(scope.first.getSubscriptionsCount()).toBe(0)
+      expect(scope.second.getSubscriptionsCount()).toBe(1)
+    })
+    expect(root.second.getSubscriptionsCount()).toBe(0)
+  })
+
   it('updates DOM when observable changes (observable → DOM)', () => {
     const vm = { name: ko.observable('Hello') }
 

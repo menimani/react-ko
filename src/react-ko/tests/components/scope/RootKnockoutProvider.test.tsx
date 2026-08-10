@@ -90,6 +90,68 @@ describe('RootKnockoutProvider', () => {
     await waitFor(() => expect(vm.label.getSubscriptionsCount()).toBe(0))
   })
 
+  it('disposes and reapplies bindings when React changes data-bind', async () => {
+    const vm = {
+      first: ko.observable('First'),
+      second: ko.observable('Second'),
+    }
+
+    function Harness({ binding }: { binding: 'first' | 'second' }) {
+      return (
+        <RootKnockoutProvider viewModel={vm}>
+          <span data-bind={`text: ${binding}`} />
+        </RootKnockoutProvider>
+      )
+    }
+
+    const { rerender } = render(<Harness binding="first" />)
+    expect(screen.getByText('First')).toBeDefined()
+    expect(vm.first.getSubscriptionsCount()).toBe(1)
+
+    rerender(<Harness binding="second" />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Second')).toBeDefined()
+      expect(vm.first.getSubscriptionsCount()).toBe(0)
+      expect(vm.second.getSubscriptionsCount()).toBe(1)
+    })
+
+    rerender(<Harness binding="second" />)
+    expect(vm.second.getSubscriptionsCount()).toBe(1)
+  })
+
+  it('rebinds a changed ancestor and restores nested scopes in their own context', async () => {
+    const root = {
+      first: ko.observable('Root first'),
+      second: ko.observable('Root second'),
+    }
+    const nested = { second: ko.observable('Nested second') }
+
+    function Harness({ binding }: { binding: 'first' | 'second' }) {
+      return (
+        <RootKnockoutProvider viewModel={root}>
+          <section data-bind={`attr: { title: ${binding} }`}>
+            <KnockoutScope viewModel={nested}>
+              <span data-bind="text: second" />
+            </KnockoutScope>
+          </section>
+        </RootKnockoutProvider>
+      )
+    }
+
+    const { rerender } = render(<Harness binding="first" />)
+    expect(screen.getByText('Nested second')).toBeDefined()
+
+    rerender(<Harness binding="second" />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Nested second')).toBeDefined()
+      expect(root.first.getSubscriptionsCount()).toBe(0)
+      expect(root.second.getSubscriptionsCount()).toBe(1)
+      expect(nested.second.getSubscriptionsCount()).toBe(1)
+    })
+  })
+
   it('preserves the view model of a nested scope mounted later', async () => {
     const root = { label: ko.observable('Root') }
     const nested = { label: ko.observable('Nested') }
