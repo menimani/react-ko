@@ -42,7 +42,7 @@ cd my-app-ts
 npm install && npm run dev
 ```
 
-Template source: [`starter/ts`](./starter/ts)
+Template source: [`starter/ts`](https://github.com/menimani/react-ko/tree/main/starter/ts)
 
 ---
 
@@ -54,7 +54,7 @@ cd my-app-js
 npm install && npm run dev
 ```
 
-Template source: [`starter/js`](./starter/js)
+Template source: [`starter/js`](https://github.com/menimani/react-ko/tree/main/starter/js)
 
 ---
 

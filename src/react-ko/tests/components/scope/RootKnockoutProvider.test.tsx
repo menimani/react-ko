@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, act, fireEvent, waitFor } from '@testing-library/react'
-import { Component, StrictMode, type ReactNode } from 'react'
+import { Component, StrictMode, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import ko from 'knockout'
 import { KnockoutScope, RootKnockoutProvider, useAppViewModel } from '@/index'
 
@@ -341,6 +341,77 @@ describe('RootKnockoutProvider', () => {
     expect(() => unmount()).not.toThrow()
   })
 
+  it('retires a content binding before a newly mounted child updates its observable in a layout effect', () => {
+    const vm = { label: ko.observable('Knockout text') }
+    let connectedAfterUpdate = false
+    let retireBinding = () => undefined
+
+    function UpdatingChild() {
+      const child = useRef<HTMLSpanElement>(null)
+
+      useLayoutEffect(() => {
+        vm.label('Updated in layout')
+        connectedAfterUpdate = child.current?.isConnected ?? false
+      }, [])
+
+      return <span ref={child}>React child</span>
+    }
+
+    function BindingOwner() {
+      const [bound, setBound] = useState(true)
+      retireBinding = () => setBound(false)
+
+      return (
+        <div data-testid="layout-retirement" data-bind={bound ? 'text: label' : undefined}>
+          {bound ? null : <UpdatingChild />}
+        </div>
+      )
+    }
+
+    render(
+      <RootKnockoutProvider viewModel={vm}>
+        <BindingOwner />
+      </RootKnockoutProvider>
+    )
+    act(() => retireBinding())
+
+    expect(connectedAfterUpdate).toBe(true)
+    expect(screen.getByText('React child')).toBeDefined()
+    expect(screen.getByTestId('layout-retirement').textContent).toBe('React child')
+  })
+
+  it.each(['using', 'let'] as const)(
+    'forgets a captured %s context when its binding is retired before a late mount',
+    async (binding) => {
+      const vm = {
+        label: ko.observable('Root label'),
+        alias: ko.observable('Root alias'),
+        scoped: { label: ko.observable('Scoped label') },
+      }
+      const source = binding === 'using' ? 'using: scoped' : 'let: { alias: scoped.label }'
+      const descendantSource = binding === 'using' ? 'text: label' : 'text: alias'
+      const rootText = binding === 'using' ? 'Root label' : 'Root alias'
+
+      function Harness({ established, show }: { established: boolean; show: boolean }) {
+        return (
+          <RootKnockoutProvider viewModel={vm}>
+            <div data-bind={established ? source : undefined}>
+              {show ? <span data-bind={descendantSource} /> : null}
+            </div>
+          </RootKnockoutProvider>
+        )
+      }
+
+      const { rerender } = render(<Harness established show={false} />)
+      rerender(<Harness established={false} show={false} />)
+      await act(async () => undefined)
+      rerender(<Harness established={false} show />)
+
+      await waitFor(() => expect(screen.getByText(rootText)).toBeDefined())
+      expect(screen.queryByText('Scoped label')).toBeNull()
+    }
+  )
+
   it('rebinds a changed ancestor and restores nested scopes in their own context', async () => {
     const root = {
       first: ko.observable('Root first'),
@@ -420,6 +491,38 @@ describe('RootKnockoutProvider', () => {
     expect(screen.getByText('Second')).toBeDefined()
     expect(first.label.getSubscriptionsCount()).toBe(0)
     expect(second.label.getSubscriptionsCount()).toBeGreaterThan(0)
+  })
+
+  it('rebinds a replacement view model before descendant layout effects dispatch change events', () => {
+    const first = { name: ko.observable('First') }
+    const second = { name: ko.observable('Second') }
+
+    function ChangeInLayout({ value }: { value: string | null }) {
+      const input = useRef<HTMLInputElement>(null)
+
+      useLayoutEffect(() => {
+        if (value !== null && input.current !== null) {
+          input.current.value = value
+          input.current.dispatchEvent(new Event('change', { bubbles: true }))
+        }
+      }, [value])
+
+      return <input ref={input} data-bind="value: name" />
+    }
+
+    function Harness({ viewModel, value }: { viewModel: typeof first; value: string | null }) {
+      return (
+        <RootKnockoutProvider viewModel={viewModel}>
+          <ChangeInLayout value={value} />
+        </RootKnockoutProvider>
+      )
+    }
+
+    const { rerender } = render(<Harness viewModel={first} value={null} />)
+    rerender(<Harness viewModel={second} value="Changed in layout" />)
+
+    expect(first.name()).toBe('First')
+    expect(second.name()).toBe('Changed in layout')
   })
 
   it('rebinds nested scopes after replacing the root view model', () => {

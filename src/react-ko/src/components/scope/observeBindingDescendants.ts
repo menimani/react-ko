@@ -11,6 +11,18 @@ import { descendantBindingContextFor } from './descendantBindingContexts'
 // The view model registry also lets an ancestor attribute rebind restore any
 // descendant roots that ko.cleanNode necessarily cleaned along with it.
 const bindingRoots = new Map<HTMLElement, unknown>()
+const bindingObservers = new Map<
+  HTMLElement,
+  { observer: MutationObserver; reconcile: (records: MutationRecord[]) => void }
+>()
+type AttributeInterceptor = {
+  count: number
+  setAttribute: typeof Element.prototype.setAttribute
+  removeAttribute: typeof Element.prototype.removeAttribute
+  interceptedSetAttribute: typeof Element.prototype.setAttribute
+  interceptedRemoveAttribute: typeof Element.prototype.removeAttribute
+}
+const attributeInterceptors = new Map<typeof Element.prototype, AttributeInterceptor>()
 const CONTENT_BINDINGS = new Set(['text', 'html', 'component', 'options'])
 
 type BindingState = {
@@ -44,6 +56,91 @@ function belongsToBindingRoot(node: Node, root: Node) {
   return ancestor === root
 }
 
+function nearestBindingRoot(element: Element) {
+  let nearest: HTMLElement | undefined
+
+  for (const root of bindingObservers.keys()) {
+    if (
+      (root === element || root.contains(element)) &&
+      (nearest === undefined || nearest.contains(root))
+    ) {
+      nearest = root
+    }
+  }
+
+  return nearest
+}
+
+function reconcileChangedDataBind(element: Element, name: string) {
+  if (name.toLowerCase() !== 'data-bind') {
+    return
+  }
+
+  const root = nearestBindingRoot(element)
+  if (root !== undefined) {
+    reconcileBindingDescendants(root)
+  }
+}
+
+function releaseAttributeInterceptor(prototype: typeof Element.prototype) {
+  const interceptor = attributeInterceptors.get(prototype)
+  if (interceptor === undefined) {
+    return
+  }
+
+  interceptor.count -= 1
+  if (interceptor.count !== 0) {
+    return
+  }
+
+  if (prototype.setAttribute === interceptor.interceptedSetAttribute) {
+    prototype.setAttribute = interceptor.setAttribute
+  }
+  if (prototype.removeAttribute === interceptor.interceptedRemoveAttribute) {
+    prototype.removeAttribute = interceptor.removeAttribute
+  }
+  attributeInterceptors.delete(prototype)
+}
+
+function interceptDataBindChanges(root: HTMLElement) {
+  const view = root.ownerDocument.defaultView
+  if (view === null) {
+    return () => undefined
+  }
+
+  const prototype = view.Element.prototype
+  const existing = attributeInterceptors.get(prototype)
+  if (existing !== undefined) {
+    existing.count += 1
+    return () => releaseAttributeInterceptor(prototype)
+  }
+
+  const setAttribute = prototype.setAttribute
+  const removeAttribute = prototype.removeAttribute
+  // MutationObserver callbacks run after layout effects, and a state update
+  // below the binding root does not rerender that root. Drain the queued
+  // data-bind record directly from React's attribute mutation in that case.
+  const interceptedSetAttribute: typeof prototype.setAttribute = function (name, value) {
+    setAttribute.call(this, name, value)
+    reconcileChangedDataBind(this, name)
+  }
+  const interceptedRemoveAttribute: typeof prototype.removeAttribute = function (name) {
+    removeAttribute.call(this, name)
+    reconcileChangedDataBind(this, name)
+  }
+  prototype.setAttribute = interceptedSetAttribute
+  prototype.removeAttribute = interceptedRemoveAttribute
+  attributeInterceptors.set(prototype, {
+    count: 1,
+    setAttribute,
+    removeAttribute,
+    interceptedSetAttribute,
+    interceptedRemoveAttribute,
+  })
+
+  return () => releaseAttributeInterceptor(prototype)
+}
+
 function addedBindingRoots(records: MutationRecord[], root: Node) {
   const addedRoots: HTMLElement[] = []
 
@@ -62,7 +159,7 @@ function addedBindingRoots(records: MutationRecord[], root: Node) {
   return addedRoots
 }
 
-function restoreDescendantBindingRoots(element: HTMLElement, ownerRoot: HTMLElement) {
+export function restoreDescendantBindingRoots(element: HTMLElement, ownerRoot: HTMLElement) {
   const descendantRoots = [...bindingRoots].filter(
     ([bindingRoot]) => bindingRoot !== ownerRoot && element.contains(bindingRoot)
   )
@@ -148,7 +245,11 @@ function refreshOwnedContent(
   }
 }
 
-function removeRetiredContent(element: HTMLElement, state: BindingState | undefined) {
+function removeRetiredContent(
+  element: HTMLElement,
+  state: BindingState | undefined,
+  addedRoots: HTMLElement[]
+) {
   if (
     state === undefined ||
     !controlsElementContent(state.source) ||
@@ -157,7 +258,8 @@ function removeRetiredContent(element: HTMLElement, state: BindingState | undefi
     return
   }
 
-  const retiredNodes = hasReactOwnedChildren(element)
+  const hasNewReactChildren = addedRoots.some((addedRoot) => element.contains(addedRoot))
+  const retiredNodes = hasReactOwnedChildren(element) || hasNewReactChildren
     ? state.ownedContent
     : new Set(element.childNodes)
 
@@ -174,14 +276,15 @@ function rebindChangedAttributes(
   changedElements: Set<HTMLElement>,
   root: HTMLElement,
   viewModel: unknown,
-  bindingStates: WeakMap<HTMLElement, BindingState>
+  bindingStates: WeakMap<HTMLElement, BindingState>,
+  addedRoots: HTMLElement[]
 ) {
   for (const element of changedElements) {
     const previousState = bindingStates.get(element)
     const bindingContext =
       ko.contextFor(element) ?? descendantBindingContextFor(element, root) ?? viewModel
     ko.cleanNode(element)
-    removeRetiredContent(element, previousState)
+    removeRetiredContent(element, previousState, addedRoots)
     applyBindingsSafely(bindingContext, element)
     trackBindingTree(element, root, bindingStates)
     restoreDescendantBindingRoots(element, root)
@@ -238,25 +341,30 @@ export function observeBindingDescendants(
   const bindingStates = new WeakMap<HTMLElement, BindingState>()
   trackBindingTree(root, root, bindingStates)
 
+  const reconcile = (records: MutationRecord[]) => {
+    cleanRemovedNodes(records, root)
+    const addedRoots = addedBindingRoots(records, root)
+    const changedElements = changedBindingElements(records, root, addedRoots)
+    refreshOwnedContent(records, changedElements, bindingStates)
+    rebindChangedAttributes(changedElements, root, viewModel, bindingStates, addedRoots)
+    bindAddedNodes(records, root, viewModel, bindingStates)
+  }
   const observer = new MutationObserver((records) => {
     try {
-      cleanRemovedNodes(records, root)
-      const addedRoots = addedBindingRoots(records, root)
-      const changedElements = changedBindingElements(records, root, addedRoots)
-      refreshOwnedContent(records, changedElements, bindingStates)
-      rebindChangedAttributes(changedElements, root, viewModel, bindingStates)
-      bindAddedNodes(records, root, viewModel, bindingStates)
+      reconcile(records)
     } catch (error) {
       observer.disconnect()
       onError(error)
     }
   })
+  bindingObservers.set(root, { observer, reconcile })
   observer.observe(root, {
     attributeFilter: ['data-bind'],
     attributes: true,
     childList: true,
     subtree: true,
   })
+  const stopIntercepting = interceptDataBindChanges(root)
 
   return () => {
     // A removal and root unmount can happen before the observer callback. Drain
@@ -264,6 +372,28 @@ export function observeBindingDescendants(
     const pendingRecords = observer.takeRecords()
     observer.disconnect()
     bindingRoots.delete(root)
+    bindingObservers.delete(root)
+    stopIntercepting()
     cleanRemovedNodes(pendingRecords, root)
+  }
+}
+
+/** Reconciles queued React DOM mutations before descendant layout effects run. */
+export function reconcileBindingDescendants(root: HTMLElement) {
+  const state = bindingObservers.get(root)
+  if (state === undefined) {
+    return
+  }
+
+  const records = state.observer.takeRecords()
+  if (records.length === 0) {
+    return
+  }
+
+  try {
+    state.reconcile(records)
+  } catch (error) {
+    state.observer.disconnect()
+    throw error
   }
 }

@@ -40,7 +40,7 @@ npx degit menimani/react-ko/starter/ts my-app-ts
 ```
 
 完全な例は [`src/components/TodoForm.jsx`](./src/components/TodoForm.jsx)、
-API は [react-ko の README](../../README.ja.md) を参照してください。
+API は [react-ko の README](https://github.com/menimani/react-ko/blob/main/README.ja.md) を参照してください。
 
 ## ライセンス
 

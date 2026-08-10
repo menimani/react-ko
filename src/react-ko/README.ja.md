@@ -42,7 +42,7 @@ cd my-app-ts
 npm install && npm run dev
 ```
 
-テンプレート: [`starter/ts`](./starter/ts)
+テンプレート: [`starter/ts`](https://github.com/menimani/react-ko/tree/main/starter/ts)
 
 ---
 
@@ -54,7 +54,7 @@ cd my-app-js
 npm install && npm run dev
 ```
 
-テンプレート: [`starter/js`](./starter/js)
+テンプレート: [`starter/js`](https://github.com/menimani/react-ko/tree/main/starter/js)
 
 ---
 

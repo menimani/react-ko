@@ -89,6 +89,24 @@ export function assertNoReactUnsafeBindings(root: HTMLElement) {
 export function applyBindingsSafely(viewModel: unknown, node: HTMLElement) {
   assertNoReactUnsafeBindings(node)
   const removeContextMarkers = prepareDescendantBindingContextCapture(node)
+  const view = node.ownerDocument.defaultView
+  const eventTargetPrototype = view?.EventTarget.prototype
+  const addEventListener = eventTargetPrototype?.addEventListener
+
+  // Knockout does not unregister native addEventListener handlers from nodes
+  // that remain in the DOM after cleanNode. Track handlers created by this
+  // binding pass so cleanup retires them before a replacement pass is applied.
+  if (eventTargetPrototype !== undefined && addEventListener !== undefined && view !== null) {
+    eventTargetPrototype.addEventListener = function (type, listener, options) {
+      addEventListener.call(this, type, listener, options)
+
+      if (listener !== null && this instanceof view.Node && (this === node || node.contains(this))) {
+        ko.utils.domNodeDisposal.addDisposeCallback(this, () => {
+          this.removeEventListener(type, listener, options)
+        })
+      }
+    }
+  }
 
   try {
     ko.applyBindings(viewModel, node)
@@ -100,6 +118,9 @@ export function applyBindingsSafely(viewModel: unknown, node: HTMLElement) {
       throw error
     }
   } finally {
+    if (eventTargetPrototype !== undefined && addEventListener !== undefined) {
+      eventTargetPrototype.addEventListener = addEventListener
+    }
     removeContextMarkers()
   }
 }
