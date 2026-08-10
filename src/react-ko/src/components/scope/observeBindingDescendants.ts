@@ -257,6 +257,7 @@ function releaseAttributeInterceptor(prototype: typeof Element.prototype) {
 
 function interceptDataBindChanges(root: HTMLElement) {
   const view = root.ownerDocument.defaultView
+  /* v8 ignore next 3 -- attached documents always have a window in jsdom and browsers */
   if (view === null) {
     return () => undefined
   }
@@ -319,6 +320,7 @@ function releaseChildListInterceptor(prototype: typeof Node.prototype) {
 
 function interceptChildListInsertions(root: HTMLElement) {
   const view = root.ownerDocument.defaultView
+  /* v8 ignore next 3 -- attached documents always have a window in jsdom and browsers */
   if (view === null) {
     return () => undefined
   }
@@ -508,8 +510,15 @@ function refreshOwnedContent(
     const state = bindingStates.get(element)
     if (state !== undefined && state.ownedContent !== null && !changedElements.has(element)) {
       // An element that was empty at bind time can gain React children later.
-      // Reject before treating those nodes as content created by Knockout.
-      assertNoReactUnsafeBindings(element)
+      // Knockout's own content writes carry no React tag, so only a React-owned
+      // node outside the tracked content makes the element contested.
+      const owned = state.ownedContent
+      const contested = [...element.childNodes].some(
+        (child) => !owned.has(child) && hasReactOwnership(child)
+      )
+      if (contested) {
+        assertNoReactUnsafeBindings(element)
+      }
 
       // While a content binding remains active, its direct children belong to
       // Knockout. Refresh the snapshot after text/html/component/options updates.
