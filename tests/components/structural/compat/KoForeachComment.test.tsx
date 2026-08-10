@@ -38,7 +38,7 @@ describe('KoForeachComment', () => {
     expect(screen.queryByText(/./)).toBeNull()
   })
 
-  it('reactively updates when items are added (observable)', () => {
+  it('reactively updates when items are added (observable)', async () => {
     const vm = { items: ko.observableArray(['A']) }
   
     render(
@@ -54,7 +54,7 @@ describe('KoForeachComment', () => {
     expect(screen.getByText('A')).toBeDefined()
   
     vm.items.push('B')
-    expect(screen.findByText('B')).toBeDefined()
+    expect(await screen.findByText('B')).toBeInTheDocument()
   })
 
   it('renders children for each item in the array (computed)', () => {
@@ -97,7 +97,7 @@ describe('KoForeachComment', () => {
     expect(screen.queryByText(/./)).toBeNull()
   })
 
-  it('reactively updates when items are added (computed)', () => {
+  it('reactively updates when items are added (computed)', async () => {
     const items = ko.observableArray(['A'])
     const vm = {
       items_computed: ko.computed<unknown[]>(() => items())
@@ -116,7 +116,7 @@ describe('KoForeachComment', () => {
     expect(screen.getByText('A')).toBeDefined()
   
     items.push('B')
-    expect(screen.findByText('B')).toBeDefined()
+    expect(await screen.findByText('B')).toBeInTheDocument()
   })
 
   it('renders children for each item in the array (primitive)', () => {
