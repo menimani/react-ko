@@ -5,6 +5,13 @@
 !tests/**/*
 !starter/
 !starter/**/*
+
+!e2e/
+!e2e/**/*
+e2e/node_modules/
+e2e/.work/
+e2e/test-results/
+e2e/playwright-report/
 !.github/
 !.github/workflows/
 !.github/workflows/react-compatibility.yml
