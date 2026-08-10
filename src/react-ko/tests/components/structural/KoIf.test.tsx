@@ -220,4 +220,19 @@ describe('KoIf', () => {
 
     expect(screen.getByText('Updated')).toBeDefined()
   })
+
+  it('disposes its condition subscription on unmount', () => {
+    const condition = ko.observable(true)
+    const { unmount } = render(
+      <RootKnockoutProvider viewModel={{}}>
+        <KoIf condition={condition}>
+          <span>Visible</span>
+        </KoIf>
+      </RootKnockoutProvider>
+    )
+
+    expect(condition.getSubscriptionsCount()).toBe(1)
+    unmount()
+    expect(condition.getSubscriptionsCount()).toBe(0)
+  })
 })
