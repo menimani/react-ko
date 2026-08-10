@@ -1360,6 +1360,111 @@ describe('RootKnockoutProvider', () => {
     expect(capture.getAttribute('capture')).toBe('')
   })
 
+  it('removes updated boolean React props when attr bindings retire', async () => {
+    const vm = {
+      inert: ko.observable('knockout-inert'),
+      picture: ko.observable('knockout-picture'),
+      remote: ko.observable('knockout-remote'),
+    }
+
+    function LocallyUpdatedElements() {
+      const [phase, setPhase] = useState(0)
+      const binding = phase < 2
+
+      return (
+        <>
+          <button onClick={() => setPhase((current) => current + 1)}>
+            advance boolean props
+          </button>
+          <div
+            data-testid="inert-owner"
+            inert={phase === 0}
+            data-bind={binding ? 'attr: { inert: inert }' : undefined}
+          />
+          <video
+            data-testid="media-boolean-owner"
+            disablePictureInPicture={phase === 0}
+            disableRemotePlayback={phase === 0}
+            data-bind={
+              binding
+                ? 'attr: { disablePictureInPicture: picture, disableRemotePlayback: remote }'
+                : undefined
+            }
+          />
+        </>
+      )
+    }
+
+    render(
+      <RootKnockoutProvider viewModel={vm}>
+        <LocallyUpdatedElements />
+      </RootKnockoutProvider>
+    )
+    const inert = screen.getByTestId('inert-owner')
+    const media = screen.getByTestId('media-boolean-owner')
+
+    fireEvent.click(screen.getByText('advance boolean props'))
+    await waitFor(() => {
+      expect(inert.getAttribute('inert')).toBe('knockout-inert')
+      expect(media.getAttribute('disablepictureinpicture')).toBe('knockout-picture')
+      expect(media.getAttribute('disableremoteplayback')).toBe('knockout-remote')
+    })
+
+    fireEvent.click(screen.getByText('advance boolean props'))
+    expect(inert.hasAttribute('inert')).toBe(false)
+    expect(media.hasAttribute('disablepictureinpicture')).toBe(false)
+    expect(media.hasAttribute('disableremoteplayback')).toBe(false)
+  })
+
+  it('restores updated aliased React props when attr bindings retire', async () => {
+    const vm = {
+      charset: ko.observable('knockout-charset'),
+      equivalent: ko.observable('knockout-equiv'),
+    }
+
+    function LocallyUpdatedElements() {
+      const [phase, setPhase] = useState(0)
+      const binding = phase < 2
+
+      return (
+        <>
+          <button onClick={() => setPhase((current) => current + 1)}>
+            advance aliased props
+          </button>
+          <form
+            data-testid="accept-charset-owner"
+            acceptCharset={phase === 0 ? 'react-initial-charset' : 'react-latest-charset'}
+            data-bind={binding ? "attr: { 'accept-charset': charset }" : undefined}
+          />
+          <meta
+            itemProp="react-ko-http-equiv-test"
+            data-testid="http-equiv-owner"
+            httpEquiv={phase === 0 ? 'react-initial-equiv' : 'react-latest-equiv'}
+            data-bind={binding ? "attr: { 'http-equiv': equivalent }" : undefined}
+          />
+        </>
+      )
+    }
+
+    render(
+      <RootKnockoutProvider viewModel={vm}>
+        <LocallyUpdatedElements />
+      </RootKnockoutProvider>
+    )
+    const charset = screen.getByTestId('accept-charset-owner')
+    const equivalent = screen.getByTestId('http-equiv-owner')
+
+    fireEvent.click(screen.getByText('advance aliased props'))
+    await waitFor(() => {
+      expect(charset.getAttribute('accept-charset')).toBe('knockout-charset')
+      expect(equivalent.getAttribute('http-equiv')).toBe('knockout-equiv')
+    })
+
+    fireEvent.click(screen.getByText('advance aliased props'))
+    expect(charset.getAttribute('accept-charset')).toBe('react-latest-charset')
+    expect(equivalent.getAttribute('http-equiv')).toBe('react-latest-equiv')
+  })
+
   it('reapplies selectedOptions after a controlled multiple value update', async () => {
     const vm = { choices: ko.observableArray(['knockout']) }
 
