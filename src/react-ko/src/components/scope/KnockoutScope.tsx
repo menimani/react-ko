@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { useContext, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useContext, useLayoutEffect, useRef, useState } from 'react'
 import ko from 'knockout'
 import { useAppViewModel } from '@/index'
 import { ScopeViewModelContext } from '@/context/ScopeViewModelContext'
@@ -25,7 +25,11 @@ export const KnockoutScope = React.memo(function KnockoutScope<T>({ viewModel, c
   const container = useRef<HTMLDivElement | null>(null)
   const parentGeneration = useContext(ScopeBindGenerationContext)
   const [generation, setGeneration] = useState(0)
+  const [bindingFailure, setBindingFailure] = useState<{ error: unknown } | null>(null)
   const isFirstBind = useRef(true)
+  const handleBindingError = useCallback((error: unknown) => {
+    setBindingFailure({ error })
+  }, [])
 
   useLayoutEffect(() => {
     const node = container.current
@@ -33,7 +37,7 @@ export const KnockoutScope = React.memo(function KnockoutScope<T>({ viewModel, c
       return
     }
     applyBindingsSafely(viewModel, node)
-    const stopObserving = observeBindingDescendants(viewModel, node)
+    const stopObserving = observeBindingDescendants(viewModel, node, handleBindingError)
 
     // Rebinding means the cleanup's ko.cleanNode just disposed every nested
     // binding, and the fresh pass stopped at descendant boundaries. Announce
@@ -48,7 +52,11 @@ export const KnockoutScope = React.memo(function KnockoutScope<T>({ viewModel, c
       stopObserving()
       ko.cleanNode(node)
     }
-  }, [viewModel, parentGeneration])
+  }, [viewModel, parentGeneration, handleBindingError])
+
+  if (bindingFailure !== null) {
+    throw bindingFailure.error
+  }
 
   return (
     <ScopeViewModelContext.Provider value={viewModel}>
