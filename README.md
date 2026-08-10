@@ -85,6 +85,9 @@ that pass are also disposed before the error reaches a React error boundary.
 Root providers and scopes can be nested: each is a descendant-binding boundary,
 so its children use only its own `viewModel` and are cleaned up with that binding
 root.
+React-rendered descendants mounted after the initial binding pass are also bound
+automatically to the nearest root or scope. Their bindings are disposed when
+React removes them.
 
 ---
 

@@ -6,6 +6,7 @@ import { ScopeViewModelContext } from '@/context/ScopeViewModelContext'
 import { ScopeBindGenerationContext } from '@/context/ScopeBindGenerationContext'
 import { applyBindingsSafely } from './applyBindingsSafely'
 import { DESCENDANT_BINDING_BOUNDARY } from './descendantBindingBoundary'
+import { observeBindingDescendants } from './observeBindingDescendants'
 
 type Props<T> = {
   viewModel: T
@@ -32,6 +33,7 @@ export const KnockoutScope = React.memo(function KnockoutScope<T>({ viewModel, c
       return
     }
     applyBindingsSafely(viewModel, node)
+    const stopObserving = observeBindingDescendants(viewModel, node)
 
     // Rebinding means the cleanup's ko.cleanNode just disposed every nested
     // binding, and the fresh pass stopped at descendant boundaries. Announce
@@ -43,6 +45,7 @@ export const KnockoutScope = React.memo(function KnockoutScope<T>({ viewModel, c
     }
 
     return () => {
+      stopObserving()
       ko.cleanNode(node)
     }
   }, [viewModel, parentGeneration])

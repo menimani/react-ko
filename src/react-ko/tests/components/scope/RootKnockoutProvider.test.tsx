@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, act } from '@testing-library/react'
+import { render, screen, act, waitFor } from '@testing-library/react'
 import { Component, StrictMode, type ReactNode } from 'react'
 import ko from 'knockout'
 import { KnockoutScope, RootKnockoutProvider, useAppViewModel } from '@/index'
@@ -42,6 +42,77 @@ describe('RootKnockoutProvider', () => {
     })
 
     expect(screen.getByText('Updated')).toBeDefined()
+  })
+
+  it('binds ordinary React descendants mounted after the initial pass', async () => {
+    const vm = { label: ko.observable('Mounted later') }
+
+    function Harness({ show }: { show: boolean }) {
+      return (
+        <RootKnockoutProvider viewModel={vm}>
+          {show ? <span data-bind="text: label" /> : null}
+        </RootKnockoutProvider>
+      )
+    }
+
+    const { rerender } = render(<Harness show={false} />)
+    expect(vm.label.getSubscriptionsCount()).toBe(0)
+
+    rerender(<Harness show />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Mounted later')).toBeDefined()
+      expect(vm.label.getSubscriptionsCount()).toBeGreaterThan(0)
+    })
+
+    act(() => {
+      vm.label('Still bound')
+    })
+    expect(screen.getByText('Still bound')).toBeDefined()
+  })
+
+  it('disposes a late descendant when React removes it', async () => {
+    const vm = { label: ko.observable('Temporary') }
+
+    function Harness({ show }: { show: boolean }) {
+      return (
+        <RootKnockoutProvider viewModel={vm}>
+          {show ? <span data-bind="text: label" /> : null}
+        </RootKnockoutProvider>
+      )
+    }
+
+    const { rerender } = render(<Harness show={false} />)
+    rerender(<Harness show />)
+    await waitFor(() => expect(vm.label.getSubscriptionsCount()).toBeGreaterThan(0))
+
+    rerender(<Harness show={false} />)
+    await waitFor(() => expect(vm.label.getSubscriptionsCount()).toBe(0))
+  })
+
+  it('preserves the view model of a nested scope mounted later', async () => {
+    const root = { label: ko.observable('Root') }
+    const nested = { label: ko.observable('Nested') }
+
+    function Harness({ show }: { show: boolean }) {
+      return (
+        <RootKnockoutProvider viewModel={root}>
+          {show ? (
+            <KnockoutScope viewModel={nested}>
+              <span data-bind="text: label" />
+            </KnockoutScope>
+          ) : null}
+        </RootKnockoutProvider>
+      )
+    }
+
+    const { rerender } = render(<Harness show={false} />)
+    rerender(<Harness show />)
+
+    await waitFor(() => expect(screen.getByText('Nested')).toBeDefined())
+    expect(screen.queryByText('Root')).toBeNull()
+    expect(root.label.getSubscriptionsCount()).toBe(0)
+    expect(nested.label.getSubscriptionsCount()).toBeGreaterThan(0)
   })
 
   it('rebinds and disposes the previous bindings when its view model changes', () => {
