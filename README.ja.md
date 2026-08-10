@@ -196,9 +196,11 @@ React が描画した children を制御するために、Knockout の `if`、`i
 `text`、`html`、`component`、`options` バインディングも要素の内容を置き換えます。
 これらを使用できるのは、バインド対象の要素に React が描画した children がない場合
 だけです。children がある場合は、その DOM が切り離される前にバインディングを拒否します。
-この制約はバインディングの適用後に React が条件付きで children を追加した場合にも適用され、
-children の挿入はその子の layout effect が実行される前に同期的に拒否されます。
-Knockout が内容を所有している間は、その要素を空にしてください。
+React が直接描画するテキストと `dangerouslySetInnerHTML` で挿入する内容も、React が描画した
+children として扱います。この制約はバインディングの適用後に React が条件付きで children を
+追加した場合にも適用されます。React 要素の挿入はその子の layout effect が実行される前に
+同期的に拒否され、直接のテキストまたは HTML の挿入は後続の再調整で拒否されます。Knockout が
+内容を所有している間は、その要素を空にしてください。
 
 ### `KoForeach`
 

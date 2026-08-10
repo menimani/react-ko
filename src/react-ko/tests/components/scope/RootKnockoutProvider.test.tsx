@@ -505,6 +505,47 @@ describe('RootKnockoutProvider', () => {
     }
   })
 
+  it.each([
+    ['text', (show: boolean) => (show ? 'React text' : null)],
+    [
+      'dangerouslySetInnerHTML',
+      (show: boolean) => ({
+        dangerouslySetInnerHTML: show ? { __html: '<strong>React markup</strong>' } : undefined,
+      }),
+    ],
+  ] as const)(
+    'rejects late React content from %s while a content binding remains active',
+    async (_, content) => {
+      const vm = { label: ko.observable('Knockout text') }
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+      function Harness({ show }: { show: boolean }) {
+        const nextContent = content(show)
+        return (
+          <ErrorBoundary>
+            <RootKnockoutProvider viewModel={vm}>
+              {typeof nextContent === 'object' && nextContent !== null ? (
+                <div data-bind="text: label" {...nextContent} />
+              ) : (
+                <div data-bind="text: label">{nextContent}</div>
+              )}
+            </RootKnockoutProvider>
+          </ErrorBoundary>
+        )
+      }
+
+      try {
+        const { rerender } = render(<Harness show={false} />)
+        rerender(<Harness show />)
+
+        await waitFor(() => expect(screen.getByText('Binding failed')).toBeDefined())
+        expect(vm.label.getSubscriptionsCount()).toBe(0)
+      } finally {
+        consoleError.mockRestore()
+      }
+    }
+  )
+
   it('rejects a late React child before its layout update can let Knockout detach it', () => {
     const vm = { label: ko.observable('Knockout text') }
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
