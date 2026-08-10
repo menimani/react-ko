@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { render, screen, act } from '@testing-library/react'
-import { useLayoutEffect } from 'react'
+import { StrictMode, useLayoutEffect } from 'react'
 import ko from 'knockout'
 import { useKoValue } from '@/index'
 
@@ -201,6 +201,22 @@ describe('useKoValue', () => {
     const name = ko.observable('Hello')
 
     const { unmount } = render(<Probe source={name} />)
+    expect(name.getSubscriptionsCount()).toBe(1)
+
+    unmount()
+
+    expect(name.getSubscriptionsCount()).toBe(0)
+  })
+
+  it('keeps one live subscription through StrictMode replay and disposes it on unmount', () => {
+    const name = ko.observable('Hello')
+
+    const { unmount } = render(
+      <StrictMode>
+        <Probe source={name} />
+      </StrictMode>
+    )
+
     expect(name.getSubscriptionsCount()).toBe(1)
 
     unmount()
