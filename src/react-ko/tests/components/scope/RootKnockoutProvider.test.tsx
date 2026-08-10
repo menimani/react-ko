@@ -4,15 +4,6 @@ import { Component, StrictMode, useLayoutEffect, useRef, useState, type ReactNod
 import ko from 'knockout'
 import { KnockoutScope, RootKnockoutProvider, useAppViewModel } from '@/index'
 
-/**
- * Dummy consumer that uses the ViewModel context
- * Used to validate that useAppViewModel throws or not depending on Provider usage
- */
-function ViewModelConsumer() {
-  useAppViewModel<unknown>()
-  return null
-}
-
 class ErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
   state = { failed: false }
 
@@ -1115,18 +1106,22 @@ describe('RootKnockoutProvider', () => {
     expect(vm.label.getSubscriptionsCount()).toBe(0)
   })
 
-  it('does not throw when useAppViewModel is used inside RootKnockoutProvider', () => {
-    const vm = {}
-  
-    const renderSafeUsage = () => {
-      render(
-        <RootKnockoutProvider viewModel={vm}>
-          <ViewModelConsumer />
-        </RootKnockoutProvider>
-      )
+  it('returns the root view model from useAppViewModel', () => {
+    const viewModel = {}
+    let result: unknown
+
+    function ViewModelConsumer() {
+      result = useAppViewModel<unknown>()
+      return null
     }
-  
-    expect(renderSafeUsage).not.toThrow()
+
+    render(
+      <RootKnockoutProvider viewModel={viewModel}>
+        <ViewModelConsumer />
+      </RootKnockoutProvider>
+    )
+
+    expect(result).toBe(viewModel)
   })
 
   it('surfaces a binding error raised by a late non-React descendant', async () => {
