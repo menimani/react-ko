@@ -178,6 +178,61 @@ describe('KoForeach', () => {
     expect(screen.getByText('B')).toBeDefined()
   })
 
+  it('re-renders when the plain array prop changes', () => {
+    function Harness({ items }: { items: string[] }) {
+      return (
+        <RootKnockoutProvider viewModel={{}}>
+          <KoForeach items={items}>
+            {(item) => <span>{item}</span>}
+          </KoForeach>
+        </RootKnockoutProvider>
+      )
+    }
+
+    const { rerender } = render(<Harness items={['A']} />)
+
+    rerender(<Harness items={['B', 'C']} />)
+
+    expect(screen.queryByText('A')).toBeNull()
+    expect(screen.getByText('B')).toBeDefined()
+    expect(screen.getByText('C')).toBeDefined()
+  })
+
+  it('moves its subscription when the items source is replaced', () => {
+    const first = ko.observableArray(['A'])
+    const second = ko.observableArray(['B'])
+
+    function Harness({ items }: { items: ko.ObservableArray<string> }) {
+      return (
+        <RootKnockoutProvider viewModel={{}}>
+          <KoForeach items={items}>
+            {(item) => <span>{item}</span>}
+          </KoForeach>
+        </RootKnockoutProvider>
+      )
+    }
+
+    const { rerender } = render(<Harness items={first} />)
+    expect(first.getSubscriptionsCount()).toBe(1)
+
+    rerender(<Harness items={second} />)
+
+    expect(screen.queryByText('A')).toBeNull()
+    expect(screen.getByText('B')).toBeDefined()
+    expect(first.getSubscriptionsCount()).toBe(0)
+    expect(second.getSubscriptionsCount()).toBe(1)
+
+    act(() => {
+      first.push('Ignored')
+    })
+    expect(screen.queryByText('Ignored')).toBeNull()
+
+    act(() => {
+      second.push('C')
+    })
+    expect(screen.getByText('C')).toBeDefined()
+  })
+
   it('keeps row DOM identity across reorders for object items', () => {
     const first = row('A')
     const second = row('B')

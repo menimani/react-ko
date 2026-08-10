@@ -150,6 +150,27 @@ describe('KoIf', () => {
     expect(screen.queryByText('Hidden')).toBeNull()
   })
 
+  it('re-renders when the boolean condition prop changes', () => {
+    function Harness({ condition }: { condition: boolean }) {
+      return (
+        <RootKnockoutProvider viewModel={{}}>
+          <KoIf condition={condition}>
+            <p>Plain condition</p>
+          </KoIf>
+        </RootKnockoutProvider>
+      )
+    }
+
+    const { rerender } = render(<Harness condition={false} />)
+    expect(screen.queryByText('Plain condition')).toBeNull()
+
+    rerender(<Harness condition />)
+    expect(screen.getByText('Plain condition')).toBeDefined()
+
+    rerender(<Harness condition={false} />)
+    expect(screen.queryByText('Plain condition')).toBeNull()
+  })
+
   it('binds children mounted after the condition becomes true', () => {
     const vm = { isVisible: ko.observable(false), label: ko.observable('Late') }
 
