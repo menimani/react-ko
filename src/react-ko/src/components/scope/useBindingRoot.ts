@@ -15,17 +15,20 @@ type ActiveBinding = {
   stopObserving: () => void
 }
 
+const UNBOUND_BINDING = Symbol('unbound')
+
 export function useBindingRoot(
   viewModel: unknown,
   parentGeneration: number,
   onError: (error: unknown) => void,
-  notifyBindingEstablished = false
+  notifyBindingEstablished = false,
+  bindingIdentity: unknown = undefined
 ) {
   const container = useRef<HTMLElement | null>(null)
   const activeBinding = useRef<ActiveBinding | null>(null)
   const replacedBinding = useRef(false)
-  const bindingEstablishedRef = useRef(false)
-  const [bindingEstablished, setBindingEstablished] = useState(false)
+  const bindingEstablishedIdentity = useRef<unknown>(UNBOUND_BINDING)
+  const [, setBindingEstablishedVersion] = useState(0)
   const [generation, setGeneration] = useState(0)
   const getBindingRoot = useCallback(
     () => activeBinding.current?.node ?? container.current,
@@ -53,9 +56,12 @@ export function useBindingRoot(
       bindingStates
     )
     activeBinding.current = { node, viewModel, parentGeneration, stopObserving }
-    if (notifyBindingEstablished && !bindingEstablishedRef.current) {
-      bindingEstablishedRef.current = true
-      setBindingEstablished(true)
+    if (
+      notifyBindingEstablished &&
+      !Object.is(bindingEstablishedIdentity.current, bindingIdentity)
+    ) {
+      bindingEstablishedIdentity.current = bindingIdentity
+      setBindingEstablishedVersion((current) => current + 1)
     }
 
     if (replacing) {
@@ -118,7 +124,10 @@ export function useBindingRoot(
   return {
     container,
     generation,
-    bindingEstablished,
+    bindingEstablished: Object.is(
+      bindingEstablishedIdentity.current,
+      bindingIdentity
+    ),
     getBindingRoot,
   }
 }

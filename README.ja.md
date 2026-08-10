@@ -92,7 +92,9 @@ const viewModel = {
 ```
 
 ホスト要素は構造用のままで、バインディング境界またはルート用 ref と
-`display: contents` 以外のスタイルや ARIA prop は受け取りません。
+`display: contents` 以外のスタイルや ARIA prop は受け取りません。どちらのホストも
+常に子要素を持つため、`boundaryAs` と `as` に指定できるのは非 void HTML 要素だけです。
+`input`、`img`、`br` などのタグは拒否されます。
 
 `RootKnockoutProvider` または `KnockoutScope` の `viewModel` を置き換えると、
 Knockout バインディングが再適用されます。どちらのコンポーネントも、置き換え時と

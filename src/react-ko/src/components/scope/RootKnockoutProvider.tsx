@@ -25,12 +25,16 @@ export const RootKnockoutProvider = React.memo(function RootKnockoutProvider<T>(
 }: Props<T>) {
   const BoundaryHost = semanticHostComponent(boundaryAs)
   const BindingHost = semanticHostComponent(as)
+  const hostIdentity = `${boundaryAs}\0${as}`
+  const committedHostIdentity = React.useRef(hostIdentity)
+  const replacingHost = committedHostIdentity.current !== hostIdentity
   const parentGeneration = useContext(ScopeBindGenerationContext)
   const getParentBindingRoot = useContext(ScopeBindingRootContext)
   const deferChildrenUntilBound = React.useRef<boolean | null>(null)
   if (deferChildrenUntilBound.current === null) {
     deferChildrenUntilBound.current = getParentBindingRoot() !== null
   }
+  const shouldDeferChildren = deferChildrenUntilBound.current || replacingHost
   const [bindingFailure, setBindingFailure] = useState<{ error: unknown } | null>(null)
   const handleBindingError = useCallback((error: unknown) => {
     setBindingFailure({ error })
@@ -44,8 +48,13 @@ export const RootKnockoutProvider = React.memo(function RootKnockoutProvider<T>(
     viewModel,
     parentGeneration,
     handleBindingError,
-    deferChildrenUntilBound.current
+    shouldDeferChildren,
+    hostIdentity
   )
+
+  React.useLayoutEffect(() => {
+    committedHostIdentity.current = hostIdentity
+  }, [hostIdentity])
 
   if (bindingFailure !== null) {
     throw bindingFailure.error
@@ -58,7 +67,7 @@ export const RootKnockoutProvider = React.memo(function RootKnockoutProvider<T>(
           <ScopeBindGenerationContext.Provider value={generation}>
             <BoundaryHost data-bind={`${DESCENDANT_BINDING_BOUNDARY}: true`} style={{ display: 'contents' }}>
               <BindingHost ref={koContainer} style={{ display: 'contents' }}>
-                {deferChildrenUntilBound.current && !bindingEstablished ? null : children}
+                {shouldDeferChildren && !bindingEstablished ? null : children}
               </BindingHost>
             </BoundaryHost>
           </ScopeBindGenerationContext.Provider>

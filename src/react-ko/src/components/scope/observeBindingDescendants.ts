@@ -164,6 +164,8 @@ function snapshotReactProps(element: HTMLElement) {
       name,
       name === 'style' && value !== null && typeof value === 'object'
         ? { ...(value as Record<string, unknown>) }
+        : name === 'value' && Array.isArray(value)
+          ? [...value]
         : value,
     ])
   )
@@ -606,6 +608,9 @@ function reactPropChanged(
 ) {
   const left = previous.get(name)
   const right = current.get(name)
+  if (Array.isArray(left) && Array.isArray(right)) {
+    return left.length !== right.length || left.some((value, index) => !Object.is(value, right[index]))
+  }
   if (name !== 'style') return !Object.is(left, right)
   const keys = new Set([
     ...Object.keys((left as Record<string, unknown> | undefined) ?? {}),
@@ -629,25 +634,156 @@ function stylePropChanged(previous: unknown, current: unknown, name: string) {
 function cssPropertyName(name: string) {
   if (name.startsWith('--')) return name
   return name
-    .replace(/^ms-/, '-ms-')
     .replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)
+    .replace(/^ms-/, '-ms-')
 }
 
-function updateStyleBaselineFromMutation(
-  element: HTMLElement,
+const UNITLESS_STYLE_PROPERTIES = new Set([
+  'animationIterationCount',
+  'aspectRatio',
+  'borderImageOutset',
+  'borderImageSlice',
+  'borderImageWidth',
+  'boxFlex',
+  'boxFlexGroup',
+  'boxOrdinalGroup',
+  'columnCount',
+  'columns',
+  'flex',
+  'flexGrow',
+  'flexNegative',
+  'flexOrder',
+  'flexPositive',
+  'flexShrink',
+  'fillOpacity',
+  'floodOpacity',
+  'fontWeight',
+  'gridArea',
+  'gridColumn',
+  'gridColumnEnd',
+  'gridColumnSpan',
+  'gridColumnStart',
+  'gridRow',
+  'gridRowEnd',
+  'gridRowSpan',
+  'gridRowStart',
+  'lineClamp',
+  'lineHeight',
+  'opacity',
+  'order',
+  'orphans',
+  'scale',
+  'stopOpacity',
+  'strokeDasharray',
+  'strokeDashoffset',
+  'strokeMiterlimit',
+  'strokeOpacity',
+  'strokeWidth',
+  'tabSize',
+  'widows',
+  'zIndex',
+  'zoom',
+])
+
+function isUnitlessStyleProperty(name: string) {
+  const unprefixed = name.replace(/^(?:Webkit|Moz|ms|O)/, '')
+  return UNITLESS_STYLE_PROPERTIES.has(
+    `${unprefixed.charAt(0).toLowerCase()}${unprefixed.slice(1)}`
+  )
+}
+
+function updateStyleBaselineFromReactProps(
   state: BindingState,
-  oldValue: string | null
+  previous: unknown,
+  current: unknown
 ) {
-  const current = snapshotDom(element).style
-  const previousElement = element.ownerDocument.createElement('span')
-  previousElement.setAttribute('style', oldValue ?? '')
-  const previous = snapshotDom(previousElement).style
-  for (const name of new Set([...previous.keys(), ...current.keys()])) {
-    const before = previous.get(name)
-    const after = current.get(name)
-    if (before?.value !== after?.value || before?.priority !== after?.priority) {
-      if (after === undefined) state.beforeBinding.style.delete(name)
-      else state.beforeBinding.style.set(name, after)
+  const previousStyle =
+    previous !== null && typeof previous === 'object'
+      ? (previous as Record<string, unknown>)
+      : {}
+  const currentStyle =
+    current !== null && typeof current === 'object'
+      ? (current as Record<string, unknown>)
+      : {}
+
+  for (const name of new Set([...Object.keys(previousStyle), ...Object.keys(currentStyle)])) {
+    if (!stylePropChanged(previous, current, name)) continue
+
+    const cssName = cssPropertyName(name)
+    const value = currentStyle[name]
+    if (value === null || value === undefined || typeof value === 'boolean' || value === '') {
+      state.beforeBinding.style.delete(cssName)
+    } else {
+      state.beforeBinding.style.set(cssName, {
+        value:
+          typeof value === 'number' &&
+          value !== 0 &&
+          !name.startsWith('--') &&
+          !isUnitlessStyleProperty(name)
+            ? `${value}px`
+            : String(value).trim(),
+        priority: '',
+      })
+    }
+  }
+}
+
+const BOOLEAN_ATTRIBUTES = new Set([
+  'allowFullScreen',
+  'async',
+  'autoFocus',
+  'autoPlay',
+  'checked',
+  'controls',
+  'default',
+  'defer',
+  'disabled',
+  'formNoValidate',
+  'hidden',
+  'loop',
+  'multiple',
+  'muted',
+  'noModule',
+  'noValidate',
+  'open',
+  'playsInline',
+  'readOnly',
+  'required',
+  'reversed',
+  'scoped',
+  'seamless',
+  'itemScope',
+])
+
+function reactAttributeValue(name: string, value: unknown) {
+  if (value === null || value === undefined) return null
+  if (BOOLEAN_ATTRIBUTES.has(name)) return value ? '' : null
+  if (typeof value === 'function' || typeof value === 'symbol') return null
+  return String(value)
+}
+
+function updateAttributeBaselineFromReactProp(
+  state: BindingState,
+  attributeName: string,
+  propName: string,
+  value: unknown
+) {
+  const baseline = reactAttributeValue(propName, value)
+  if (baseline === null) state.beforeBinding.attributes.delete(attributeName)
+  else state.beforeBinding.attributes.set(attributeName, baseline)
+}
+
+function updateSelectedOptionsBaseline(
+  element: HTMLSelectElement,
+  value: unknown,
+  bindingStates: BindingStateStore
+) {
+  if (value === null || value === undefined) return
+  const values = new Set((Array.isArray(value) ? value : [value]).map(String))
+  for (const option of element.options) {
+    const optionState = bindingStates.get(option)
+    if (optionState !== undefined) {
+      optionState.beforeBinding.selected = values.has(option.value)
     }
   }
 }
@@ -666,8 +802,7 @@ function reactPropForAttribute(
 function refreshReactOwnedDom(
   records: MutationRecord[],
   root: HTMLElement,
-  bindingStates: BindingStateStore,
-  dataBindChanges: Set<HTMLElement>
+  bindingStates: BindingStateStore
 ) {
   const changed = new Set<HTMLElement>()
 
@@ -692,20 +827,30 @@ function refreshReactOwnedDom(
     )
     const propsChanged =
       reactProp !== undefined && reactPropChanged(state.reactProps, currentProps, reactProp)
-    if (!dataBindChanges.has(element) && !propsChanged) continue
+    if (!propsChanged || reactProp === undefined) continue
 
     if (record.attributeName === 'class' && names.has('css')) {
-      const value = element.getAttribute('class')
-      if (value === null) state.beforeBinding.attributes.delete('class')
-      else state.beforeBinding.attributes.set('class', value)
+      updateAttributeBaselineFromReactProp(
+        state,
+        'class',
+        reactProp,
+        currentProps.get(reactProp)
+      )
       changed.add(element)
     } else if (record.attributeName === 'style' && names.has('style')) {
-      updateStyleBaselineFromMutation(element, state, record.oldValue)
+      updateStyleBaselineFromReactProps(
+        state,
+        state.reactProps.get('style'),
+        currentProps.get('style')
+      )
       changed.add(element)
     } else if (names.has('attr') && state.ownedAttributes.has(record.attributeName)) {
-      const value = element.getAttribute(record.attributeName)
-      if (value === null) state.beforeBinding.attributes.delete(record.attributeName)
-      else state.beforeBinding.attributes.set(record.attributeName, value)
+      updateAttributeBaselineFromReactProp(
+        state,
+        record.attributeName,
+        reactProp,
+        currentProps.get(reactProp)
+      )
       changed.add(element)
     }
   }
@@ -730,22 +875,17 @@ function refreshReactOwnedDom(
       const previousStyle = state.reactProps.get('style')
       const currentStyle = currentProps.get('style')
       if (names.has('style') && reactPropChanged(state.reactProps, currentProps, 'style')) {
-        const styleNames = new Set([
-          ...Object.keys((previousStyle as Record<string, unknown> | undefined) ?? {}),
-          ...Object.keys((currentStyle as Record<string, unknown> | undefined) ?? {}),
-        ])
-        for (const name of styleNames) {
-          if (!stylePropChanged(previousStyle, currentStyle, name)) continue
-          const cssName = cssPropertyName(name)
-          const value = element.style.getPropertyValue(cssName)
-          if (value === '') state.beforeBinding.style.delete(cssName)
-          else {
-            state.beforeBinding.style.set(cssName, {
-              value,
-              priority: element.style.getPropertyPriority(cssName),
-            })
-          }
-        }
+        updateStyleBaselineFromReactProps(state, previousStyle, currentStyle)
+        changed.add(element)
+      }
+
+      if (
+        names.has('selectedOptions') &&
+        element.ownerDocument.defaultView !== null &&
+        element instanceof element.ownerDocument.defaultView.HTMLSelectElement &&
+        reactPropChanged(state.reactProps, currentProps, 'value')
+      ) {
+        updateSelectedOptionsBaseline(element, currentProps.get('value'), bindingStates)
         changed.add(element)
       }
 
@@ -753,7 +893,6 @@ function refreshReactOwnedDom(
         ['value', ['value', 'textInput', 'checkedValue'], 'value'],
         ['checked', ['checked'], 'checked'],
         ['disabled', ['enable', 'disable'], 'disabled'],
-        ['selected', ['selectedOptions'], 'selected'],
       ]
       for (const [prop, bindings, snapshotKey] of propertyBindings) {
         if (
@@ -1033,8 +1172,7 @@ export function observeBindingDescendants(
     for (const element of refreshReactOwnedDom(
       records,
       root,
-      bindingStates,
-      changedElements
+      bindingStates
     )) {
       changedElements.add(element)
     }
