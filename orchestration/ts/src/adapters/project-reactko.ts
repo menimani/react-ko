@@ -18,6 +18,12 @@ export const reactKoProject: ProjectAdapter = {
       command: 'npm ci --no-audit --no-fund',
       requires: 'package-lock.json',
     },
+    {
+      label: 'Orchestration dependencies',
+      cwd: 'orchestration/ts',
+      command: 'npm ci --no-audit --no-fund',
+      requires: 'orchestration/ts/package-lock.json',
+    },
   ],
 
   mergeChecks(taskGate: 'full' | 'light'): MergeCheck[] {
