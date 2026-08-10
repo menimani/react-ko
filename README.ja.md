@@ -195,6 +195,15 @@ const vm = { todos: ko.observableArray<Todo>([]) }
 
 ---
 
+## useAppViewModel
+
+`useAppViewModel<T>()` は現在のアプリケーション ViewModel を取得します。このフックは
+`AppViewModelContext.Provider` の配下で使用する必要があります。`RootKnockoutProvider` は
+内部でこのコンテキストプロバイダーを提供しますが、利用側で
+`AppViewModelContext.Provider` を直接提供することもできます。
+
+---
+
 ## useKoValue
 
 Knockout の observable / computed / 素の値を React の state として読み
