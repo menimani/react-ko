@@ -692,6 +692,46 @@ describe('RootKnockoutProvider', () => {
   })
 
   it.each([
+    ['an empty text child', { children: '' }],
+    ['empty dangerouslySetInnerHTML', { dangerouslySetInnerHTML: { __html: '' } }],
+  ] as const)('rejects removal of %s while a content binding remains active', async (_, content) => {
+    const vm = { label: ko.observable('Knockout text') }
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    function Harness({ removeContent }: { removeContent: boolean }) {
+      return (
+        <ErrorMessageBoundary>
+          <RootKnockoutProvider viewModel={vm}>
+            <div
+              data-testid="empty-content-removal"
+              data-bind="text: label"
+              {...(removeContent ? {} : content)}
+            />
+          </RootKnockoutProvider>
+        </ErrorMessageBoundary>
+      )
+    }
+
+    try {
+      const { rerender } = render(<Harness removeContent={false} />)
+      expect(screen.getByText('Knockout text')).toBeDefined()
+
+      rerender(<Harness removeContent />)
+
+      await waitFor(() =>
+        expect(
+          screen.getByText(
+            'react-ko cannot apply the Knockout "text" binding because it controls React-owned child nodes. Leave the bound element empty so Knockout can own its contents.'
+          )
+        ).toBeDefined()
+      )
+      expect(vm.label.getSubscriptionsCount()).toBe(0)
+    } finally {
+      consoleError.mockRestore()
+    }
+  })
+
+  it.each([
     ['text', { children: 'React text' }],
     [
       'dangerouslySetInnerHTML',
@@ -717,6 +757,33 @@ describe('RootKnockoutProvider', () => {
     await waitFor(() => {
       expect(screen.getByTestId('react-content-handoff').textContent).toBe('Knockout text')
       expect(vm.label.getSubscriptionsCount()).toBe(1)
+    })
+  })
+
+  it('hands React text off while replacing the root view model', async () => {
+    const first = { label: ko.observable('First Knockout text') }
+    const second = { label: ko.observable('Second Knockout text') }
+
+    function Harness({ bound, viewModel }: { bound: boolean; viewModel: typeof first }) {
+      return (
+        <RootKnockoutProvider viewModel={viewModel}>
+          <div
+            data-testid="react-text-view-model-handoff"
+            {...(bound ? { 'data-bind': 'text: label' } : { children: 'React text' })}
+          />
+        </RootKnockoutProvider>
+      )
+    }
+
+    const { rerender } = render(<Harness bound={false} viewModel={first} />)
+    rerender(<Harness bound viewModel={second} />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('react-text-view-model-handoff').textContent).toBe(
+        'Second Knockout text'
+      )
+      expect(first.label.getSubscriptionsCount()).toBe(0)
+      expect(second.label.getSubscriptionsCount()).toBe(1)
     })
   })
 
