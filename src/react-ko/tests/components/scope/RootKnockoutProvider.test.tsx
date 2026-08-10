@@ -303,6 +303,49 @@ describe('RootKnockoutProvider', () => {
     }
   })
 
+  it('rejects a late React child before its layout update can let Knockout detach it', () => {
+    const vm = { label: ko.observable('Knockout text') }
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    let showChild = () => undefined
+    let connectedAfterUpdate = false
+
+    function UpdatingChild() {
+      const child = useRef<HTMLSpanElement>(null)
+
+      useLayoutEffect(() => {
+        vm.label('Updated in layout')
+        connectedAfterUpdate = child.current?.isConnected ?? false
+      }, [])
+
+      return <span ref={child}>React child</span>
+    }
+
+    function BindingOwner() {
+      const [show, setShow] = useState(false)
+      showChild = () => setShow(true)
+
+      return <div data-bind="text: label">{show ? <UpdatingChild /> : null}</div>
+    }
+
+    try {
+      render(
+        <ErrorBoundary>
+          <RootKnockoutProvider viewModel={vm}>
+            <BindingOwner />
+          </RootKnockoutProvider>
+        </ErrorBoundary>
+      )
+      act(() => showChild())
+
+      expect(screen.getByText('Binding failed')).toBeDefined()
+      expect(connectedAfterUpdate).toBe(true)
+      expect(vm.label()).toBe('Updated in layout')
+      expect(vm.label.getSubscriptionsCount()).toBe(0)
+    } finally {
+      consoleError.mockRestore()
+    }
+  })
+
   it.each([
     ['text', 'text: text'],
     ['html', 'html: markup'],

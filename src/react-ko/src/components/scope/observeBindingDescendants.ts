@@ -764,11 +764,37 @@ export function observeBindingDescendants(
     observer,
     reconcile,
     // A content binding may be inserting its own DOM, or React may be retiring
-    // that binding in the same commit. Let the data-bind mutation or observer
-    // callback reconcile those records as one ownership transition.
-    shouldDeferInsertion: (parent) =>
-      parent.nodeType === Node.ELEMENT_NODE &&
-      (bindingStates.get(parent as HTMLElement)?.ownedContent ?? null) !== null,
+    // that binding in the same commit. Inspect React's work-in-progress host
+    // props so only the latter ownership transition is deferred. If the binding
+    // remains, reconcile synchronously before a child layout effect can update
+    // Knockout and let it detach that child.
+    shouldDeferInsertion: (parent) => {
+      if (parent.nodeType !== Node.ELEMENT_NODE) {
+        return false
+      }
+
+      const element = parent as HTMLElement
+      const state = bindingStates.get(element)
+      if (state === undefined || state.ownedContent === null) {
+        return false
+      }
+
+      const reactFiberKey = Object.getOwnPropertyNames(element).find((name) =>
+        name.startsWith('__reactFiber$')
+      )
+      if (reactFiberKey === undefined) {
+        return false
+      }
+      const fiber = (element as unknown as Record<string, unknown>)[reactFiberKey] as {
+        alternate?: { pendingProps: Record<string, unknown> } | null
+      }
+
+      // During the mutation phase the DOM marker still points at the current
+      // fiber, while its alternate contains the props being committed.
+      return fiber.alternate !== undefined &&
+        fiber.alternate !== null &&
+        fiber.alternate.pendingProps['data-bind'] !== state.source
+    },
   })
   observer.observe(root, {
     attributes: true,
@@ -808,6 +834,10 @@ export function reconcileBindingDescendants(root: HTMLElement) {
     state.reconcile(records)
   } catch (error) {
     state.observer.disconnect()
+    // React continues mounting layout effects after a host mutation throws.
+    // Retire Knockout now so an effect cannot update a content binding and
+    // detach the child whose insertion just failed validation.
+    ko.cleanNode(root)
     throw error
   } finally {
     reconcilingRoots.delete(root)
