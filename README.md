@@ -254,26 +254,6 @@ Let Knockout observables do the work — even in modern React.
 
 ---
 
-## Folder Structure
-
-```
-src/
-├── components/                          // Components
-│   ├── scope/                          // Core components for binding with Knockout
-│   │   ├── KnockoutScope.tsx          // Self-binding scope for a sub-ViewModel
-│   │   └── RootKnockoutProvider.tsx   // Root component, initializes Knockout
-│   ├── structural/                     // Generic components for flow control
-│   │   ├── KoIf.tsx                   // Conditional rendering (true)
-│   │   ├── KoIfNot.tsx                // Conditional rendering (false)
-│   │   ├── KoForeach.tsx              // List rendering via render prop
-├── context/                             // Context management
-│   ├── AppViewModelContext.ts          // Context related to Knockout's ViewModel
-├── hooks/                               // Hooks
-│   ├── useKoValue.ts                   // Read a Knockout value as React state
-```
-
----
-
 ## Development
 
 ```bash
