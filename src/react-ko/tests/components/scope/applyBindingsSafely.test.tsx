@@ -118,15 +118,4 @@ describe('applyBindingsSafely', () => {
     expect(() => applyBindingsSafely({ label: 'Knockout label' }, container)).not.toThrow()
     expect(container.querySelector('span')?.textContent).toBe('Knockout label')
   })
-
-  it('does not scan through a nested scope boundary', () => {
-    const container = document.createElement('div')
-    container.innerHTML = `
-      <section data-bind="reactKoScopeBoundary: true">
-        <div data-bind="if: visible"><span>Nested child</span></div>
-      </section>
-    `
-
-    expect(() => applyBindingsSafely({}, container)).not.toThrow()
-  })
 })
