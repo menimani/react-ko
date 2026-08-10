@@ -755,9 +755,15 @@ const BOOLEAN_ATTRIBUTES = new Set([
   'itemScope',
 ])
 
+const OVERLOADED_BOOLEAN_ATTRIBUTES = new Set(['capture', 'download'])
+
 function reactAttributeValue(name: string, value: unknown) {
   if (value === null || value === undefined) return null
   if (BOOLEAN_ATTRIBUTES.has(name)) return value ? '' : null
+  if (OVERLOADED_BOOLEAN_ATTRIBUTES.has(name)) {
+    if (value === true) return ''
+    if (value === false) return null
+  }
   if (typeof value === 'function' || typeof value === 'symbol') return null
   return String(value)
 }
