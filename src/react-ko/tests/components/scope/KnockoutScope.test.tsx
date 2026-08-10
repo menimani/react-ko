@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, act, waitFor } from '@testing-library/react'
-import { Component, StrictMode, useLayoutEffect, useRef, type ReactNode } from 'react'
+import { Component, StrictMode, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import ko from 'knockout'
 import { RootKnockoutProvider, KnockoutScope, KoScope } from '@/index'
 
@@ -41,6 +41,42 @@ describe('KnockoutScope', () => {
 
     rerender(<Harness show={false} />)
     await waitFor(() => expect(vm.name.getSubscriptionsCount()).toBe(0))
+  })
+
+  it('binds a descendant inserted by local state before its layout effects run', () => {
+    const vm = { name: ko.observable('Initial') }
+    let showInput = () => undefined
+
+    function ChangeInLayout() {
+      const input = useRef<HTMLInputElement>(null)
+
+      useLayoutEffect(() => {
+        if (input.current !== null) {
+          input.current.value = 'Changed in layout'
+          input.current.dispatchEvent(new Event('change', { bubbles: true }))
+        }
+      }, [])
+
+      return <input ref={input} data-bind="value: name" />
+    }
+
+    function LocalStateOwner() {
+      const [show, setShow] = useState(false)
+      showInput = () => setShow(true)
+      return show ? <ChangeInLayout /> : null
+    }
+
+    render(
+      <RootKnockoutProvider viewModel={{}}>
+        <KnockoutScope viewModel={vm}>
+          <LocalStateOwner />
+        </KnockoutScope>
+      </RootKnockoutProvider>
+    )
+
+    act(() => showInput())
+
+    expect(vm.name()).toBe('Changed in layout')
   })
 
   it('sends a late binding error to a React error boundary with a stable view model', async () => {

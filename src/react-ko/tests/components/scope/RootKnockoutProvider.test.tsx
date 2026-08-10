@@ -71,6 +71,40 @@ describe('RootKnockoutProvider', () => {
     expect(screen.getByText('Still bound')).toBeDefined()
   })
 
+  it('binds a descendant inserted by local state before its layout effects run', () => {
+    const vm = { name: ko.observable('Initial') }
+    let showInput = () => undefined
+
+    function ChangeInLayout() {
+      const input = useRef<HTMLInputElement>(null)
+
+      useLayoutEffect(() => {
+        if (input.current !== null) {
+          input.current.value = 'Changed in layout'
+          input.current.dispatchEvent(new Event('change', { bubbles: true }))
+        }
+      }, [])
+
+      return <input ref={input} data-bind="value: name" />
+    }
+
+    function LocalStateOwner() {
+      const [show, setShow] = useState(false)
+      showInput = () => setShow(true)
+      return show ? <ChangeInLayout /> : null
+    }
+
+    render(
+      <RootKnockoutProvider viewModel={vm}>
+        <LocalStateOwner />
+      </RootKnockoutProvider>
+    )
+
+    act(() => showInput())
+
+    expect(vm.name()).toBe('Changed in layout')
+  })
+
   it('preserves a let descendant context for children mounted later', async () => {
     const vm = { label: ko.observable('Late alias') }
 
@@ -165,6 +199,54 @@ describe('RootKnockoutProvider', () => {
     })
 
     rerender(<Harness binding="second" />)
+    expect(vm.second.getSubscriptionsCount()).toBe(1)
+  })
+
+  it('removes DOM effects owned by retired bindings before applying replacements', () => {
+    const vm = {
+      first: ko.observable(true),
+      second: ko.observable(true),
+      color: ko.observable('red'),
+      background: ko.observable('blue'),
+      title: ko.observable('Old title'),
+      label: ko.observable('Next label'),
+      disabled: ko.observable(true),
+      name: ko.observable('Next value'),
+    }
+
+    function Harness({ next }: { next: boolean }) {
+      return (
+        <RootKnockoutProvider viewModel={vm}>
+          <input
+            className="react-owned"
+            data-testid="changed-dom-binding"
+            data-bind={
+              next
+                ? "css: { next: second }, style: { backgroundColor: background }, attr: { 'aria-label': label }, value: name"
+                : 'css: { old: first }, style: { color: color }, attr: { title: title }, disable: disabled'
+            }
+          />
+        </RootKnockoutProvider>
+      )
+    }
+
+    const { rerender } = render(<Harness next={false} />)
+    const element = screen.getByTestId('changed-dom-binding') as HTMLInputElement
+    expect(element.className).toBe('react-owned old')
+    expect(element.style.color).toBe('red')
+    expect(element.title).toBe('Old title')
+    expect(element.disabled).toBe(true)
+
+    rerender(<Harness next />)
+
+    expect(element.className).toBe('react-owned next')
+    expect(element.style.color).toBe('')
+    expect(element.style.backgroundColor).toBe('blue')
+    expect(element.title).toBe('')
+    expect(element.getAttribute('aria-label')).toBe('Next label')
+    expect(element.disabled).toBe(false)
+    expect(element.value).toBe('Next value')
+    expect(vm.first.getSubscriptionsCount()).toBe(0)
     expect(vm.second.getSubscriptionsCount()).toBe(1)
   })
 
