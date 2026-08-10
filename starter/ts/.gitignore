@@ -1,0 +1,16 @@
+*
+!src/
+!src/**/*
+!public/
+!public/**/*
+
+!.gitignore
+!eslint.config.js
+!index.html
+!package.json
+!README.md
+!README.ja.md
+!tsconfig.app.json
+!tsconfig.json
+!tsconfig.node.json
+!vite.config.ts
