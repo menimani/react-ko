@@ -126,14 +126,22 @@ export function KoInput({ value }: Props) {
 
 ### Component Usage
 
+`KnockoutScope` calls `useAppViewModel` internally, so it must be rendered under
+either `RootKnockoutProvider` or an `AppViewModelContext.Provider`. The root
+provider also applies bindings for any `data-bind` attributes outside nested
+scopes.
+
 ```tsx
+import ko from 'knockout'
+import { RootKnockoutProvider } from 'react-ko'
+
 const vm = {
   name: ko.observable('Alice')
 }
 
-<KnockoutScope viewModel={vm}>
+<RootKnockoutProvider viewModel={vm}>
   <KoInput value={vm.name} />
-</KnockoutScope>
+</RootKnockoutProvider>
 ```
 
 ---

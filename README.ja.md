@@ -126,14 +126,22 @@ export function KoInput({ value }: Props) {
 
 ### コンポーネント使用例
 
+`KnockoutScope` は内部で `useAppViewModel` を呼び出すため、
+`RootKnockoutProvider` または `AppViewModelContext.Provider` の配下でレンダーする
+必要があります。ルートプロバイダーは、ネストしたスコープの外側にある
+`data-bind` 属性にもバインディングを適用します。
+
 ```tsx
+import ko from 'knockout'
+import { RootKnockoutProvider } from 'react-ko'
+
 const vm = {
   name: ko.observable('Alice')
 }
 
-<KnockoutScope viewModel={vm}>
+<RootKnockoutProvider viewModel={vm}>
   <KoInput value={vm.name} />
-</KnockoutScope>
+</RootKnockoutProvider>
 ```
 
 ---
