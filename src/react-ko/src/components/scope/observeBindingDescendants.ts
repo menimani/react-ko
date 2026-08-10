@@ -101,7 +101,7 @@ type BindingState = {
   reactProps: Map<string, unknown>
 }
 
-export type BindingStateStore = WeakMap<HTMLElement, BindingState>
+type BindingStateStore = WeakMap<HTMLElement, BindingState>
 
 function bindingNames(source: string | null) {
   if (source === null) {
@@ -924,7 +924,9 @@ function refreshReactOwnedDom(
         changed.add(element)
       }
 
-      const propertyBindings: Array<[string, string[], keyof DomSnapshot]> = [
+      const propertyBindings: Array<
+        [string, string[], 'value' | 'checked' | 'disabled']
+      > = [
         ['value', ['value', 'textInput', 'checkedValue'], 'value'],
         ['checked', ['checked'], 'checked'],
         ['disabled', ['enable', 'disable'], 'disabled'],
@@ -937,8 +939,7 @@ function refreshReactOwnedDom(
           const reactValue = currentProps.get(prop)
           if (snapshotKey === 'value') state.beforeBinding.value = reactValue ?? ''
           else if (snapshotKey === 'checked') state.beforeBinding.checked = Boolean(reactValue)
-          else if (snapshotKey === 'disabled') state.beforeBinding.disabled = Boolean(reactValue)
-          else state.beforeBinding.selected = Boolean(reactValue)
+          else state.beforeBinding.disabled = Boolean(reactValue)
           changed.add(element)
         }
       }
@@ -1288,7 +1289,6 @@ export function observeBindingDescendants(
   })
   observer.observe(root, {
     attributes: true,
-    attributeOldValue: true,
     characterData: true,
     childList: true,
     subtree: true,
