@@ -1,9 +1,35 @@
 import { describe, it, expect } from 'vitest'
-import { render, screen, act } from '@testing-library/react'
+import { render, screen, act, waitFor } from '@testing-library/react'
 import ko from 'knockout'
 import { RootKnockoutProvider, KnockoutScope, KoScope } from '@/index'
 
 describe('KnockoutScope', () => {
+  it('binds and cleans ordinary React descendants mounted later', async () => {
+    const vm = { name: ko.observable('Scoped later') }
+
+    function Harness({ show }: { show: boolean }) {
+      return (
+        <RootKnockoutProvider viewModel={{}}>
+          <KnockoutScope viewModel={vm}>
+            {show ? <span data-bind="text: name" /> : null}
+          </KnockoutScope>
+        </RootKnockoutProvider>
+      )
+    }
+
+    const { rerender } = render(<Harness show={false} />)
+    expect(vm.name.getSubscriptionsCount()).toBe(0)
+
+    rerender(<Harness show />)
+    await waitFor(() => {
+      expect(screen.getByText('Scoped later')).toBeDefined()
+      expect(vm.name.getSubscriptionsCount()).toBeGreaterThan(0)
+    })
+
+    rerender(<Harness show={false} />)
+    await waitFor(() => expect(vm.name.getSubscriptionsCount()).toBe(0))
+  })
+
   it('updates DOM when observable changes (observable → DOM)', () => {
     const vm = { name: ko.observable('Hello') }
 

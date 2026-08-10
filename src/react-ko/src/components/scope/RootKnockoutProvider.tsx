@@ -6,6 +6,7 @@ import { ScopeViewModelContext } from '@/context/ScopeViewModelContext'
 import { ScopeBindGenerationContext } from '@/context/ScopeBindGenerationContext'
 import { applyBindingsSafely } from './applyBindingsSafely'
 import { DESCENDANT_BINDING_BOUNDARY } from './descendantBindingBoundary'
+import { observeBindingDescendants } from './observeBindingDescendants'
 
 type Props<T> = {
   viewModel: T
@@ -28,6 +29,7 @@ export const RootKnockoutProvider = React.memo(function RootKnockoutProvider<T>(
       return
     }
     applyBindingsSafely(viewModel, node)
+    const stopObserving = observeBindingDescendants(viewModel, node)
 
     // Cleaning the root also disposes bindings owned by nested binding roots.
     // Let the nearest descendants know that they must bind themselves again.
@@ -38,6 +40,7 @@ export const RootKnockoutProvider = React.memo(function RootKnockoutProvider<T>(
     }
 
     return () => {
+      stopObserving()
       ko.cleanNode(node)
     }
   }, [viewModel, parentGeneration])
