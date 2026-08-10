@@ -18,6 +18,12 @@ function bindingNames(element: Element): Set<string> {
   )
 }
 
+function hasReactTag(node: Node): boolean {
+  return Object.getOwnPropertyNames(node).some(
+    (name) => name.startsWith('__reactFiber$') || name.startsWith('__reactProps$')
+  )
+}
+
 export function hasReactOwnedChildren(element: Element): boolean {
   if (!element.hasChildNodes()) {
     return false
@@ -33,16 +39,18 @@ export function hasReactOwnedChildren(element: Element): boolean {
   }
 
   const reactProps = (element as unknown as Record<string, unknown>)[reactPropsKey] as
-    | { children?: unknown; dangerouslySetInnerHTML?: unknown }
+    | { dangerouslySetInnerHTML?: unknown }
     | undefined
 
-  return (
-    (reactProps?.children !== undefined &&
-      reactProps.children !== null &&
-      reactProps.children !== false &&
-      reactProps.children !== true) ||
-    reactProps?.dangerouslySetInnerHTML !== undefined
-  )
+  if (reactProps?.dangerouslySetInnerHTML !== undefined) {
+    return true
+  }
+
+  // The recorded props cannot answer for the children: React 18 leaves
+  // __reactProps$ stale when only the children changed. Both React 18 and 19
+  // tag element and text instances before inserting them, so ownership is
+  // read from the children themselves; Knockout-written nodes carry no tag.
+  return [...element.childNodes].some(hasReactTag)
 }
 
 /**

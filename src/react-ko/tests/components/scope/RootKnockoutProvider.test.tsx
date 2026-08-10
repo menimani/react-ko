@@ -809,6 +809,23 @@ describe('RootKnockoutProvider', () => {
     await waitFor(() => expect(screen.getByText('Binding failed')).toBeDefined())
   })
 
+  it('rejects a content binding over dangerouslySetInnerHTML content', () => {
+    const vm = { label: ko.observable('never') }
+
+    render(
+      <ErrorBoundary>
+        <RootKnockoutProvider viewModel={vm}>
+          <div
+            data-bind="text: label"
+            dangerouslySetInnerHTML={{ __html: '<span>markup</span>' }}
+          />
+        </RootKnockoutProvider>
+      </ErrorBoundary>
+    )
+
+    expect(screen.getByText('Binding failed')).toBeDefined()
+  })
+
   it('rejects a content binding that would overwrite React-owned children', () => {
     const vm = { label: ko.observable('never') }
 
