@@ -2,7 +2,7 @@ import reactLogo from './assets/react.svg'
 import viteLogo from '/vite.svg'
 import './App.css'
 import { AppViewModelContext } from './appViewModel'
-import { KoText } from './components/KoText'
+import { KoText, KoTextHook } from './components/KoText'
 import { TodoForm } from './components/TodoForm'
 
 function App() {
@@ -23,6 +23,9 @@ function App() {
         <button data-bind="click: increment">
           count is <KoText text={vm.count} color={vm.color} />
         </button>
+        <p>
+          count via useKoValue: <KoTextHook text={vm.count} color={vm.color} />
+        </p>
         <p>
           Edit <code>src/App.tsx</code> and save to test HMR
         </p>
