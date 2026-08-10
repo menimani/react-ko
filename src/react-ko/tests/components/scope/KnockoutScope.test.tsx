@@ -47,6 +47,27 @@ describe('KnockoutScope', () => {
     expect(vm.name()).toBe('World')
   })
 
+  it('does not update observable via input event without valueUpdate', () => {
+    const vm = { name: ko.observable('Hello') }
+
+    const { container } = render(
+      <RootKnockoutProvider viewModel={{}}>
+        <KnockoutScope viewModel={vm}>
+          <input data-bind="value: name" />
+        </KnockoutScope>
+      </RootKnockoutProvider>
+    )
+
+    const input = container.querySelector('input')!
+
+    act(() => {
+      input.value = 'World'
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+
+    expect(vm.name()).toBe('Hello')
+  })
+
   it('updates observable via change event (DOM → observable, default KO behavior)', () => {
     const vm = { name: ko.observable('Hello') }
 
@@ -162,5 +183,17 @@ describe('KnockoutScope', () => {
 describe('KoScope', () => {
   it('is an alias of KnockoutScope', () => {
     expect(KoScope).toBe(KnockoutScope)
+  })
+
+  it('binds a scoped view model', () => {
+    render(
+      <RootKnockoutProvider viewModel={{}}>
+        <KoScope viewModel={{ label: 'Alias smoke' }}>
+          <span data-bind="text: label" />
+        </KoScope>
+      </RootKnockoutProvider>
+    )
+
+    expect(screen.getByText('Alias smoke')).toBeDefined()
   })
 })

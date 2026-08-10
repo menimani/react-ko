@@ -68,6 +68,56 @@ describe('KoIfNot', () => {
     expect(screen.queryByText('Hidden')).toBeNull()
   })
 
+  it('responds to computed condition transitions', () => {
+    const hidden = ko.observable(false)
+    const vm = { isHidden: ko.computed(() => hidden()) }
+
+    render(
+      <RootKnockoutProvider viewModel={{}}>
+        <KnockoutScope viewModel={vm}>
+          <KoIfNot condition={vm.isHidden}>
+            <p>Computed transition</p>
+          </KoIfNot>
+        </KnockoutScope>
+      </RootKnockoutProvider>
+    )
+
+    expect(screen.getByText('Computed transition')).toBeDefined()
+
+    act(() => hidden(true))
+    expect(screen.queryByText('Computed transition')).toBeNull()
+
+    act(() => hidden(false))
+    expect(screen.getByText('Computed transition')).toBeDefined()
+  })
+
+  it('subscribes to a replacement condition source', () => {
+    const first = ko.observable(false)
+    const second = ko.observable(true)
+
+    function Harness({ condition }: { condition: ko.Observable<boolean> }) {
+      return (
+        <RootKnockoutProvider viewModel={{}}>
+          <KoIfNot condition={condition}>
+            <p>Replacement condition</p>
+          </KoIfNot>
+        </RootKnockoutProvider>
+      )
+    }
+
+    const { rerender } = render(<Harness condition={first} />)
+    expect(screen.getByText('Replacement condition')).toBeDefined()
+
+    rerender(<Harness condition={second} />)
+    expect(screen.queryByText('Replacement condition')).toBeNull()
+
+    act(() => first(true))
+    expect(screen.queryByText('Replacement condition')).toBeNull()
+
+    act(() => second(false))
+    expect(screen.getByText('Replacement condition')).toBeDefined()
+  })
+
   it('shows children when boolean condition is false', () => {
     const vm = { isHidden: false }
 
