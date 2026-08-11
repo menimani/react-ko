@@ -141,6 +141,31 @@ function LocalPanoseSvgAttributeBinding({ vm }: { vm: unknown }) {
 }
 
 describe('observeBindingDescendants', () => {
+  it('rejects a React-owned virtual binding introduced by an HTML replacement', async () => {
+    const viewModel = { visible: ko.observable(false) }
+
+    function Harness({ replaced }: { replaced: boolean }) {
+      const markup = replaced
+        ? '<!-- ko if: visible --><span>Ignored replacement</span><!-- /ko -->'
+        : '<span>Initial markup</span>'
+
+      return (
+        <ErrorBoundary>
+          <RootKnockoutProvider viewModel={viewModel}>
+            <div dangerouslySetInnerHTML={{ __html: markup }} />
+          </RootKnockoutProvider>
+        </ErrorBoundary>
+      )
+    }
+
+    const mounted = render(<Harness replaced={false} />)
+    expect(screen.getByText('Initial markup')).toBeDefined()
+
+    mounted.rerender(<Harness replaced />)
+
+    await waitFor(() => expect(screen.getByText('Binding failed')).toBeDefined())
+  })
+
   it('retires a click binding with its handlerless Bubble option when data-bind is removed', () => {
     const handle = vi.fn()
 

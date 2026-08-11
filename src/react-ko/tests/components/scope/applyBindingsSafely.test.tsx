@@ -38,6 +38,22 @@ describe('applyBindingsSafely', () => {
     }
   )
 
+  it.each(['if', 'ifnot', 'foreach', 'template', 'with'])(
+    'rejects a React-owned virtual %s binding',
+    (binding) => {
+      const markup = `<!-- ko ${binding}: value --><span>React markup</span><!-- /ko -->`
+      const { container } = render(
+        <div dangerouslySetInnerHTML={{ __html: markup }} />
+      )
+
+      expect(() => applyBindingsSafely({ value: true }, container)).toThrow(
+        `react-ko cannot apply the Knockout "${binding}" binding because it controls React-owned child nodes. ` +
+          'Use KoIf, KoIfNot, KoForeach, or KoWith instead.'
+      )
+      expect(container.querySelector('span')?.textContent).toBe('React markup')
+    }
+  )
+
   it.each(['text', 'html', 'component', 'options'])(
     'rejects the %s binding when its element already has a React-owned child',
     (binding) => {

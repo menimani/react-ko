@@ -212,7 +212,9 @@ React が描画した children を制御するために、Knockout の `if`、`i
 `foreach`、`template`、`with` の制御フローバインディングを使わないでください。
 これらのバインディングは React が所有している子 DOM ノードを削除または複製します。
 `RootKnockoutProvider` と `KnockoutScope` は、そのバインディングルート内のいずれの
-バインディングも適用する前にこれらを拒否します。代わりに `KoIf`、`KoIfNot`、
+バインディングも適用する前にこれらを拒否します。これには、初回レンダー時または
+後続の置換時に `dangerouslySetInnerHTML` で挿入される、コンテナーレスの制御フローコメントも
+含まれます。代わりに `KoIf`、`KoIfNot`、
 `KoForeach`、`KoWith` を使ってください。
 
 `text`、`html`、`component`、`options` バインディングも要素の内容を置き換えます。
