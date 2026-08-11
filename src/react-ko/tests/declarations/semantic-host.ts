@@ -31,6 +31,7 @@ type KeygenIsSemanticHost = Assert<'keygen' extends SemanticHost ? true : false>
 type MenuitemIsSemanticHost = Assert<'menuitem' extends SemanticHost ? true : false>
 type TextareaIsSemanticHost = Assert<'textarea' extends SemanticHost ? true : false>
 type TitleIsSemanticHost = Assert<'title' extends SemanticHost ? true : false>
+type TemplateIsSemanticHost = Assert<'template' extends SemanticHost ? true : false>
 
 void (true satisfies MarqueeIsSemanticHost)
 void (true satisfies DirIsSemanticHost)
@@ -45,3 +46,4 @@ void (true satisfies KeygenIsSemanticHost)
 void (true satisfies MenuitemIsSemanticHost)
 void (true satisfies TextareaIsSemanticHost)
 void (true satisfies TitleIsSemanticHost)
+void (true satisfies TemplateIsSemanticHost)
