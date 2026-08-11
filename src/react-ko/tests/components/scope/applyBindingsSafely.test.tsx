@@ -544,7 +544,10 @@ describe('applyBindingsSafely', () => {
   it('restores a React-owned virtual range removed by a rejected custom init', () => {
     const binding = 'destructiveVirtualDescendantController'
     const init = vi.fn((start: Node) => {
+      const children = ko.virtualElements.childNodes(start)
+      const end = (children[children.length - 1] ?? start).nextSibling
       ko.virtualElements.emptyNode(start)
+      end?.parentNode?.removeChild(end)
       return { controlsDescendantBindings: true }
     })
     ko.bindingHandlers[binding] = { init }
@@ -562,10 +565,13 @@ describe('applyBindingsSafely', () => {
         />
       )
       const child = container.querySelector('[data-testid="virtual-child"]')
+      const rangeParent = child?.parentNode
+      const rangeNodes = [...(rangeParent?.childNodes ?? [])]
 
       expect(() => applyBindingsSafely({}, container)).toThrow(
         `react-ko cannot apply the Knockout "${binding}" binding because its custom handler controls React-owned child nodes.`
       )
+      expect([...(rangeParent?.childNodes ?? [])]).toEqual(rangeNodes)
       expect(container.querySelector('[data-testid="virtual-child"]')).toBe(child)
       expect(container.textContent).toBe('React child')
       expect(init).toHaveBeenCalledOnce()
