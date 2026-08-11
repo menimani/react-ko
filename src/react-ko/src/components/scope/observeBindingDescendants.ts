@@ -869,12 +869,37 @@ function changedOptionSelects(
     }
   }
 
+  const addTextChangedOptionSelect = (node: Node, parent: Element) => {
+    if (node.nodeType !== Node.TEXT_NODE || !hasReactOwnership(node, parent)) {
+      return
+    }
+
+    const option = parent.closest('option')
+    if (option !== null && !option.hasAttribute('value')) {
+      addOwningSelect(option)
+    }
+  }
+
   for (const record of records) {
+    if (
+      record.type === 'characterData' &&
+      record.target.parentNode?.nodeType === Node.ELEMENT_NODE
+    ) {
+      addTextChangedOptionSelect(
+        record.target,
+        record.target.parentNode as Element
+      )
+    }
+
     if (record.type !== 'childList' || record.target.nodeType !== Node.ELEMENT_NODE) {
       continue
     }
 
     const parent = record.target as Element
+    for (const node of [...record.addedNodes, ...record.removedNodes]) {
+      addTextChangedOptionSelect(node, parent)
+    }
+
     for (const node of record.addedNodes) {
       if (
         node.nodeType !== Node.ELEMENT_NODE ||

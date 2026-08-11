@@ -145,6 +145,10 @@ const NON_VOID_SEMANTIC_HOST_NAMES = [
 
 type NonVoidSemanticHost = (typeof NON_VOID_SEMANTIC_HOST_NAMES)[number]
 
+export type SemanticHost =
+  | NonVoidSemanticHost
+  | Exclude<keyof HTMLElementTagNameMap, VoidSemanticHost>
+
 const NON_VOID_SEMANTIC_HOSTS: ReadonlySet<string> = new Set(
   NON_VOID_SEMANTIC_HOST_NAMES
 )
@@ -159,52 +163,6 @@ const RESERVED_CUSTOM_ELEMENT_NAMES = [
   'font-face-name',
   'missing-glyph',
 ] as const
-
-type ReservedCustomElementName = (typeof RESERVED_CUSTOM_ELEMENT_NAMES)[number]
-type CustomElementNameStart =
-  | 'a'
-  | 'b'
-  | 'c'
-  | 'd'
-  | 'e'
-  | 'f'
-  | 'g'
-  | 'h'
-  | 'i'
-  | 'j'
-  | 'k'
-  | 'l'
-  | 'm'
-  | 'n'
-  | 'o'
-  | 'p'
-  | 'q'
-  | 'r'
-  | 's'
-  | 't'
-  | 'u'
-  | 'v'
-  | 'w'
-  | 'x'
-  | 'y'
-  | 'z'
-
-type DeclarationMergedCustomElementHost = {
-  [Host in keyof HTMLElementTagNameMap]: Host extends string
-    ? Host extends `${CustomElementNameStart}${string}-${string}`
-      ? Host extends Lowercase<Host>
-        ? Host
-        : never
-      : never
-    : never
-}[keyof HTMLElementTagNameMap]
-
-type CustomElementSemanticHost = Exclude<
-  DeclarationMergedCustomElementHost,
-  ReservedCustomElementName
->
-
-export type SemanticHost = NonVoidSemanticHost | CustomElementSemanticHost
 
 const RESERVED_CUSTOM_ELEMENT_NAME_SET: ReadonlySet<string> = new Set(
   RESERVED_CUSTOM_ELEMENT_NAMES
