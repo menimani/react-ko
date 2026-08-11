@@ -1,10 +1,20 @@
 import { execFileSync, execSync } from 'node:child_process'
-import { appendFileSync, closeSync, existsSync, openSync, readFileSync, rmSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { createHash } from 'node:crypto'
+import {
+  appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync,
+} from 'node:fs'
+import { isAbsolute, join, relative, resolve } from 'node:path'
+import type { Forge } from './adapters/forge.ts'
 import type { ProjectAdapter } from './adapters/project.ts'
 import { shortTaskId } from './ids.ts'
-import { branchName, isInspectionTaskId, logFile, worktreeDir, type OrchPaths } from './paths.ts'
-import { readStatus, writeStatus } from './status.ts'
+import {
+  branchName, isInspectionTaskId, logFile, packageFile, worktreeDir, PACKAGE_ROOT,
+  type OrchPaths,
+} from './paths.ts'
+import { readStatus, writeMergedStatus } from './status.ts'
+import {
+  removeWorktreeWithFallback, type WorktreeRemovalRuntime,
+} from './worktree.ts'
 
 export class MergeError extends Error {
   keepWorktree: boolean
@@ -22,10 +32,12 @@ export interface MergeOptions {
   /** The repository's own knowledge: which checks verify a merge, and when. */
   project: ProjectAdapter
   /**
-   * Issue this merge resolves. The reference rides the merge commit, so the forge
-   * closes the issue when the promotion PR lands the commit on the default branch.
+   * Issue this merge resolves. Its forge decorates the merge commit so promotion
+   * closes the issue when the commit lands on the default branch.
    */
   closesIssue?: number | undefined
+  /** Required for a linked issue; the core does not know forge-specific closing syntax. */
+  forge?: Pick<Forge, 'issueClosingCommitMessage'> | undefined
   /**
    * When set, everything the merge prints — including test output — goes to this file
    * instead of stdout, so a loop's log stays readable and the details stay findable.
@@ -37,13 +49,18 @@ export interface MergeOptions {
 
 export interface OrchestrationDepsRuntime {
   install: (cwd: string) => void
+  /**
+   * The package whose dependencies are synchronized. Defaults to this package's own
+   * directory, which is what a running loop means; tests point it at a fixture.
+   */
+  packageRoot?: string
 }
 
 export type OrchestrationDepsEvent = (name: 'Installed' | 'WARN', subject: string) => void
 
 const orchestrationDepsRuntime: OrchestrationDepsRuntime = {
   install: (cwd) => {
-    execSync('npm install --no-audit --no-fund', {
+    execSync('npm ci --no-audit --no-fund', {
       cwd, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
       stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true,
     })
@@ -51,9 +68,25 @@ const orchestrationDepsRuntime: OrchestrationDepsRuntime = {
 }
 
 const ORCHESTRATION_MANIFESTS = new Set([
-  'orchestration/ts/package.json',
-  'orchestration/ts/package-lock.json',
+  packageFile('package.json'),
+  packageFile('package-lock.json'),
 ])
+
+function orchestrationManifests(root: string): Set<string> {
+  return new Set(
+    [...ORCHESTRATION_MANIFESTS].map((manifest) => resolve(root, relative(PACKAGE_ROOT, manifest))),
+  )
+}
+
+function orchestrationLockHash(root: string): string | undefined {
+  const lockFile = join(root, 'package-lock.json')
+  if (!existsSync(lockFile)) return undefined
+  return createHash('sha256').update(readFileSync(lockFile)).digest('hex')
+}
+
+function orchestrationLockHashFile(root: string): string {
+  return join(root, 'node_modules', '.orchestration-lock.sha256')
+}
 
 function installFailureSummary(error: unknown): string {
   const failure = error as { stderr?: string | Buffer }
@@ -65,20 +98,26 @@ function installFailureSummary(error: unknown): string {
 }
 
 function installOrchestrationDeps(
-  paths: OrchPaths,
   subject: string,
   event: OrchestrationDepsEvent,
   runtime: OrchestrationDepsRuntime,
 ): void {
+  const root = runtime.packageRoot ?? PACKAGE_ROOT
   try {
-    runtime.install(join(paths.repoRoot, 'orchestration', 'ts'))
+    runtime.install(root)
+    const lockHash = orchestrationLockHash(root)
+    if (lockHash !== undefined) {
+      const hashFile = orchestrationLockHashFile(root)
+      mkdirSync(join(root, 'node_modules'), { recursive: true })
+      writeFileSync(hashFile, `${lockHash}\n`)
+    }
     event('Installed', ` orchestration deps  ${subject}`)
   } catch (error) {
     event('WARN', `orchestration deps install ${subject} failed: ${installFailureSummary(error)}`)
   }
 }
 
-export function syncOrchestrationDepsAfterMerge(
+function syncOrchestrationDepsAfterMerge(
   paths: OrchPaths,
   mergeCommit: string,
   taskId: string,
@@ -92,14 +131,22 @@ export function syncOrchestrationDepsAfterMerge(
   const changed = git(paths.repoRoot, [
     'diff', '--name-only', firstParent, mergeCommit,
   ]).split(/\r?\n/).filter((path) => path !== '')
-  if (!changed.some((path) => ORCHESTRATION_MANIFESTS.has(path))) return
-  installOrchestrationDeps(paths, `after ${shortTaskId(taskId)}`, event, runtime)
+  const manifests = orchestrationManifests(runtime.packageRoot ?? PACKAGE_ROOT)
+  if (!changed.some((path) => manifests.has(resolve(paths.repoRoot, path)))) return
+  installOrchestrationDeps(`after ${shortTaskId(taskId)}`, event, runtime)
 }
 
-function orchestrationDepsMissing(paths: OrchPaths): boolean {
-  const packageFile = join(paths.repoRoot, 'orchestration', 'ts', 'package.json')
-  if (!existsSync(packageFile)) return false
-  const manifest = JSON.parse(readFileSync(packageFile, 'utf8')) as {
+function orchestrationDepsMissing(root: string): boolean {
+  const manifestFile = join(root, 'package.json')
+  if (!existsSync(manifestFile)) return false
+  const lockHash = orchestrationLockHash(root)
+  if (lockHash === undefined) return true
+  try {
+    if (readFileSync(orchestrationLockHashFile(root), 'utf8').trim() !== lockHash) return true
+  } catch {
+    return true
+  }
+  const manifest = JSON.parse(readFileSync(manifestFile, 'utf8')) as {
     dependencies?: Record<string, string>
     devDependencies?: Record<string, string>
   }
@@ -107,9 +154,15 @@ function orchestrationDepsMissing(paths: OrchPaths): boolean {
     ...Object.keys(manifest.dependencies ?? {}),
     ...Object.keys(manifest.devDependencies ?? {}),
   ]
-  return dependencies.some((name) => !existsSync(join(
-    paths.repoRoot, 'orchestration', 'ts', 'node_modules', ...name.split('/'), 'package.json',
-  )))
+  return dependencies.some(
+    (name) => !existsSync(join(root, 'node_modules', ...name.split('/'), 'package.json')),
+  )
+}
+
+/** Whether `directory` is `root` or lies inside it, so a repository only syncs its own copy. */
+function isInside(root: string, directory: string): boolean {
+  const offset = relative(root, directory)
+  return !offset.startsWith('..') && !isAbsolute(offset)
 }
 
 export function syncOrchestrationDepsAtStartup(
@@ -117,8 +170,13 @@ export function syncOrchestrationDepsAtStartup(
   event: OrchestrationDepsEvent,
   runtime: OrchestrationDepsRuntime = orchestrationDepsRuntime,
 ): void {
-  if (!orchestrationDepsMissing(paths)) return
-  installOrchestrationDeps(paths, 'at startup', event, runtime)
+  const root = runtime.packageRoot ?? PACKAGE_ROOT
+  // Installing is for the copy this repository carries. A CLI pointed at some other
+  // checkout — a test fixture, another clone — must not reinstall the package it is
+  // itself running from.
+  if (!isInside(paths.repoRoot, root)) return
+  if (!orchestrationDepsMissing(root)) return
+  installOrchestrationDeps('at startup', event, runtime)
 }
 
 interface MergeIo {
@@ -127,28 +185,10 @@ interface MergeIo {
   tryRun: (cwd: string, command: string, label: string) => boolean
 }
 
-export interface WorktreeRemovalRuntime {
-  platform: NodeJS.Platform
-  remove: typeof rmSync
-  git: (cwd: string, args: string[]) => string
-}
-
 const worktreeRemovalRuntime: WorktreeRemovalRuntime = {
   platform: process.platform,
   remove: rmSync,
   git,
-}
-
-function extendedLengthPath(path: string): string {
-  const absolutePath = resolve(path).replaceAll('/', '\\')
-  return absolutePath.startsWith('\\\\?\\') ? absolutePath : `\\\\?\\${absolutePath}`
-}
-
-function removalFailureDetail(error: unknown): string {
-  const stderr = (error as { stderr?: string | Buffer }).stderr
-  const detail = Buffer.isBuffer(stderr) ? stderr.toString('utf8') : stderr
-  const message = detail?.trim() || (error instanceof Error ? error.message : String(error))
-  return message.replaceAll(/\s+/g, ' ')
 }
 
 export function removeMergedWorktree(
@@ -157,33 +197,16 @@ export function removeMergedWorktree(
   log: (text: string) => void,
   runtime: WorktreeRemovalRuntime = worktreeRemovalRuntime,
 ): void {
-  let gitFailure = ''
-  try {
-    runtime.git(paths.repoRoot, ['worktree', 'remove', worktree, '--force'])
+  const result = removeWorktreeWithFallback(paths.repoRoot, worktree, runtime)
+  if (result.fallback === undefined) return
+  if (result.fallbackFailure !== undefined) {
+    log(`WARN: merged, but the worktree is still there and has to go by hand: ${worktree} (${result.gitFailure})`)
     return
-  } catch (error) {
-    gitFailure = removalFailureDetail(error)
   }
-
-  try {
-    const removalPath = runtime.platform === 'win32' ? extendedLengthPath(worktree) : worktree
-    const options = runtime.platform === 'win32'
-      ? { recursive: true, force: true, maxRetries: 3 }
-      : { recursive: true, force: true }
-    runtime.remove(removalPath, options)
-    const fallback = runtime.platform === 'win32'
-      ? 'Windows long-path fallback'
-      : 'direct-removal fallback'
-    log(`Worktree removal needed the ${fallback}: ${worktree} (${gitFailure})`)
-  } catch {
-    log(`WARN: merged, but the worktree is still there and has to go by hand: ${worktree} (${gitFailure})`)
-  }
-
-  try {
-    runtime.git(paths.repoRoot, ['worktree', 'prune'])
-  } catch {
-    // cleanup is best effort; the merge verdict is already known
-  }
+  const fallback = result.fallback === 'windows-long-path'
+    ? 'Windows long-path fallback'
+    : 'direct-removal fallback'
+  log(`Worktree removal needed the ${fallback}: ${worktree} (${result.gitFailure})`)
 }
 
 function git(cwd: string, args: string[]): string {
@@ -212,11 +235,18 @@ function mergeIo(outputFile?: string): MergeIo {
         closeSync(outputFd)
       }
     } else {
-      const result = execSync(command, {
-        cwd, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
-        stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true,
-      })
-      if (result !== '') process.stdout.write(result)
+      try {
+        const result = execSync(command, {
+          cwd, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
+          stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true,
+        })
+        if (result !== '') process.stdout.write(result)
+      } catch (error) {
+        const failed = error as { stdout?: string; stderr?: string }
+        if (failed.stdout !== undefined && failed.stdout !== '') process.stdout.write(failed.stdout)
+        if (failed.stderr !== undefined && failed.stderr !== '') process.stderr.write(failed.stderr)
+        throw error
+      }
     }
   }
   const tryRun = (cwd: string, command: string, label: string): boolean => {
@@ -319,17 +349,39 @@ export async function mergeTask(paths: OrchPaths, taskId: string, options: Merge
     )
   }
 
-  io.out(`=== ${taskId} diff (against ${currentBranch}) ===`)
-  try {
-    io.out(git(worktree, ['diff', `${currentBranch}...HEAD`]))
-  } catch {
-    // an empty inspection diff is fine
+  const baseMergeMessage = `Merge ${taskId} via orchestration`
+  if (options.closesIssue !== undefined && options.forge === undefined) {
+    throw new MergeError('A forge adapter is required to close the linked issue on promotion.')
   }
-  runMergeChecks(worktree, currentBranch, options, io)
-
   const mergeMessage = options.closesIssue === undefined
-    ? `Merge ${taskId} via Codex`
-    : `Merge ${taskId} via Codex (closes #${options.closesIssue})`
+    ? baseMergeMessage
+    : options.forge!.issueClosingCommitMessage(baseMergeMessage, options.closesIssue)
+  const prospectiveWorktree = join(
+    paths.worktreesDir, `.merge-${shortTaskId(taskId)}-${process.pid}-${Date.now()}`,
+  )
+  try {
+    git(paths.repoRoot, ['worktree', 'add', '--quiet', '--detach', prospectiveWorktree, currentBranch])
+    try {
+      git(prospectiveWorktree, ['merge', '--quiet', '--no-ff', branch, '-m', mergeMessage])
+    } catch {
+      try {
+        git(prospectiveWorktree, ['merge', '--abort'])
+      } catch {
+        // nothing to abort
+      }
+      throw new MergeError('A merge conflict occurred. Rebase the worktree, then retry the merge.')
+    }
+    io.out(`=== ${taskId} diff (against ${currentBranch}) ===`)
+    try {
+      io.out(git(prospectiveWorktree, ['diff', `${currentBranch}...HEAD`]))
+    } catch {
+      // an empty inspection diff is fine
+    }
+    runMergeChecks(prospectiveWorktree, currentBranch, options, io)
+  } finally {
+    removeTemporaryWorktree(paths, prospectiveWorktree)
+  }
+
   try {
     git(paths.repoRoot, ['merge', '--quiet', '--no-ff', branch, '-m', mergeMessage])
   } catch {
@@ -346,6 +398,11 @@ export async function mergeTask(paths: OrchPaths, taskId: string, options: Merge
     paths, mergeCommit, taskId, depsEvent, options.orchestrationDepsRuntime,
   )
 
+  // Publish the merge identity before cleanup. If the process exits before the loop
+  // records/comments on a linked issue, the next process can finish reconciliation
+  // without attempting to merge commits that are already on the run branch.
+  await writeMergedStatus(paths, taskId, mergeCommit, currentBranch)
+
   // Removing the worktree is tidying, not part of the merge. On Windows a handle held
   // by an editor or a scanner makes the removal fail with EBUSY, and letting that abort
   // once left the merge in place while the task was recorded as failed.
@@ -359,7 +416,6 @@ export async function mergeTask(paths: OrchPaths, taskId: string, options: Merge
       // an inspection task's branch may already be gone
     }
   }
-  await writeStatus(paths, taskId, 'merged')
   io.out(`Merged ${taskId} and removed the worktree.`)
   return mergeCommit
 }
@@ -368,6 +424,7 @@ export async function mergeTask(paths: OrchPaths, taskId: string, options: Merge
 export async function mergeRemoteTask(
   paths: OrchPaths,
   issueNumber: number,
+  remote: string,
   branch: string,
   expectedHead: string,
   options: MergeOptions,
@@ -379,7 +436,7 @@ export async function mergeRemoteTask(
     throw new MergeError(`Issue #${issueNumber} reported an invalid head commit: ${expectedHead}`)
   }
 
-  const remoteRef = `refs/remotes/origin/${branch}`
+  const remoteRef = `refs/remotes/${remote}/${branch}`
   let fetchedHead: string
   try {
     fetchedHead = git(paths.repoRoot, ['rev-parse', '--verify', remoteRef]).trim()
@@ -405,7 +462,11 @@ export async function mergeRemoteTask(
   const io = mergeIo(options.outputFile)
   const depsEvent = options.onOrchestrationDepsEvent
     ?? ((name: 'Installed' | 'WARN', subject: string) => io.out(`${name} ${subject}`))
-  const mergeMessage = `Merge ${taskId} via Codex (closes #${issueNumber})`
+  const baseMergeMessage = `Merge ${taskId} via orchestration`
+  if (options.forge === undefined) {
+    throw new MergeError('A forge adapter is required to close the linked issue on promotion.')
+  }
+  const mergeMessage = options.forge.issueClosingCommitMessage(baseMergeMessage, issueNumber)
   try {
     git(paths.repoRoot, ['worktree', 'add', '--quiet', '--detach', worktree, currentBranch])
     try {

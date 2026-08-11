@@ -20,6 +20,16 @@ function seedTask(pid: number | null): void {
   writeFileSync(join(paths.queueDir, 'scanned', `${taskId}.failed`), '')
 }
 
+// These fixtures declare win32 so the Windows removal path is exercised on every host,
+// and that path prefixes the extended-length marker — meaningless to a Linux filesystem,
+// where rmSync would then silently remove nothing. Strip it before touching real files.
+function plainPath(path: string): string {
+  if (!path.startsWith('\\\\?\\')) return path
+  const withoutMarker = path.slice(4)
+  // The marker comes with Windows separators; a POSIX host needs its own back.
+  return process.platform === 'win32' ? withoutMarker : withoutMarker.replaceAll('\\', '/')
+}
+
 function makeRuntime(overrides: Partial<CleanupRuntime> = {}): CleanupRuntime {
   let worktreeRegistered = true
   let branchPresent = true
@@ -48,8 +58,8 @@ function makeRuntime(overrides: Partial<CleanupRuntime> = {}): CleanupRuntime {
       }
       return ''
     },
-    exists: existsSync,
-    remove: rmSync,
+    exists: (path) => existsSync(plainPath(path)),
+    remove: (path, options) => { rmSync(plainPath(path), options) },
     now: Date.now,
     sleep: () => {},
     ...overrides,
@@ -97,15 +107,57 @@ describe('cleanupTask', () => {
     expect(log).not.toHaveBeenCalledWith(`Cleaned up ${taskId}.`)
   })
 
+  it('signals and verifies the detached process group on POSIX', () => {
+    seedTask(12345)
+    let groupAlive = true
+    const kill = vi.fn((target: number, signal?: NodeJS.Signals | number) => {
+      expect(target).toBe(-12345)
+      if (signal !== 0) groupAlive = false
+      if (!groupAlive && signal === 0) {
+        const error = new Error('process group is gone') as NodeJS.ErrnoException
+        error.code = 'ESRCH'
+        throw error
+      }
+    })
+    const runtime = makeRuntime({ platform: 'linux', kill })
+
+    cleanupTask(paths, taskId, runtime)
+
+    expect(kill).toHaveBeenCalledWith(-12345)
+    expect(kill).toHaveBeenCalledWith(-12345, 0)
+    expect(existsSync(statusFile(paths, taskId))).toBe(false)
+  })
+
+  it('retains task state while POSIX process-group descendants remain alive', () => {
+    seedTask(12345)
+    let now = 0
+    const kill = vi.fn((target: number) => {
+      expect(target).toBe(-12345)
+    })
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const runtime = makeRuntime({
+      platform: 'linux',
+      kill,
+      now: () => now,
+      sleep: (milliseconds) => { now += milliseconds },
+    })
+
+    expect(() => cleanupTask(paths, taskId, runtime))
+      .toThrow('Could not stop process 12345; task state was retained.')
+
+    expect(kill).toHaveBeenCalledWith(-12345)
+    expect(kill).not.toHaveBeenCalledWith(12345, expect.anything())
+    expectTaskStateToExist()
+    expect(existsSync(worktree)).toBe(true)
+    expect(log).not.toHaveBeenCalledWith(`Cleaned up ${taskId}.`)
+  })
+
   it('retains task state when the worktree remains after both removal attempts', () => {
     seedTask(null)
     const log = vi.spyOn(console, 'log').mockImplementation(() => {})
     const runtime = makeRuntime({
       execFile: () => { throw new Error('git failed') },
-      remove: (path, options) => {
-        if (path === worktree) throw new Error('directory is locked')
-        rmSync(path, options)
-      },
+      remove: () => { throw new Error('directory is locked') },
     })
 
     expect(() => cleanupTask(paths, taskId, runtime))
@@ -114,6 +166,37 @@ describe('cleanupTask', () => {
     expectTaskStateToExist()
     expect(existsSync(worktree)).toBe(true)
     expect(log).not.toHaveBeenCalledWith(`Cleaned up ${taskId}.`)
+  })
+
+  it('uses the Windows long-path fallback when git cannot remove the worktree', () => {
+    seedTask(null)
+    const runtime = makeRuntime()
+    const execFile = runtime.execFile
+    runtime.execFile = vi.fn((command, args, options) => {
+      if (args[0] === 'worktree' && args[1] === 'remove') {
+        throw new Error('Filename too long')
+      }
+      return execFile(command, args, options)
+    })
+    runtime.remove = vi.fn((path, options) => {
+      if (path.startsWith('\\\\?\\')) {
+        rmSync(worktree, { recursive: true, force: true })
+        return
+      }
+      rmSync(path, options)
+    })
+
+    cleanupTask(paths, taskId, runtime)
+
+    expect(runtime.remove).toHaveBeenCalledWith(
+      `\\\\?\\${worktree.replaceAll('/', '\\')}`,
+      { recursive: true, force: true, maxRetries: 3 },
+    )
+    expect(runtime.execFile).toHaveBeenCalledWith(
+      'git', ['worktree', 'prune'], expect.anything(),
+    )
+    expect(existsSync(worktree)).toBe(false)
+    expect(existsSync(statusFile(paths, taskId))).toBe(false)
   })
 
   it('retains task state when direct removal leaves the worktree registered', () => {

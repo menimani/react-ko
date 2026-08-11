@@ -1,8 +1,21 @@
 import { spawn, spawnSync } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { capturedSpawnOptions } from './childProcess.ts'
+import { currentBranchRemote } from './gitRemote.ts'
 import type { OrchPaths } from './paths.ts'
+
+/**
+ * Where this package sits inside the checkout being launched. Both of these read the
+ * checkout's own code rather than the code doing the checking: the point of the
+ * self-check is to judge what the worker is about to run. A consumer keeps the package
+ * under orchestration/ts; the repository that owns it keeps it at the root.
+ */
+function checkoutPackageFile(paths: OrchPaths, ...segments: string[]): string {
+  const nested = join(paths.root, 'ts', ...segments)
+  return existsSync(nested) ? nested : join(paths.repoRoot, ...segments)
+}
 
 export interface WorkerCommandDependencies {
   verifyWorkerSupport: (paths: OrchPaths, env: NodeJS.ProcessEnv) => void
@@ -49,11 +62,12 @@ async function isAncestor(paths: OrchPaths, ancestor: string, descendant: string
   throw new Error(`Could not compare HEAD with '${descendant}'${detail === '' ? '' : `: ${detail}`}`)
 }
 
-export async function updateWorkerCheckout(
+async function updateWorkerCheckout(
   paths: OrchPaths,
   baseRef: string,
 ): Promise<'current' | 'fast-forwarded'> {
-  await git(paths, ['fetch', '--quiet', 'origin'])
+  const remote = currentBranchRemote(paths.repoRoot)
+  await git(paths, ['fetch', '--quiet', remote])
   await git(paths, ['rev-parse', '--verify', `${baseRef}^{commit}`])
 
   const [headBehindBase, baseBehindHead] = await Promise.all([
@@ -88,7 +102,7 @@ if (loadConfig().workerMode !== true) {
 `
 
 export function verifyWorkerModeSupported(paths: OrchPaths, env: NodeJS.ProcessEnv): void {
-  const configUrl = pathToFileURL(join(paths.root, 'ts', 'src', 'config.ts')).href
+  const configUrl = pathToFileURL(checkoutPackageFile(paths, 'src', 'config.ts')).href
   const result = spawnSync(
     process.execPath,
     ['--input-type=module', '--eval', WORKER_SUPPORT_CHECK, configUrl],
@@ -111,7 +125,7 @@ export function verifyWorkerModeSupported(paths: OrchPaths, env: NodeJS.ProcessE
 function launchDaemon(paths: OrchPaths, env: NodeJS.ProcessEnv): number {
   const result = spawnSync(
     process.execPath,
-    [join(paths.root, 'ts', 'src', 'cli.ts'), 'loop', '--daemon'],
+    [checkoutPackageFile(paths, 'src', 'cli.ts'), 'loop', '--daemon'],
     {
       cwd: paths.repoRoot,
       env,

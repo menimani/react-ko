@@ -18,10 +18,21 @@ export interface PrStatus {
   state: PrState
   isDraft: boolean
   url: string
-  /** Head commit SHA — the core's no-checks grace window is measured from its push. */
+  /** Head commit SHA reported by the forge. */
   headSha: string
   checks: PrCheck[]
 }
+
+/**
+ * A forge-neutral reference to an existing pull request.
+ *
+ * The reference kind records what the caller actually knows, rather than relying on
+ * adapters to guess whether an untyped string is a branch, PR number, or URL.
+ */
+export type PrReference =
+  | { kind: 'branch'; value: string }
+  | { kind: 'number'; value: number }
+  | { kind: 'url'; value: string }
 
 export interface CreatePrOptions {
   branch: string
@@ -31,15 +42,27 @@ export interface CreatePrOptions {
   draft: boolean
 }
 
+export interface ForgeAuthor {
+  login: string
+  /** The forge's verdict that this account is allowed to write to the repository. */
+  hasWriteAccess: boolean
+}
+
 export interface ForgeIssue {
   number: number
   state: 'open' | 'closed'
   title: string
   body: string
+  author: ForgeAuthor
   labels: string[]
   assignees: string[]
   /** ISO timestamp of the last update — the stale-lease clock. */
   updatedAt: string
+}
+
+export interface ForgeIssueComment {
+  body: string
+  author: ForgeAuthor
 }
 
 export interface CreateIssueOptions {
@@ -50,6 +73,14 @@ export interface CreateIssueOptions {
   assignees?: string[]
 }
 
+export interface CreateIssueInRepositoryOptions {
+  repository: string
+  title: string
+  body: string
+  /** Labels to apply when they already exist in the target repository. */
+  optionalLabels: string[]
+}
+
 export interface WorkflowRun {
   id: number
   createdAt: string
@@ -58,9 +89,26 @@ export interface WorkflowRun {
   conclusion: string | null
 }
 
+/** A forge quota exhaustion with the instant at which calls may resume. */
+export class ForgeRateLimitError extends Error {
+  readonly resetAt: Date
+
+  constructor(
+    resetAt: Date,
+    options?: ErrorOptions,
+  ) {
+    super(`Forge rate limit exhausted until ${resetAt.toISOString()}`, options)
+    this.name = 'ForgeRateLimitError'
+    this.resetAt = resetAt
+  }
+}
+
 export interface Forge {
-  /** Find the open PR for a branch, or state 'none' when there is not one. */
-  prStatus(branch: string): Promise<PrStatus>
+  /** Decorate a merge commit message so promotion closes the linked issue. */
+  issueClosingCommitMessage(message: string, issueNumber: number): string
+
+  /** Find the PR identified by the supplied reference, or state 'none' when absent. */
+  prStatus(ref: PrReference): Promise<PrStatus>
   /** The current body text of the PR for a branch or URL. */
   prBody(ref: string): Promise<string>
   /** Create a PR and return its URL. */
@@ -81,11 +129,13 @@ export interface Forge {
   currentUser(): Promise<string>
   ensureLabel(name: string, description: string): Promise<void>
   createIssue(options: CreateIssueOptions): Promise<number>
+  /** Create an issue outside the current repository and return its URL. */
+  createIssueInRepository(options: CreateIssueInRepositoryOptions): Promise<string>
   getIssue(issueNumber: number): Promise<ForgeIssue>
   /** Add a comment to an issue. */
   commentIssue(issueNumber: number, comment: string): Promise<void>
-  /** Issue comment bodies, oldest first. */
-  listIssueComments(issueNumber: number): Promise<string[]>
+  /** Issue comments with normalized authorship, oldest first. */
+  listIssueComments(issueNumber: number): Promise<ForgeIssueComment[]>
   /** Open issues carrying the label, newest first. */
   listOpenIssues(label: string): Promise<ForgeIssue[]>
   /** Closed issues carrying the label, newest first. */

@@ -1,9 +1,11 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { appendBacklogUnless } from './backlog.ts'
 import { pitfallsFileForDesc } from './gates.ts'
 import { taskIdForDesc } from './ids.ts'
 import { statusFile, type OrchPaths } from './paths.ts'
 import { readStatus } from './status.ts'
+import { readTemplate } from './templates.ts'
 import { signalWake } from './wake.ts'
 import type { Forge } from './adapters/forge.ts'
 
@@ -61,21 +63,18 @@ export function enqueueTask(paths: OrchPaths, taskId: string, depth = 0): Enqueu
     throw new Error(`Task specification not found: ${specFile(paths, taskId)}`)
   }
   const backlog = join(paths.queueDir, 'backlog.txt')
-  const lines = existsSync(backlog)
-    ? readFileSync(backlog, 'utf8').split(/\r?\n/).filter((line) => line !== '')
-    : []
-  if (lines.some((line) => line.startsWith(`${taskId}:`))) {
-    return { outcome: 'already-queued', taskId }
-  }
   const status = existsSync(statusFile(paths, taskId))
     ? readStatus(paths, taskId)?.status
     : undefined
   if (status === 'merged' || status === 'running' || status === 'completed') {
     return { outcome: 'already-processed', taskId, status }
   }
-  // Appended, not rewritten: a delegate from another process races the loop's own
-  // queue writes, and an append cannot erase what a concurrent writer added.
-  appendFileSync(backlog, `${taskId}:${depth}\n`)
+  const appended = appendBacklogUnless(
+    backlog,
+    (lines) => lines.some((line) => line.startsWith(`${taskId}:`)),
+    `${taskId}:${depth}`,
+  )
+  if (!appended) return { outcome: 'already-queued', taskId }
   return { outcome: 'enqueued', taskId, depth }
 }
 
@@ -121,7 +120,7 @@ export type DelegateResult
       issue: DelegatedIssueResult & { materialize: false }
     }
 
-export function issueModeMarkerFile(paths: OrchPaths): string {
+function issueModeMarkerFile(paths: OrchPaths): string {
   return join(paths.queueDir, 'issue-mode')
 }
 
@@ -185,10 +184,7 @@ function materializeDelegatedTask(
   const specReused = existsSync(spec)
   if (!specReused) {
     const parts = [`# ${taskId}: delegated task\n\n## Requirement\n\n${description}\n`]
-    const requirements = join(paths.root, 'templates', 'task-requirements.md')
-    if (existsSync(requirements)) {
-      parts.push(`\n${readFileSync(requirements, 'utf8')}`)
-    }
+    parts.push(`\n${readTemplate(paths, 'task-requirements.md')}`)
     // Delegated work is nearly always code; the pitfall list carries the defect classes
     // reviews kept re-flagging, so the implementer checks them up front.
     const pitfalls = pitfallsFileForDesc(paths, description)

@@ -110,16 +110,30 @@ describe('loopLogLines', () => {
   })
 
   it('puts the timestamp first and zero-pads the cycle tag', () => {
-    expect(loopLogLines('Started 030_scan  scan 1/4', context)[0])
-      .toBe('2026-08-10 01:02:03 [loop 04/12] Started    030_scan  scan 1/4')
+    expect(loopLogLines('Started 030_scan    scan 1/4', context)[0])
+      .toBe('2026-08-10 01:02:03 [loop 04/12] Started    030_scan    scan 1/4')
 
     expect(loopLogLines('WARN waiting', { ...context, currentCycle: 0 })[0])
       .toContain('[loop 00/12]')
   })
 
   it('uses the frozen single-word verb column', () => {
-    expect(loopLogLines('Failed 031_auto  log 031_auto.log', context)[0])
-      .toBe('2026-08-10 01:02:03 [loop 04/12] Failed     031_auto  log 031_auto.log')
+    expect(loopLogLines('Failed 031_auto    log 031_auto.log', context)[0])
+      .toBe('2026-08-10 01:02:03 [loop 04/12] Failed     031_auto    log 031_auto.log')
+  })
+
+  it('keeps the frozen remote-wait and cycle-suite start lines', () => {
+    expect(loopLogLines('Waiting remote  issues #349 #351', context)[0])
+      .toBe('2026-08-10 01:02:03 [loop 04/12] Waiting    remote  issues #349 #351')
+    expect(loopLogLines('Started Suite  cycle 6', context)[0])
+      .toBe('2026-08-10 01:02:03 [loop 04/12] Started    Suite  cycle 6')
+  })
+
+  it('aligns the core update and restart transition', () => {
+    expect(loopLogLines('Updated core        12345678..abcdef01', context)[0])
+      .toBe('2026-08-10 01:02:03 [loop 04/12] Updated    core        12345678..abcdef01')
+    expect(loopLogLines('Restarting core        for cycle 5', context)[0])
+      .toBe('2026-08-10 01:02:03 [loop 04/12] Restarting core        for cycle 5')
   })
 
   it('aligns subjects for verbs of different lengths', () => {
@@ -127,6 +141,13 @@ describe('loopLogLines', () => {
     const decision = loopLogLines('Decision choose a database', context)[0]!
 
     expect(scan.indexOf('030_scan')).toBe(decision.indexOf('choose a database'))
+  })
+
+  it('starts details at the same column for different subjects', () => {
+    const scan = loopLogLines('Started 030_scan    scan 1/4', context)[0]!
+    const review = loopLogLines('Started 227_review  effort medium', context)[0]!
+
+    expect(scan.indexOf('scan 1/4')).toBe(review.indexOf('effort medium'))
   })
 
   it('aligns the Status counter groups with the shared event column', () => {
@@ -138,13 +159,13 @@ describe('loopLogLines', () => {
       .toBe('2026-08-10 01:02:03 [loop 04/12] Status     Scan=2  Running=3  Queue=1')
   })
 
-  it('formats cycle and loop completion milestones', () => {
-    expect(loopLogLines('Completed Cycle  PR #322', context)[0])
-      .toBe('2026-08-10 01:02:03 [loop 04/12] Completed  Cycle  PR #322')
-    expect(loopLogLines(
-      'LOOP_DONE: https://example.test/pull/322 — rewrite the final summary.',
-      context,
-    )[0]).toBe('2026-08-10 01:02:03 [loop 04/12] Completed  Loop  PR #322')
+  it('does not rewrite frozen automation markers as presentation events', () => {
+    expect(loopLogLines('CYCLE_COMPLETE: 4/12 PR:https://example.test/pull/322', context)[0])
+      .toBe('2026-08-10 01:02:03 [loop 04/12] CYCLE_COMPLETE: 4/12 PR:https://example.test/pull/322')
+    expect(loopLogLines('FAILED: 20260810_010203_031_auto — log: logs/task.log', context)[0])
+      .toBe('2026-08-10 01:02:03 [loop 04/12] FAILED:    20260810_010203_031_auto — log: logs/task.log')
+    expect(loopLogLines('LOOP_DONE: https://example.test/pull/322', context)[0])
+      .toBe('2026-08-10 01:02:03 [loop 04/12] LOOP_DONE: https://example.test/pull/322')
   })
 
   it('caps an over-length message at 79 characters plus an ellipsis', () => {

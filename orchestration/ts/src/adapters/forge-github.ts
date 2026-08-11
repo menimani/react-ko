@@ -2,8 +2,10 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { z } from 'zod'
 import type {
-  CheckConclusion, CreateIssueOptions, CreatePrOptions, Forge, ForgeIssue, PrStatus, WorkflowRun,
+  CheckConclusion, CreateIssueInRepositoryOptions, CreateIssueOptions, CreatePrOptions, Forge,
+  ForgeAuthor, ForgeIssue, ForgeIssueComment, PrReference, PrStatus, WorkflowRun,
 } from './forge.ts'
+import { ForgeRateLimitError } from './forge.ts'
 
 const execFileAsync = promisify(execFile)
 
@@ -11,6 +13,7 @@ const execFileAsync = promisify(execFile)
 // enough to a URL that a looser match once stored the error text and every later cycle
 // asked gh about a pull request called "check your internet connection".
 const PR_URL_PATTERN = /^https:\/\/\S+\/pull\/\d+$/
+const ISSUE_URL_PATTERN = /^https:\/\/\S+\/issues\/\d+$/
 
 const rollupEntrySchema = z.object({
   __typename: z.string().optional(),
@@ -32,6 +35,12 @@ const prStatusSchema = z.object({
 
 const prBodySchema = z.object({ body: z.string() })
 const currentUserSchema = z.object({ login: z.string() })
+const repositorySchema = z.object({ nameWithOwner: z.string().min(1) })
+const repositoryPermissionSchema = z.object({
+  permission: z.string(),
+  role_name: z.string().nullable().optional(),
+})
+const labelListSchema = z.array(z.object({ name: z.string() }))
 
 const workflowRunSchema = z.object({
   databaseId: z.number(),
@@ -45,11 +54,14 @@ const workflowRunSchema = z.object({
 
 const workflowRunListSchema = z.array(workflowRunSchema)
 
+const githubAuthorSchema = z.object({ login: z.string() }).nullable()
+
 const githubIssueSchema = z.object({
   number: z.number(),
   state: z.enum(['OPEN', 'CLOSED']),
   title: z.string(),
   body: z.string(),
+  author: githubAuthorSchema,
   labels: z.array(z.object({ name: z.string() })),
   assignees: z.array(z.object({ login: z.string() })),
   updatedAt: z.string(),
@@ -58,12 +70,23 @@ const githubIssueSchema = z.object({
 const openGithubIssueListSchema = z.array(githubIssueSchema.extend({ state: z.literal('OPEN') }))
 const closedGithubIssueListSchema = z.array(githubIssueSchema.extend({ state: z.literal('CLOSED') }))
 const issueCommentsSchema = z.object({
-  comments: z.array(z.object({ body: z.string() })),
+  comments: z.array(z.object({
+    body: z.string(),
+    author: githubAuthorSchema,
+    authorAssociation: z.string(),
+  })),
+})
+const rateLimitSchema = z.object({
+  resources: z.object({
+    graphql: z.object({ reset: z.number() }),
+  }),
 })
 
 export type RollupEntry = z.infer<typeof rollupEntrySchema>
 export type GithubWorkflowRun = z.infer<typeof workflowRunSchema>
 type GithubIssue = z.infer<typeof githubIssueSchema>
+
+const WRITE_PERMISSIONS = new Set(['write', 'maintain', 'admin'])
 
 function schemaPath(path: PropertyKey[]): string {
   if (path.length === 0) return '(root)'
@@ -98,8 +121,10 @@ export function workflowRunForDispatch(
   ref: string,
   dispatchToken: string,
 ): GithubWorkflowRun | undefined {
+  // The workflow embeds the token in a readable run-name ('Production deploy [<token>]'),
+  // so containment is the contract; exact equality also matches older runs' bare titles.
   return runs.find(
-    (candidate) => candidate.displayTitle === dispatchToken && candidate.headBranch === ref,
+    (candidate) => candidate.displayTitle.includes(dispatchToken) && candidate.headBranch === ref,
   )
 }
 
@@ -134,12 +159,60 @@ async function gh(repoRoot: string, args: string[]): Promise<string> {
   return stdout
 }
 
+function commandErrorText(error: unknown): string {
+  if (!(error instanceof Error)) return String(error)
+  const commandError = error as Error & { stdout?: unknown; stderr?: unknown }
+  return [error.message, commandError.stdout, commandError.stderr]
+    .filter((part): part is string => typeof part === 'string')
+    .join('\n')
+}
+
+function reportedResetAt(text: string): Date | undefined {
+  const epoch = /(?:x-ratelimit-reset|reset(?:s|ting)?(?: at)?)[^\d]{0,8}(\d{10})/i.exec(text)?.[1]
+  if (epoch !== undefined) return new Date(Number(epoch) * 1000)
+  const iso = /(?:reset(?:s|ting)?(?: at)?|until)\s*:?\s*(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z)/i
+    .exec(text)?.[1]
+  return iso === undefined ? undefined : new Date(iso)
+}
+
+function isRateLimitFailure(error: unknown): boolean {
+  return /rate.?limit|HTTP 429/i.test(commandErrorText(error))
+}
+
+function githubPrBody(body: string): string {
+  // GitHub reads a bare #N in a PR body as an issue reference and links it to some
+  // unrelated pull request from the repository's first week. This presentation rule
+  // belongs at the forge boundary so the core and other adapters retain the source text.
+  return body.replace(/#(\d+)/g, '`#$1`')
+}
+
 export type GithubCommand = (repoRoot: string, args: string[]) => Promise<string>
 
 export function createGithubForge(
   repoRoot: string = process.cwd(),
   runGh: GithubCommand = gh,
 ): Forge {
+  const checkedGh: GithubCommand = async (root, args) => {
+    try {
+      return await runGh(root, args)
+    } catch (error) {
+      if (!isRateLimitFailure(error)) throw error
+      let resetAt = reportedResetAt(commandErrorText(error))
+      if (resetAt === undefined) {
+        try {
+          const rateLimitArgs = ['api', 'rate_limit']
+          const stdout = await runGh(root, rateLimitArgs)
+          const reset = parseGhJson(rateLimitArgs, stdout, rateLimitSchema).resources.graphql.reset
+          resetAt = new Date(reset * 1000)
+        } catch {
+          // A short fallback still suppresses the poll storm when even rate_limit is unavailable.
+          resetAt = new Date(Date.now() + 60_000)
+        }
+      }
+      throw new ForgeRateLimitError(resetAt, { cause: error })
+    }
+  }
+
   const parseWorkflowRun = (data: GithubWorkflowRun): WorkflowRun => ({
     id: data.databaseId,
     createdAt: data.createdAt,
@@ -148,16 +221,95 @@ export function createGithubForge(
     conclusion: data.conclusion,
   })
 
+  // The issue queue belongs to the repository this forge was created for. Resolve that
+  // identity once and carry it on every queue call instead of letting gh infer a target
+  // from a checkout whose remote may belong to a consumer or the upstream package.
+  let issueQueueRepositoryPromise: Promise<string> | undefined
+  const issueQueueRepository = (): Promise<string> => {
+    issueQueueRepositoryPromise ??= (async () => {
+      const args = ['repo', 'view', '--json', 'nameWithOwner']
+      try {
+        const stdout = await checkedGh(repoRoot, args)
+        return parseGhJson(args, stdout, repositorySchema).nameWithOwner
+      } catch (error) {
+        // Resolution failures are not identities. A later poll may recover from a
+        // transient forge outage or rate limit and should be allowed to resolve again.
+        issueQueueRepositoryPromise = undefined
+        if (error instanceof ForgeRateLimitError) throw error
+        throw new Error(
+          `Unable to resolve the current repository for the issue queue: ${commandErrorText(error)}`,
+          { cause: error },
+        )
+      }
+    })()
+    return issueQueueRepositoryPromise
+  }
+
+  const authorPermissionCache = new Map<string, Promise<boolean>>()
+  const normalizeAuthor = async (author: { login: string } | null): Promise<ForgeAuthor> => {
+    if (author === null) return { login: '(unknown)', hasWriteAccess: false }
+    const repository = await issueQueueRepository()
+    const cacheKey = `${repository.toLowerCase()}\0${author.login.toLowerCase()}`
+    let permissionPromise = authorPermissionCache.get(cacheKey)
+    if (permissionPromise === undefined) {
+      permissionPromise = (async () => {
+        const encodedRepository = repository.split('/').map(encodeURIComponent).join('/')
+        const args = [
+          'api', `repos/${encodedRepository}/collaborators/${encodeURIComponent(author.login)}/permission`,
+        ]
+        try {
+          const data = parseGhJson(
+            args,
+            await checkedGh(repoRoot, args),
+            repositoryPermissionSchema,
+          )
+          return WRITE_PERMISSIONS.has(data.permission.toLowerCase())
+            || (data.role_name !== undefined
+              && data.role_name !== null
+              && WRITE_PERMISSIONS.has(data.role_name.toLowerCase()))
+        } catch (error) {
+          // Missing collaborators and transient permission lookup failures are both
+          // untrusted. Rate limits retain their reset signal so the loop can wait.
+          if (error instanceof ForgeRateLimitError) throw error
+          return false
+        }
+      })()
+      authorPermissionCache.set(cacheKey, permissionPromise)
+    }
+    try {
+      return { login: author.login, hasWriteAccess: await permissionPromise }
+    } catch (error) {
+      authorPermissionCache.delete(cacheKey)
+      throw error
+    }
+  }
+
+  const normalizeIssue = async (issue: GithubIssue): Promise<ForgeIssue> => ({
+    number: issue.number,
+    state: issue.state === 'OPEN' ? 'open' : 'closed',
+    title: issue.title,
+    body: issue.body,
+    author: await normalizeAuthor(issue.author),
+    labels: issue.labels.map((label) => label.name),
+    assignees: issue.assignees.map((assignee) => assignee.login),
+    updatedAt: issue.updatedAt,
+  })
+
   return {
-    async prStatus(ref: string): Promise<PrStatus> {
+    issueClosingCommitMessage(message: string, issueNumber: number): string {
+      return `${message} (closes #${issueNumber})`
+    },
+
+    async prStatus(ref: PrReference): Promise<PrStatus> {
       let stdout: string
       const args = [
-        'pr', 'view', ref,
+        'pr', 'view', String(ref.value),
         '--json', 'url,state,isDraft,headRefOid,statusCheckRollup',
       ]
       try {
-        stdout = await runGh(repoRoot, args)
-      } catch {
+        stdout = await checkedGh(repoRoot, args)
+      } catch (error) {
+        if (error instanceof ForgeRateLimitError) throw error
         return { state: 'none', isDraft: false, url: '', headSha: '', checks: [] }
       }
       const data = parseGhJson(args, stdout, prStatusSchema)
@@ -180,7 +332,7 @@ export function createGithubForge(
 
     async prBody(ref: string): Promise<string> {
       const args = ['pr', 'view', ref, '--json', 'body']
-      const stdout = await runGh(repoRoot, args)
+      const stdout = await checkedGh(repoRoot, args)
       return `${parseGhJson(args, stdout, prBodySchema).body}\n`
     },
 
@@ -190,10 +342,10 @@ export function createGithubForge(
         '--base', options.base,
         '--head', options.branch,
         '--title', options.title,
-        '--body', options.body,
+        '--body', githubPrBody(options.body),
       ]
       if (options.draft) args.push('--draft')
-      const stdout = await runGh(repoRoot, args)
+      const stdout = await checkedGh(repoRoot, args)
       const url = stdout.split(/\r?\n/).map((line) => line.trim())
         .find((line) => PR_URL_PATTERN.test(line))
       if (url === undefined) {
@@ -205,17 +357,17 @@ export function createGithubForge(
     async updatePr(ref: string, fields: { title?: string; body?: string }): Promise<void> {
       const args = ['pr', 'edit', ref]
       if (fields.title !== undefined) args.push('--title', fields.title)
-      if (fields.body !== undefined) args.push('--body', fields.body)
+      if (fields.body !== undefined) args.push('--body', githubPrBody(fields.body))
       if (args.length === 3) return
-      await runGh(repoRoot, args)
+      await checkedGh(repoRoot, args)
     },
 
     async markPrReady(ref: string): Promise<void> {
-      await runGh(repoRoot, ['pr', 'ready', ref])
+      await checkedGh(repoRoot, ['pr', 'ready', ref])
     },
 
     async dispatchWorkflow(workflow: string, ref: string, dispatchToken: string): Promise<void> {
-      await runGh(repoRoot, [
+      await checkedGh(repoRoot, [
         'workflow', 'run', workflow, '--ref', ref,
         '--field', `dispatch_token=${dispatchToken}`,
       ])
@@ -230,7 +382,7 @@ export function createGithubForge(
         'run', 'list', '--workflow', workflow, '--event', 'workflow_dispatch', '--limit', '100',
         '--json', 'databaseId,createdAt,displayTitle,headBranch,headSha,status,conclusion',
       ]
-      const stdout = await runGh(repoRoot, args)
+      const stdout = await checkedGh(repoRoot, args)
       const run = workflowRunForDispatch(
         parseGhJson(args, stdout, workflowRunListSchema), ref, dispatchToken,
       )
@@ -242,26 +394,34 @@ export function createGithubForge(
         'run', 'view', String(runId),
         '--json', 'databaseId,createdAt,displayTitle,headBranch,headSha,status,conclusion',
       ]
-      const stdout = await runGh(repoRoot, args)
+      const stdout = await checkedGh(repoRoot, args)
       return parseWorkflowRun(parseGhJson(args, stdout, workflowRunSchema))
     },
 
     async currentUser(): Promise<string> {
       const args = ['api', 'user']
-      const stdout = await runGh(repoRoot, args)
+      const stdout = await checkedGh(repoRoot, args)
       return parseGhJson(args, stdout, currentUserSchema).login
     },
 
     async ensureLabel(name: string, description: string): Promise<void> {
       // --force updates an existing label instead of failing on it.
-      await runGh(repoRoot, ['label', 'create', name, '--description', description, '--force'])
+      const repository = await issueQueueRepository()
+      await checkedGh(repoRoot, [
+        'label', 'create', name, '--repo', repository,
+        '--description', description, '--force',
+      ])
     },
 
     async createIssue(options: CreateIssueOptions): Promise<number> {
-      const args = ['issue', 'create', '--title', options.title, '--body', options.body]
+      const repository = await issueQueueRepository()
+      const args = [
+        'issue', 'create', '--repo', repository,
+        '--title', options.title, '--body', options.body,
+      ]
       for (const label of options.labels) args.push('--label', label)
       for (const assignee of options.assignees ?? []) args.push('--assignee', assignee)
-      const stdout = await runGh(repoRoot, args)
+      const stdout = await checkedGh(repoRoot, args)
       const match = /\/issues\/(\d+)\s*$/.exec(stdout.trim())
       if (match === null) {
         throw new Error(`gh issue create returned no issue URL: ${stdout.trim()}`)
@@ -269,72 +429,114 @@ export function createGithubForge(
       return Number(match[1])
     },
 
+    async createIssueInRepository(options: CreateIssueInRepositoryOptions): Promise<string> {
+      // One listing, filtered here: gh's --search takes search syntax, and a label whose
+      // name carries a colon — which every label this loop uses does — makes it fail
+      // rather than match. It also costs one call instead of one per label.
+      const labelArgs = [
+        'label', 'list', '--repo', options.repository, '--limit', '100', '--json', 'name',
+      ]
+      const available = parseGhJson(
+        labelArgs, await checkedGh(repoRoot, labelArgs), labelListSchema,
+      ).map((candidate) => candidate.name)
+      const labels = options.optionalLabels.filter((label) => available.includes(label))
+
+      const args = [
+        'issue', 'create', '--repo', options.repository,
+        '--title', options.title, '--body', options.body,
+      ]
+      for (const label of labels) args.push('--label', label)
+      const stdout = await checkedGh(repoRoot, args)
+      const url = stdout.split(/\r?\n/).map((line) => line.trim())
+        .find((line) => ISSUE_URL_PATTERN.test(line))
+      if (url === undefined) {
+        throw new Error(`gh issue create returned no issue URL: ${stdout.trim()}`)
+      }
+      return url
+    },
+
     async getIssue(issueNumber: number): Promise<ForgeIssue> {
+      const repository = await issueQueueRepository()
       const args = ['issue', 'view', String(issueNumber),
-        '--json', 'number,state,title,body,labels,assignees,updatedAt']
-      const stdout = await runGh(repoRoot, args)
+        '--repo', repository,
+        '--json', 'number,state,title,body,author,labels,assignees,updatedAt']
+      const stdout = await checkedGh(repoRoot, args)
       return normalizeIssue(parseGhJson(args, stdout, githubIssueSchema))
     },
 
     async commentIssue(issueNumber: number, comment: string): Promise<void> {
-      await runGh(repoRoot, ['issue', 'comment', String(issueNumber), '--body', comment])
+      const repository = await issueQueueRepository()
+      await checkedGh(repoRoot, [
+        'issue', 'comment', String(issueNumber), '--repo', repository, '--body', comment,
+      ])
     },
 
-    async listIssueComments(issueNumber: number): Promise<string[]> {
+    async listIssueComments(issueNumber: number): Promise<ForgeIssueComment[]> {
+      const repository = await issueQueueRepository()
       const args = [
-        'issue', 'view', String(issueNumber), '--json', 'comments',
+        'issue', 'view', String(issueNumber), '--repo', repository, '--json', 'comments',
       ]
-      const stdout = await runGh(repoRoot, args)
+      const stdout = await checkedGh(repoRoot, args)
       const data = parseGhJson(args, stdout, issueCommentsSchema)
-      return data.comments.map((comment) => comment.body)
+      return Promise.all(data.comments.map(async (comment) => ({
+        body: comment.body,
+        author: await normalizeAuthor(comment.author),
+      })))
     },
 
     async listOpenIssues(label: string): Promise<ForgeIssue[]> {
+      const repository = await issueQueueRepository()
       const args = ['issue', 'list', '--state', 'open',
+        '--repo', repository,
         '--label', label, '--limit', '200',
-        '--json', 'number,state,title,body,labels,assignees,updatedAt']
-      const stdout = await runGh(repoRoot, args)
-      return parseGhJson(args, stdout, openGithubIssueListSchema).map(normalizeIssue)
+        '--json', 'number,state,title,body,author,labels,assignees,updatedAt']
+      const stdout = await checkedGh(repoRoot, args)
+      return Promise.all(parseGhJson(args, stdout, openGithubIssueListSchema).map(normalizeIssue))
     },
 
     async listClosedIssues(label: string): Promise<ForgeIssue[]> {
+      const repository = await issueQueueRepository()
       const args = ['issue', 'list', '--state', 'closed',
+        '--repo', repository,
         '--label', label, '--limit', '200',
-        '--json', 'number,state,title,body,labels,assignees,updatedAt']
-      const stdout = await runGh(repoRoot, args)
-      return parseGhJson(args, stdout, closedGithubIssueListSchema).map(normalizeIssue)
+        '--json', 'number,state,title,body,author,labels,assignees,updatedAt']
+      const stdout = await checkedGh(repoRoot, args)
+      return Promise.all(parseGhJson(args, stdout, closedGithubIssueListSchema).map(normalizeIssue))
     },
 
     async assignIssue(issueNumber: number, user: string): Promise<void> {
-      await runGh(repoRoot, ['issue', 'edit', String(issueNumber), '--add-assignee', user])
+      const repository = await issueQueueRepository()
+      await checkedGh(repoRoot, [
+        'issue', 'edit', String(issueNumber), '--repo', repository, '--add-assignee', user,
+      ])
     },
 
     async unassignIssue(issueNumber: number, user: string): Promise<void> {
-      await runGh(repoRoot, ['issue', 'edit', String(issueNumber), '--remove-assignee', user])
+      const repository = await issueQueueRepository()
+      await checkedGh(repoRoot, [
+        'issue', 'edit', String(issueNumber), '--repo', repository, '--remove-assignee', user,
+      ])
     },
 
     async addLabel(issueNumber: number, label: string): Promise<void> {
-      await runGh(repoRoot, ['issue', 'edit', String(issueNumber), '--add-label', label])
+      const repository = await issueQueueRepository()
+      await checkedGh(repoRoot, [
+        'issue', 'edit', String(issueNumber), '--repo', repository, '--add-label', label,
+      ])
     },
 
     async removeLabel(issueNumber: number, label: string): Promise<void> {
-      await runGh(repoRoot, ['issue', 'edit', String(issueNumber), '--remove-label', label])
+      const repository = await issueQueueRepository()
+      await checkedGh(repoRoot, [
+        'issue', 'edit', String(issueNumber), '--repo', repository, '--remove-label', label,
+      ])
     },
 
     async closeIssue(issueNumber: number, comment: string): Promise<void> {
-      await runGh(repoRoot, ['issue', 'close', String(issueNumber), '--comment', comment])
+      const repository = await issueQueueRepository()
+      await checkedGh(repoRoot, [
+        'issue', 'close', String(issueNumber), '--repo', repository, '--comment', comment,
+      ])
     },
-  }
-}
-
-function normalizeIssue(issue: GithubIssue): ForgeIssue {
-  return {
-    number: issue.number,
-    state: issue.state === 'OPEN' ? 'open' : 'closed',
-    title: issue.title,
-    body: issue.body,
-    labels: issue.labels.map((label) => label.name),
-    assignees: issue.assignees.map((assignee) => assignee.login),
-    updatedAt: issue.updatedAt,
   }
 }

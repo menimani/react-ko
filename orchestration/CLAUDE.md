@@ -13,10 +13,19 @@ and the vitest suite under `orchestration/ts/tests/` is what keeps it honest.
 
 It needs Node 23.6 or later (the TypeScript sources are executed natively, with no build
 step) and the `codex` CLI, already authenticated. Forge access (`gh`), the runner CLI,
-and the repository's own test commands are reached only through the adapters in
-`orchestration/ts/src/adapters/` — forge, runner, and project. Add an adapter to port to
-another forge, agent CLI, or repository; never hardcode any of the three in the core.
-Each task gets its own worktree under `orchestration/worktrees/` on a `task/<id>` branch.
+and the repository's own test commands are reached only through the adapters: forge and
+runner ship with the core in `orchestration/ts/src/adapters/`, and the project adapter —
+this repository's own gates, suites, and pull-request presentation — is
+`orchestration/project/project-react-ko.ts`, discovered by name at startup. Add an
+adapter to port to another forge, agent CLI, or repository; never hardcode any of the
+three in the core. Each task gets its own worktree under `orchestration/worktrees/` on a
+`task/<id>` branch.
+
+`orchestration/ts/` is a `git subtree` of
+[orchestration-core](https://github.com/menimani/orchestration-core), not a copy to edit
+here. A change made in it would be overwritten by the next pull and would never reach the
+other repositories using the same engine: make it upstream and pull it down. The loop does
+that pull itself before each cycle unless `CORE_AUTO_UPDATE=false`.
 
 `ISSUE_QUEUE_ENABLED=true` moves the backlog to forge issues: findings are filed once
 per fingerprint under `loop:ready`, worker daemons claim by self-assigning, quiet leases

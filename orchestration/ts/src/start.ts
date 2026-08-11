@@ -22,10 +22,20 @@ export function worktreeAddArgs(worktree: string, branch: string): string[] {
   return ['worktree', 'add', '--quiet', worktree, '-b', branch]
 }
 
+function processIsAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code !== 'ESRCH'
+  }
+}
+
 /**
  * Create the task's worktree and hand it to the runner.
  * A worktree whose task is already running is a skip, not an error, so the loop
- * does not retry endlessly; any other leftover worktree needs cleanup first.
+ * does not retry endlessly. A leftover worktree with no live owner may contain work
+ * from a crashed runner, so only the explicit cleanup command may discard it.
  */
 export async function startTask(
   paths: OrchPaths,
@@ -49,11 +59,13 @@ export async function startTask(
   const worktree = worktreeDir(paths, taskId)
   const branch = branchName(taskId)
   if (existsSync(worktree)) {
-    if (readStatus(paths, taskId)?.status === 'running') {
+    const status = readStatus(paths, taskId)
+    if (status?.pid !== null && status?.pid !== undefined && processIsAlive(status.pid)) {
       return { outcome: 'already-running' }
     }
     throw new Error(
-      `Worktree already exists: ${worktree}\nIf this task was abandoned, run cleanup first.`,
+      `Task worktree already exists without a live owner: ${worktree}\n`
+      + `Inspect it for uncommitted changes or commits, then run cleanup explicitly.`,
     )
   }
 
@@ -75,16 +87,11 @@ export async function startTask(
       options.report?.(`Preparing worktree: ${step.label}`)
       const setupLogFd = openSync(log, 'a')
       try {
-        try {
-          execSync(step.command, {
-            cwd: join(worktree, step.cwd),
-            stdio: ['ignore', setupLogFd, setupLogFd],
-            windowsHide: true,
-          })
-        } catch (error) {
-          const cwd = step.cwd === '' ? '.' : step.cwd
-          throw new Error(`Worktree setup failed during "${step.label}" in ${cwd}`, { cause: error })
-        }
+        execSync(step.command, {
+          cwd: join(worktree, step.cwd),
+          stdio: ['ignore', setupLogFd, setupLogFd],
+          windowsHide: true,
+        })
       } finally {
         closeSync(setupLogFd)
       }

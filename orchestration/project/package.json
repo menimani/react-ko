@@ -1,0 +1,6 @@
+{
+  "type": "module",
+  "scripts": {
+    "test": "node ../ts/node_modules/vitest/vitest.mjs run --config orchestration/project/vitest.config.ts --root ../.."
+  }
+}
