@@ -297,7 +297,8 @@ const vm = { todos: ko.observableArray<Todo>([]) }
 ### `KoIf` / `KoIfNot`
 
 条件が true（`KoIf`）または false（`KoIfNot`）の間だけ children を描画
-します。children 内の `data-bind` は外側スコープの ViewModel を参照します。
+します。`condition` は Knockout observable、computed、または素の boolean を
+受け付けます。children 内の `data-bind` は外側スコープの ViewModel を参照します。
 
 ```tsx
 import ko from 'knockout'

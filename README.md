@@ -301,6 +301,7 @@ Nesting is plain JSX:
 ### `KoIf` / `KoIfNot`
 
 Render children while the condition is true (`KoIf`) or false (`KoIfNot`).
+`condition` accepts a Knockout observable, computed, or plain boolean.
 `data-bind` inside the children refers to the enclosing scope's view model.
 
 ```tsx
