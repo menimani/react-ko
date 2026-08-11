@@ -147,6 +147,13 @@ const SAFELY_RETIRABLE_BINDINGS = new Set([
   'visible',
   DESCENDANT_BINDING_BOUNDARY,
 ])
+const DELEGATED_BINDING_HANDLERS = new Map<string, readonly string[]>([
+  ['checked', ['uniqueName']],
+  ['click', ['event']],
+  ['disable', ['enable']],
+  ['hidden', ['visible']],
+  ['textinput', ['textInput']],
+])
 
 type DomSnapshot = {
   attributes: Map<string, string>
@@ -1706,14 +1713,27 @@ function restoreStyle(element: HTMLElement, snapshot: DomSnapshot) {
 
 function assertBindingsCanBeRetired(state: BindingState) {
   const names = bindingNames(state.source)
+  const hasCanonicalHandlers = (name: string, visited = new Set<string>()): boolean => {
+    if (visited.has(name)) return true
+    const nextVisited = new Set(visited).add(name)
+
+    const canonical =
+      name === DESCENDANT_BINDING_BOUNDARY
+        ? hasReactKoBindingHandler(name)
+        : hasCanonicalKnockoutBindingHandler(name)
+    return (
+      canonical &&
+      (DELEGATED_BINDING_HANDLERS.get(name)?.every((delegate) =>
+        hasCanonicalHandlers(delegate, nextVisited)
+      ) ?? true)
+    )
+  }
   const unsafe = [...rawBindingNames(state.source)].find((rawName) => {
     const name = rawName === 'textinput' ? 'textInput' : rawName
     return (
       !(
         SAFELY_RETIRABLE_BINDINGS.has(name) &&
-        (name === DESCENDANT_BINDING_BOUNDARY
-          ? hasReactKoBindingHandler(name)
-          : hasCanonicalKnockoutBindingHandler(rawName))
+        hasCanonicalHandlers(rawName)
       ) &&
       !(
         name.endsWith('Bubble') &&
