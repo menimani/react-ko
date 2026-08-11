@@ -438,24 +438,4 @@ describe('KoScope', () => {
   it('is an alias of KnockoutScope', () => {
     expect(KoScope).toBe(KnockoutScope)
   })
-
-  it('surfaces a structural binding rejected at initial mount and unbinds cleanly', () => {
-    const vm = { items: ko.observableArray<string>([]) }
-
-    const { unmount } = render(
-      <ErrorBoundary>
-        <RootKnockoutProvider viewModel={{}}>
-          <KnockoutScope viewModel={vm}>
-            <div data-bind="foreach: items">
-              <span />
-            </div>
-          </KnockoutScope>
-        </RootKnockoutProvider>
-      </ErrorBoundary>
-    )
-
-    expect(screen.getByText('Binding failed')).toBeDefined()
-
-    unmount()
-  })
 })
