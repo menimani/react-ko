@@ -2127,6 +2127,39 @@ describe('RootKnockoutProvider', () => {
     expect(vm.choice()).toBe('late')
   })
 
+  it('reapplies valueAllowUnset when React removes the matching option', async () => {
+    const vm = { choice: ko.observable('selected') }
+
+    function RemovedOptionSelect() {
+      const [showSelected, setShowSelected] = useState(true)
+      return (
+        <>
+          <button onClick={() => setShowSelected(false)}>remove selected option</button>
+          <select
+            data-testid="removed-value-option"
+            data-bind="value: choice, valueAllowUnset: true"
+          >
+            <option value="fallback">Fallback</option>
+            {showSelected ? <option value="selected">Selected</option> : null}
+          </select>
+        </>
+      )
+    }
+
+    render(
+      <RootKnockoutProvider viewModel={vm}>
+        <RemovedOptionSelect />
+      </RootKnockoutProvider>
+    )
+    const select = screen.getByTestId('removed-value-option') as HTMLSelectElement
+
+    expect(select.value).toBe('selected')
+    fireEvent.click(screen.getByText('remove selected option'))
+
+    await waitFor(() => expect(select.selectedIndex).toBe(-1))
+    expect(vm.choice()).toBe('selected')
+  })
+
   it('reapplies selectedOptions when React changes a value-less option text', async () => {
     const vm = { choices: ko.observableArray(['late']) }
 

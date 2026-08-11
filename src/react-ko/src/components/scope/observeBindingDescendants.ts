@@ -1007,6 +1007,22 @@ function changedOptionSelects(
         addOwningSelect(element)
       }
     }
+
+    for (const node of record.removedNodes) {
+      if (
+        node.nodeType !== Node.ELEMENT_NODE ||
+        !hasReactOwnership(parent)
+      ) {
+        continue
+      }
+
+      const element = node as Element
+      if (element.tagName === 'OPTION' || element.querySelector('option') !== null) {
+        // Removed options are detached, so find their owning select through
+        // the mutation target that remains in the React-owned tree.
+        addOwningSelect(parent)
+      }
+    }
   }
 
   // React normally reflects an option value prop through the value attribute,
