@@ -15,6 +15,11 @@ function StatefulIndex({ index }: { index: number }) {
   return <span>{`${index}:${initialIndex}`}</span>
 }
 
+function StatefulItem({ item, list }: { item: string; list: string }) {
+  const [initialItem] = React.useState(item)
+  return <span data-testid={`${list}-${item}`}>{`${item}:${initialItem}`}</span>
+}
+
 describe('KoForeach', () => {
   it('renders the render prop once per item (observable array)', () => {
     const vm = { items: ko.observableArray(['A', 'B', 'C']) }
@@ -380,6 +385,41 @@ describe('KoForeach', () => {
     })
 
     expect(screen.getByText('A')).toBe(node)
+  })
+
+  it('reuses primitive row state by position unless itemKey is provided', () => {
+    const items = ko.observableArray(['A', 'B', 'C'])
+
+    render(
+      <RootKnockoutProvider viewModel={{}}>
+        <KoForeach items={items}>
+          {(item) => <StatefulItem item={item} list="default" />}
+        </KoForeach>
+        <KoForeach items={items} itemKey={(item) => item}>
+          {(item) => <StatefulItem item={item} list="keyed" />}
+        </KoForeach>
+      </RootKnockoutProvider>
+    )
+
+    act(() => {
+      items.reverse()
+    })
+
+    expect(screen.getByTestId('default-C').textContent).toBe('C:A')
+    expect(screen.getByTestId('default-B').textContent).toBe('B:B')
+    expect(screen.getByTestId('default-A').textContent).toBe('A:C')
+    expect(screen.getByTestId('keyed-C').textContent).toBe('C:C')
+    expect(screen.getByTestId('keyed-B').textContent).toBe('B:B')
+    expect(screen.getByTestId('keyed-A').textContent).toBe('A:A')
+
+    act(() => {
+      items.remove('C')
+    })
+
+    expect(screen.getByTestId('default-B').textContent).toBe('B:A')
+    expect(screen.getByTestId('default-A').textContent).toBe('A:B')
+    expect(screen.getByTestId('keyed-B').textContent).toBe('B:B')
+    expect(screen.getByTestId('keyed-A').textContent).toBe('A:A')
   })
 
   it('exposes outer items to nested loops through closures', () => {
