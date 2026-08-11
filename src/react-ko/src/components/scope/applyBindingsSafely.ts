@@ -501,6 +501,10 @@ function applyValidatedBindings(
     bindingNode: Node,
     bindings: ko.BindingAccessors | object | null | undefined
   ) {
+    if (bindingNode !== node && !node.contains(bindingNode)) {
+      return bindings
+    }
+
     const element =
       bindingNode.nodeType === 1
         ? (bindingNode as Element)
@@ -667,7 +671,7 @@ function deferredElements(bindings: readonly DeferredSuspenseBinding[]) {
   )
 }
 
-function rejectDescendantControllingCustomHandlers() {
+function rejectDescendantControllingCustomHandlers(root: HTMLElement) {
   const getBindingHandler = ko.getBindingHandler
 
   ko.getBindingHandler = (name) => {
@@ -684,6 +688,9 @@ function rejectDescendantControllingCustomHandlers() {
     const detectingHandler = Object.create(handler) as ko.BindingHandler
     detectingHandler.init = (...args) => {
       const element = args[0]
+      if (element !== root && !root.contains(element)) {
+        return init(...args)
+      }
       const controlsReactOwnedChildren =
         element.nodeType === 1 && hasReactOwnedChildren(element as Element)
       const originalChildren = controlsReactOwnedChildren
@@ -753,7 +760,7 @@ export function applyBindingsSafely(viewModel: unknown, node: HTMLElement) {
     validatedSources,
     excludedElements
   )
-  const restoreBindingHandlerLookup = rejectDescendantControllingCustomHandlers()
+  const restoreBindingHandlerLookup = rejectDescendantControllingCustomHandlers(node)
   const view = node.ownerDocument.defaultView
   const eventTargetPrototype = view?.EventTarget.prototype
   const addEventListener = eventTargetPrototype?.addEventListener

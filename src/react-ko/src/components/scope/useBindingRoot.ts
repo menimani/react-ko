@@ -6,6 +6,7 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  useSyncExternalStore,
 } from 'react'
 import ko from 'knockout'
 import { applyBindingsSafely } from './applyBindingsSafely'
@@ -25,16 +26,23 @@ type ActiveBinding = {
 }
 
 const UNBOUND_BINDING = Symbol('unbound')
+const subscribeToNothing = () => () => undefined
+const getClientSnapshot = () => false
+const getServerSnapshot = () => true
 
 function BindingCommitMarker({
   onCommit,
   onActivate,
 }: {
   onCommit: () => void
-  onActivate: (marker: HTMLTemplateElement | null) => void
+  onActivate: (node: HTMLElement | null) => void
 }) {
   useInsertionEffect(onCommit)
-  return createElement('template', { ref: onActivate })
+  return createElement('template', {
+    ref: (marker: HTMLTemplateElement | null) => {
+      onActivate((marker?.nextElementSibling as HTMLElement | null) ?? null)
+    },
+  })
 }
 
 export function useBindingRoot(
@@ -53,6 +61,11 @@ export function useBindingRoot(
   const refreshInitialBinding = useRef(false)
   const [, setBindingEstablishedVersion] = useState(0)
   const [generation, setGeneration] = useState(0)
+  const preserveServerChildren = useSyncExternalStore(
+    subscribeToNothing,
+    getClientSnapshot,
+    getServerSnapshot
+  )
 
   function disposeBinding() {
     const active = activeBinding.current
@@ -122,9 +135,9 @@ export function useBindingRoot(
     bind(node, false)
   }
 
-  // The inert template is the first child of the binding host. Its ref is
-  // attached before later siblings run layout effects, and its parent is
-  // already in the committed DOM even though the host's own ref is not.
+  // The inert template precedes the binding host inside the structural
+  // boundary. Its ref is attached before the host's descendants run layout
+  // effects without changing the caller-visible child subtree.
   const bindingCommitMarker = createElement(BindingCommitMarker, {
     onCommit: () => {
       synchronizeBindingForCommit.current = synchronizeBinding
@@ -134,11 +147,9 @@ export function useBindingRoot(
         (!Object.is(active.viewModel, viewModel) ||
           active.parentGeneration !== parentGeneration)
     },
-    onActivate: useCallback((marker: HTMLTemplateElement | null) => {
-      if (marker === null || marker.parentElement === null) {
-        return
-      }
-      container.current = marker.parentElement
+    onActivate: useCallback((node: HTMLElement | null) => {
+      if (node === null) return
+      container.current = node
       const hadActiveBinding = activeBinding.current !== null
       synchronizeBindingForCommit.current()
       refreshInitialBinding.current =
@@ -190,5 +201,6 @@ export function useBindingRoot(
       bindingEstablishedIdentity.current,
       bindingIdentity
     ),
+    preserveServerChildren,
   }
 }

@@ -2079,6 +2079,7 @@ export function observeBindingDescendants(
       onError(error)
     } finally {
       registry.reconcilingRoots.delete(root)
+      scheduleHydrationCheck(records.length > 0)
     }
   })
   registry.bindingObservers.set(root, {
@@ -2187,25 +2188,44 @@ export function observeBindingDescendants(
   const pendingSuspenseBindings = new Map(
     deferredSuspenseBindings.map((binding) => [binding.start, binding])
   )
-  let hydrationFrame: number | null = null
+  const initialHydrationDelay = 16
+  const maximumHydrationDelay = 1000
+  let hydrationDelay = initialHydrationDelay
+  let hydrationTimer: number | null = null
   let stopped = false
 
-  const scheduleHydrationCheck = () => {
-    if (stopped || hydrationFrame !== null || pendingSuspenseBindings.size === 0) {
+  const scheduleHydrationCheck = (domChanged = false) => {
+    const view = root.ownerDocument.defaultView
+    if (stopped || view === null || pendingSuspenseBindings.size === 0) {
       return
     }
-    hydrationFrame = root.ownerDocument.defaultView?.requestAnimationFrame(() => {
-      hydrationFrame = null
+
+    if (domChanged) {
+      hydrationDelay = initialHydrationDelay
+      if (hydrationTimer !== null) {
+        view.clearTimeout(hydrationTimer)
+        hydrationTimer = null
+      }
+    }
+    if (hydrationTimer !== null) return
+
+    const scheduledDelay = hydrationDelay
+    hydrationTimer = view.setTimeout(() => {
+      hydrationTimer = null
+      hydrationDelay = Math.min(scheduledDelay * 2, maximumHydrationDelay)
       checkHydratedSuspenseBindings()
-    }) ?? null
+    }, scheduledDelay)
   }
 
   const queueDeferredBindings = (
     bindings: readonly DeferredSuspenseBinding[]
   ) => {
+    let added = false
     for (const binding of bindings) {
+      added ||= !pendingSuspenseBindings.has(binding.start)
       pendingSuspenseBindings.set(binding.start, binding)
     }
+    if (added) hydrationDelay = initialHydrationDelay
     scheduleHydrationCheck()
   }
 
@@ -2276,8 +2296,8 @@ export function observeBindingDescendants(
     // pending removals before disconnecting so subscriptions are not orphaned.
     const pendingRecords = observer.takeRecords()
     stopped = true
-    if (hydrationFrame !== null) {
-      root.ownerDocument.defaultView?.cancelAnimationFrame(hydrationFrame)
+    if (hydrationTimer !== null) {
+      root.ownerDocument.defaultView?.clearTimeout(hydrationTimer)
     }
     observer.disconnect()
     registry.bindingRoots.delete(root)

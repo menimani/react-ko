@@ -65,6 +65,7 @@ type SemanticHostComponentProps = {
   style: React.CSSProperties
   ref?: React.Ref<HTMLElement>
   'data-bind'?: string
+  suppressHydrationWarning?: boolean
 }
 
 export function semanticHostComponent(host: SemanticHost) {

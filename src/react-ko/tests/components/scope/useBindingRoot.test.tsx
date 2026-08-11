@@ -77,6 +77,35 @@ describe('useBindingRoot', () => {
   const childUpdates = ['mounts', 'rebinds'] as const
 
   it.each(bindingRoots)(
+    '%s preserves direct child identity and order in its binding host',
+    (bindingRoot) => {
+      const children = (
+        <>
+          <span data-testid="first-direct-child" />
+          <button data-testid="second-direct-child" />
+        </>
+      )
+      const tree =
+        bindingRoot === 'RootKnockoutProvider' ? (
+          <RootKnockoutProvider viewModel={{}}>{children}</RootKnockoutProvider>
+        ) : (
+          <RootKnockoutProvider viewModel={{}}>
+            <KnockoutScope viewModel={{}}>{children}</KnockoutScope>
+          </RootKnockoutProvider>
+        )
+
+      render(tree)
+
+      const first = screen.getByTestId('first-direct-child')
+      const second = screen.getByTestId('second-direct-child')
+      const host = first.parentElement!
+      expect(Array.from(host.children)).toEqual([first, second])
+      expect(host.firstElementChild).toBe(first)
+      expect(host.querySelector(':scope > :first-child')).toBe(first)
+    }
+  )
+
+  it.each(bindingRoots)(
     '%s mounts descendant refs in the initial commit seen by an ancestor layout effect',
     (bindingRoot) => {
       const viewModel = { label: ko.observable('Bound') }

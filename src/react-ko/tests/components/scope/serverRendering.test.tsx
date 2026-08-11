@@ -3,7 +3,7 @@ import { Suspense, type ReactElement, type ReactNode } from 'react'
 import { hydrateRoot, type Root } from 'react-dom/client'
 import { renderToString } from 'react-dom/server'
 import ko from 'knockout'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   AppViewModelContext,
   KoForeach,
@@ -19,20 +19,28 @@ type ViewModel = {
   label: ko.Observable<string>
 }
 
-type ScopeFactory = (viewModel: ViewModel, children: ReactNode) => ReactElement
+type ScopeFactory = (
+  viewModel: ViewModel,
+  children: ReactNode,
+  as?: 'script' | 'template'
+) => ReactElement
 
 const scopes: Array<[string, ScopeFactory]> = [
   [
     'RootKnockoutProvider',
-    (viewModel, children) => (
-      <RootKnockoutProvider viewModel={viewModel}>{children}</RootKnockoutProvider>
+    (viewModel, children, as) => (
+      <RootKnockoutProvider viewModel={viewModel} as={as}>
+        {children}
+      </RootKnockoutProvider>
     ),
   ],
   [
     'KnockoutScope',
-    (viewModel, children) => (
+    (viewModel, children, as) => (
       <AppViewModelContext.Provider value={{}}>
-        <KnockoutScope viewModel={viewModel}>{children}</KnockoutScope>
+        <KnockoutScope viewModel={viewModel} as={as}>
+          {children}
+        </KnockoutScope>
       </AppViewModelContext.Provider>
     ),
   ],
@@ -115,6 +123,42 @@ describe.each(scopes)('%s server rendering', (_, createScope) => {
     }
   })
 
+  it.each(['script', 'template'] as const)(
+    'preserves <%s> children in server output and hydration',
+    async (hostName) => {
+      const tree = createScope(
+        { label: ko.observable('Hydrated') },
+        'Compatible host child',
+        hostName
+      )
+      const container = serverContainer(tree)
+      document.body.appendChild(container)
+      const matchingHosts = container.querySelectorAll(hostName)
+      const serverHost = matchingHosts.item(matchingHosts.length - 1)
+      const hostText = () =>
+        hostName === 'template'
+          ? (serverHost as HTMLTemplateElement).content.textContent
+          : serverHost.textContent
+      let root: Root | undefined
+
+      try {
+        expect(renderToString(tree)).toContain('Compatible host child')
+        expect(hostText()).toContain('Compatible host child')
+
+        await act(async () => {
+          root = hydrateRoot(container, tree)
+        })
+
+        const hydratedHosts = container.querySelectorAll(hostName)
+        expect(hydratedHosts.item(hydratedHosts.length - 1)).toBe(serverHost)
+        expect(hostText()).toContain('Compatible host child')
+      } finally {
+        if (root !== undefined) act(() => root?.unmount())
+        container.remove()
+      }
+    }
+  )
+
   it('defers bindings inside a dehydrated Suspense boundary', async () => {
     const viewModel = { label: ko.observable('Knockout value') }
     let hydrating = false
@@ -144,6 +188,9 @@ describe.each(scopes)('%s server rendering', (_, createScope) => {
     const container = serverContainer(tree)
     const serverChild = container.querySelector('[data-testid="suspended-bound"]')
     const recoverableErrors: unknown[] = []
+    const animationFrame = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation(() => 1)
     document.body.appendChild(container)
     hydrating = true
     let root: Root | undefined
@@ -160,6 +207,7 @@ describe.each(scopes)('%s server rendering', (_, createScope) => {
       )
       expect(serverChild).toHaveProperty('title', 'Server value')
       expect(viewModel.label.getSubscriptionsCount()).toBe(0)
+      expect(animationFrame).not.toHaveBeenCalled()
 
       await act(async () => {
         ready = true
@@ -177,6 +225,7 @@ describe.each(scopes)('%s server rendering', (_, createScope) => {
     } finally {
       if (root !== undefined) act(() => root?.unmount())
       container.remove()
+      animationFrame.mockRestore()
     }
   })
 })

@@ -42,6 +42,7 @@ export const KnockoutScope = React.memo(function KnockoutScope<T>({
     bindingCommitMarker,
     generation,
     bindingEstablished,
+    preserveServerChildren,
   } = useBindingRoot(
     viewModel,
     parentGeneration,
@@ -62,9 +63,15 @@ export const KnockoutScope = React.memo(function KnockoutScope<T>({
     <ScopeViewModelContext.Provider value={viewModel}>
       <ScopeBindGenerationContext.Provider value={generation}>
         <BoundaryHost data-bind={`${DESCENDANT_BINDING_BOUNDARY}: true`} style={{ display: 'contents' }}>
-          <BindingHost ref={container} style={{ display: 'contents' }}>
-            {as === 'script' || as === 'template' ? null : bindingCommitMarker}
-            {(!replacingHost && !requiresPostBindChildren) || bindingEstablished
+          {bindingCommitMarker}
+          <BindingHost
+            ref={container}
+            style={{ display: 'contents' }}
+            suppressHydrationWarning={as === 'template' ? true : undefined}
+          >
+            {(!replacingHost &&
+              (!requiresPostBindChildren || preserveServerChildren)) ||
+            bindingEstablished
               ? children
               : null}
           </BindingHost>
