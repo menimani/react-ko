@@ -370,10 +370,10 @@ describe('RootKnockoutProvider', () => {
     }
   )
 
-  it('rejects retirement when a built-in handler has an overridden implementation', async () => {
+  it('rejects retirement when a built-in handler has a same-arity override', async () => {
     const registered = ko.bindingHandlers.visible
     const viewModel = { shown: true }
-    const update = vi.fn((element: Element) => {
+    const update = vi.fn((element: Element, _valueAccessor: () => unknown) => {
       element.setAttribute('title', 'custom effect')
     })
     ko.bindingHandlers.visible = { update }

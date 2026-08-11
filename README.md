@@ -100,13 +100,14 @@ are supported at both the type and runtime boundaries and do not need a hyphen,
 unless the name is one of the unsafe cases below. The `SemanticHost` type rejects
 known void tags such as `input`, `img`, and `br`, and foreign-content roots such as
 `svg`; the runtime check also rejects them if JavaScript or a type assertion bypasses
-that boundary. Parser-special tags `frameset`, `iframe`, `noembed`, `noframes`,
-`noscript`, `plaintext`, `script`, `style`, `template`, `textarea`, `title`, and
-`xmp` remain type-accepted to preserve the v2 public contract, as do legacy
+that boundary. Parser-special tags `frameset`, `noembed`, `noframes`, `noscript`,
+`plaintext`, `script`, `style`, `title`, and `xmp` remain type-accepted to preserve
+the v2 public contract, as do legacy
 childless names such as `frame`, `basefont`, `bgsound`, `keygen`, and `menuitem`
 when declaration merging adds them to `HTMLElementTagNameMap`. Using any of these
 type-accepted unsafe names throws during rendering so server markup cannot lose or
-reinterpret scope children before hydration.
+reinterpret scope children before hydration. The `iframe`, `template`, and `textarea`
+hosts remain accepted at runtime for v2 compatibility.
 
 Replacing a `RootKnockoutProvider` or `KnockoutScope` `viewModel` reapplies its
 Knockout bindings. Both components dispose their bindings when replaced or

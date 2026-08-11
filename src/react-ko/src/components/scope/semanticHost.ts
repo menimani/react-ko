@@ -56,15 +56,12 @@ const FOREIGN_CONTENT_HOSTS: ReadonlySet<string> = new Set(['math', 'svg'])
 // markup as text, so server output cannot reconstruct the tree React hydrates.
 const PARSER_SPECIAL_HOSTS: ReadonlySet<string> = new Set([
   'frameset',
-  'iframe',
   'noembed',
   'noframes',
   'noscript',
   'plaintext',
   'script',
   'style',
-  'template',
-  'textarea',
   'title',
   'xmp',
 ])
@@ -94,19 +91,21 @@ type SemanticHostComponentProps = {
 }
 
 export function semanticHostComponent(host: SemanticHost) {
-  if (VOID_SEMANTIC_HOSTS.has(host as VoidSemanticHost)) {
+  const normalizedHost = String(host).toLowerCase()
+
+  if (VOID_SEMANTIC_HOSTS.has(normalizedHost as VoidSemanticHost)) {
     throw new Error(
       `react-ko cannot use the void HTML element <${host}> as a semantic host because scope hosts always contain children.`
     )
   }
 
-  if (LEGACY_CHILDLESS_HOSTS.has(host)) {
+  if (LEGACY_CHILDLESS_HOSTS.has(normalizedHost)) {
     throw new Error(
       `react-ko cannot use the legacy childless HTML element <${String(host)}> as a semantic host because scope hosts always contain children.`
     )
   }
 
-  if (PARSER_SPECIAL_HOSTS.has(host)) {
+  if (PARSER_SPECIAL_HOSTS.has(normalizedHost)) {
     throw new Error(
       `react-ko cannot use the parser-special HTML element <${String(host)}> as a semantic host because its children cannot be hydrated reliably.`
     )
@@ -114,7 +113,7 @@ export function semanticHostComponent(host: SemanticHost) {
 
   // Declaration merging is erased at runtime, so unknown names must be passed
   // through to React for the public SemanticHost type to remain usable.
-  if (FOREIGN_CONTENT_HOSTS.has(host)) {
+  if (FOREIGN_CONTENT_HOSTS.has(normalizedHost)) {
     throw new Error(
       `react-ko cannot use <${String(host)}> as a semantic host because scope hosts require a non-void HTML element.`
     )

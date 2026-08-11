@@ -34,21 +34,55 @@ it('accepts unchanged built-in handlers from the official Knockout debug build',
   }
 })
 
-it('detects a built-in handler replaced before react-ko is imported', async () => {
+it('accepts canonical handlers from a later compatible Knockout 3.x version', async () => {
+  const debugKo = require(
+    'knockout/build/output/knockout-latest.debug.js'
+  ) as typeof ko
+  const compatibleKo = new Proxy(debugKo, {
+    get(target, property, receiver) {
+      return property === 'version'
+        ? '3.6.0'
+        : Reflect.get(target, property, receiver)
+    },
+  })
+
+  try {
+    vi.resetModules()
+    vi.doMock('knockout', () => ({ default: compatibleKo }))
+    const { hasCanonicalKnockoutBindingHandler } = await import(
+      '@/components/scope/applyBindingsSafely'
+    )
+
+    expect(hasCanonicalKnockoutBindingHandler('visible')).toBe(true)
+  } finally {
+    vi.doUnmock('knockout')
+    vi.resetModules()
+  }
+})
+
+it('detects a same-arity built-in handler replaced before react-ko is imported', async () => {
   const registered = ko.bindingHandlers.visible
   ko.bindingHandlers.visible = {
-    update(element) {
+    update(element, _valueAccessor) {
       element.setAttribute('title', 'custom effect')
     },
   }
 
   try {
     vi.resetModules()
-    const { hasCanonicalKnockoutBindingHandler } = await import(
+    const {
+      applyBindingsSafely,
+      hasCanonicalKnockoutBindingHandler,
+    } = await import(
       '@/components/scope/applyBindingsSafely'
     )
+    const container = document.createElement('div')
+    container.innerHTML = '<span data-bind="visible: shown"></span>'
+
+    applyBindingsSafely({ shown: true }, container)
 
     expect(hasCanonicalKnockoutBindingHandler('visible')).toBe(false)
+    expect(container.firstElementChild?.getAttribute('title')).toBe('custom effect')
   } finally {
     ko.bindingHandlers.visible = registered
     vi.resetModules()

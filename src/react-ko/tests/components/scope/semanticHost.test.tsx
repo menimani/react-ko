@@ -19,6 +19,7 @@ import {
   KoWith,
   RootKnockoutProvider,
 } from '@/index'
+import { semanticHostComponent } from '@/components/scope/semanticHost'
 
 declare global {
   interface HTMLElementTagNameMap {
@@ -161,15 +162,12 @@ describe('semantic hosts', () => {
 
   it.each([
     'frameset',
-    'iframe',
     'noembed',
     'noframes',
     'noscript',
     'plaintext',
     'script',
     'style',
-    'template',
-    'textarea',
     'title',
     'xmp',
   ])(
@@ -195,15 +193,12 @@ describe('semantic hosts', () => {
 
   it.each([
     'frameset',
-    'iframe',
     'noembed',
     'noframes',
     'noscript',
     'plaintext',
     'script',
     'style',
-    'template',
-    'textarea',
     'title',
     'xmp',
   ])(
@@ -250,6 +245,25 @@ describe('semantic hosts', () => {
       } finally {
         consoleError.mockRestore()
       }
+    }
+  )
+
+  it.each(['iframe', 'template', 'textarea'] as const)(
+    'preserves the v2 runtime-compatible <%s> semantic host',
+    (host) => {
+      expect(semanticHostComponent(host)).toBe(host)
+    }
+  )
+
+  it.each([
+    ['INPUT', 'void HTML element'],
+    ['FRAME', 'legacy childless HTML element'],
+    ['SCRIPT', 'parser-special HTML element'],
+    ['SVG', 'scope hosts require a non-void HTML element'],
+  ] as const)(
+    'classifies the uppercase JavaScript host <%s> as a %s',
+    (host, message) => {
+      expect(() => semanticHostComponent(host as never)).toThrow(message)
     }
   )
 
