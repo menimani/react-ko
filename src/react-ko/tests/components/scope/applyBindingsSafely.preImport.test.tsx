@@ -1,16 +1,18 @@
+import { createRequire } from 'node:module'
 import { render } from '@testing-library/react'
-import ko from 'knockout'
+import type ko from 'knockout'
 import { expect, it, vi } from 'vitest'
 
-it('rejects a built-in handler replaced before react-ko is imported', async () => {
-  const registered = ko.bindingHandlers.visible
-  const update = vi.fn((element: Element) => {
-    element.replaceChildren('Knockout replacement')
-  })
-  ko.bindingHandlers.visible = { update }
+const require = createRequire(import.meta.url)
+
+it('accepts unchanged built-in handlers from the official Knockout debug build', async () => {
+  const debugKo = require(
+    'knockout/build/output/knockout-latest.debug.js'
+  ) as typeof ko
 
   try {
     vi.resetModules()
+    vi.doMock('knockout', () => ({ default: debugKo }))
     const { applyBindingsSafely } = await import(
       '@/components/scope/applyBindingsSafely'
     )
@@ -20,13 +22,10 @@ it('rejects a built-in handler replaced before react-ko is imported', async () =
       </div>
     )
 
-    expect(() => applyBindingsSafely({ shown: true }, container)).toThrow(
-      'react-ko cannot apply the Knockout "visible" binding'
-    )
-    expect(update).not.toHaveBeenCalled()
+    expect(() => applyBindingsSafely({ shown: true }, container)).not.toThrow()
     expect(container.querySelector('span')?.textContent).toBe('React child')
   } finally {
-    ko.bindingHandlers.visible = registered
+    vi.doUnmock('knockout')
     vi.resetModules()
   }
 })

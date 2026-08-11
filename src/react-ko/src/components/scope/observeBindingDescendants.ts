@@ -4,6 +4,7 @@ import {
   assertNoReactUnsafeBindings,
   currentReactHostProps,
   hasReactOwnedChildren,
+  REACT_RENDERS_BIGINT,
 } from './applyBindingsSafely'
 import { descendantBindingContextFor } from './descendantBindingContexts'
 import { DESCENDANT_BINDING_BOUNDARY } from './descendantBindingBoundary'
@@ -222,7 +223,7 @@ function directReactContent(props: ReactHostProps | ReadonlyMap<string, unknown>
   if (
     typeof children === 'string' ||
     typeof children === 'number' ||
-    typeof children === 'bigint'
+    (typeof children === 'bigint' && REACT_RENDERS_BIGINT)
   ) {
     return { kind: 'text', value: String(children) } as const
   }
