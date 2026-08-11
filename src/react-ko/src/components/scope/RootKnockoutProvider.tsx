@@ -39,12 +39,14 @@ export const RootKnockoutProvider = React.memo(function RootKnockoutProvider<T>(
     generation,
     bindingEstablished,
     preserveServerChildren,
+    preserveHydratedTemplate,
   } = useBindingRoot(
     viewModel,
     parentGeneration,
     handleBindingError,
     true,
-    hostIdentity
+    hostIdentity,
+    as === 'template'
   )
 
   React.useLayoutEffect(() => {
@@ -66,9 +68,10 @@ export const RootKnockoutProvider = React.memo(function RootKnockoutProvider<T>(
               style={{ display: 'contents' }}
               suppressHydrationWarning={as === 'template' ? true : undefined}
             >
-              {(!replacingHost &&
+              {!preserveHydratedTemplate &&
+              ((!replacingHost &&
                 (!requiresPostBindChildren || preserveServerChildren)) ||
-              bindingEstablished
+                bindingEstablished)
                 ? children
                 : null}
             </BindingHost>

@@ -541,6 +541,40 @@ describe('applyBindingsSafely', () => {
     }
   })
 
+  it('restores a React-owned virtual range removed by a rejected custom init', () => {
+    const binding = 'destructiveVirtualDescendantController'
+    const init = vi.fn((start: Node) => {
+      ko.virtualElements.emptyNode(start)
+      return { controlsDescendantBindings: true }
+    })
+    ko.bindingHandlers[binding] = { init }
+    ko.virtualElements.allowedBindings[binding] = true
+
+    try {
+      const { container } = render(
+        <div
+          dangerouslySetInnerHTML={{
+            __html:
+              `<!-- ko ${binding}: true -->` +
+              '<span data-testid="virtual-child">React child</span>' +
+              '<!-- /ko -->',
+          }}
+        />
+      )
+      const child = container.querySelector('[data-testid="virtual-child"]')
+
+      expect(() => applyBindingsSafely({}, container)).toThrow(
+        `react-ko cannot apply the Knockout "${binding}" binding because its custom handler controls React-owned child nodes.`
+      )
+      expect(container.querySelector('[data-testid="virtual-child"]')).toBe(child)
+      expect(container.textContent).toBe('React child')
+      expect(init).toHaveBeenCalledOnce()
+    } finally {
+      delete ko.virtualElements.allowedBindings[binding]
+      delete ko.bindingHandlers[binding]
+    }
+  })
+
   it('rejects a controlling custom handler on an element from another realm', () => {
     const binding = 'crossRealmDescendantController'
     ko.bindingHandlers[binding] = {

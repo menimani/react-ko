@@ -43,12 +43,14 @@ export const KnockoutScope = React.memo(function KnockoutScope<T>({
     generation,
     bindingEstablished,
     preserveServerChildren,
+    preserveHydratedTemplate,
   } = useBindingRoot(
     viewModel,
     parentGeneration,
     handleBindingError,
     true,
-    hostIdentity
+    hostIdentity,
+    as === 'template'
   )
 
   React.useLayoutEffect(() => {
@@ -69,9 +71,10 @@ export const KnockoutScope = React.memo(function KnockoutScope<T>({
             style={{ display: 'contents' }}
             suppressHydrationWarning={as === 'template' ? true : undefined}
           >
-            {(!replacingHost &&
+            {!preserveHydratedTemplate &&
+            ((!replacingHost &&
               (!requiresPostBindChildren || preserveServerChildren)) ||
-            bindingEstablished
+              bindingEstablished)
               ? children
               : null}
           </BindingHost>
