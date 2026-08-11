@@ -195,6 +195,64 @@ describe('applyBindingsSafely', () => {
       }
     }
   )
+
+  it('runs a custom binding preprocessor once while applying its validated expression', () => {
+    const binding = 'preprocessedTooltip'
+    const preprocess = vi.fn((expression: string) => `{ title: ${expression} }`)
+    ko.bindingHandlers[binding] = {
+      preprocess,
+      update(element, valueAccessor) {
+        const value = ko.unwrap(valueAccessor()) as { title: string }
+        element.setAttribute('title', value.title)
+      },
+    }
+
+    try {
+      const container = document.createElement('div')
+      container.innerHTML = `<button data-bind="${binding}: label"></button>`
+
+      applyBindingsSafely({ label: 'Validated tooltip' }, container)
+
+      expect(preprocess).toHaveBeenCalledOnce()
+      expect(container.querySelector('button')?.title).toBe('Validated tooltip')
+    } finally {
+      delete ko.bindingHandlers[binding]
+    }
+  })
+
+  it('applies the safe result validated from a stateful alias preprocessor', () => {
+    const binding = 'statefulAlias'
+    const label = ko.observable('Knockout replacement')
+    let preprocessCalls = 0
+    ko.bindingHandlers[binding] = {
+      preprocess(expression, _name, addBinding) {
+        preprocessCalls += 1
+        addBinding(preprocessCalls === 1 ? 'visible' : 'text', expression)
+      },
+    }
+
+    try {
+      const { container } = render(
+        <div data-bind={`${binding}: label`}>
+          <span>React child</span>
+        </div>
+      )
+      const child = container.querySelector('span')
+
+      applyBindingsSafely({ label }, container)
+
+      expect(preprocessCalls).toBe(1)
+      expect(container.querySelector('span')).toBe(child)
+      expect(container.textContent).toBe('React child')
+
+      label('')
+      expect((container.firstElementChild as HTMLElement).style.display).toBe('none')
+      expect(container.querySelector('span')).toBe(child)
+    } finally {
+      delete ko.bindingHandlers[binding]
+    }
+  })
+
   it('rejects and cleans a custom handler that controls React-owned descendants', () => {
     const binding = 'customDescendantController'
     const label = ko.observable('Bound before failure')

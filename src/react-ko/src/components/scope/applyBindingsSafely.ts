@@ -162,12 +162,21 @@ export function hasCanonicalKnockoutBindingHandler(name: string) {
     registered.preprocess === canonical.preprocess
 }
 
-function bindingNamesFromSource(source: string | null): Set<string> {
+type ValidatedBindingSources = Map<Node, string>
+
+function bindingNamesFromSource(
+  source: string | null,
+  node?: Node,
+  validatedSources?: ValidatedBindingSources
+): Set<string> {
   if (source === null) {
     return new Set()
   }
 
   const effectiveSource = ko.expressionRewriting.preProcessBindings(source)
+  if (node !== undefined) {
+    validatedSources?.set(node, effectiveSource)
+  }
   return new Set(
     ko.expressionRewriting
       .parseObjectLiteral(effectiveSource)
@@ -175,8 +184,15 @@ function bindingNamesFromSource(source: string | null): Set<string> {
   )
 }
 
-function bindingNames(element: Element): Set<string> {
-  return bindingNamesFromSource(element.getAttribute('data-bind'))
+function bindingNames(
+  element: Element,
+  validatedSources?: ValidatedBindingSources
+): Set<string> {
+  return bindingNamesFromSource(
+    element.getAttribute('data-bind'),
+    element,
+    validatedSources
+  )
 }
 
 function hasReactTag(node: Node): boolean {
@@ -275,7 +291,10 @@ function reactInnerHtml(props: ReactHostProps | null | undefined) {
   return (props?.dangerouslySetInnerHTML as { __html?: unknown } | undefined)?.__html
 }
 
-function reactOwnedVirtualBinding(element: Element): string | undefined {
+function reactOwnedVirtualBinding(
+  element: Element,
+  validatedSources?: ValidatedBindingSources
+): string | undefined {
   const innerHtml = reactInnerHtml(currentReactHostProps(element))
   if (innerHtml === undefined || innerHtml === null || String(innerHtml) === '') {
     return undefined
@@ -285,9 +304,9 @@ function reactOwnedVirtualBinding(element: Element): string | undefined {
     if (node.nodeType === Node.COMMENT_NODE) {
       const source = /^\s*ko\s+([\s\S]*?)\s*$/.exec(node.nodeValue ?? '')?.[1]
       if (source !== undefined) {
-        const binding = [...bindingNamesFromSource(source)].find((name) =>
-          REACT_UNSAFE_BINDINGS.has(name)
-        )
+        const binding = [
+          ...bindingNamesFromSource(source, node, validatedSources),
+        ].find((name) => REACT_UNSAFE_BINDINGS.has(name))
         if (binding !== undefined) return binding
       }
     }
@@ -366,12 +385,27 @@ export function hasReactOwnedChildren(
  */
 export function assertNoReactUnsafeBindings(
   root: HTMLElement,
-  rootHadReactContentMutation = false
+  rootHadReactContentMutation = false,
+  includeDescendants = true
 ) {
+  validateNoReactUnsafeBindings(
+    root,
+    rootHadReactContentMutation,
+    includeDescendants
+  )
+}
+
+function validateNoReactUnsafeBindings(
+  root: HTMLElement,
+  rootHadReactContentMutation = false,
+  includeDescendants = true
+) {
+  const validatedSources: ValidatedBindingSources = new Map()
+
   function visit(element: Element) {
-    const names = bindingNames(element)
+    const names = bindingNames(element, validatedSources)
     const unsafeBinding =
-      reactOwnedVirtualBinding(element) ??
+      reactOwnedVirtualBinding(element, validatedSources) ??
       [...names].find(
         (name) =>
           REACT_UNSAFE_BINDINGS.has(name) ||
@@ -395,12 +429,72 @@ export function assertNoReactUnsafeBindings(
       return
     }
 
+    if (!includeDescendants) return
+
     for (const child of element.children) {
       visit(child)
     }
   }
 
   visit(root)
+  return validatedSources
+}
+
+function applyValidatedBindings(
+  viewModel: unknown,
+  node: HTMLElement,
+  validatedSources: ValidatedBindingSources
+) {
+  const provider = ko.bindingProvider.instance
+  const getBindingAccessors = provider.getBindingAccessors
+  const ownGetBindingAccessors = Object.getOwnPropertyDescriptor(
+    provider,
+    'getBindingAccessors'
+  )
+  const isolatedProvider = new ko.bindingProvider()
+
+  // Knockout normally preprocesses while compiling an element's binding
+  // accessors. Compile the already validated source in an isolated cache and
+  // hide preprocess hooks only for that compilation step.
+  isolatedProvider.getBindingsString = (bindingNode, bindingContext) =>
+    validatedSources.has(bindingNode)
+      ? validatedSources.get(bindingNode)!
+      : ko.bindingProvider.prototype.getBindingsString.call(
+          isolatedProvider,
+          bindingNode,
+          bindingContext
+        )
+
+  provider.getBindingAccessors = (bindingNode, bindingContext) => {
+    if (!validatedSources.has(bindingNode)) {
+      return getBindingAccessors.call(provider, bindingNode, bindingContext)
+    }
+
+    const getBindingHandler = ko.getBindingHandler
+    ko.getBindingHandler = (name) => {
+      const handler = getBindingHandler(name)
+      return handler?.preprocess === undefined
+        ? handler
+        : (Object.assign(Object.create(handler), {
+            preprocess: undefined,
+          }) as ko.BindingHandler)
+    }
+    try {
+      return isolatedProvider.getBindingAccessors(bindingNode, bindingContext)
+    } finally {
+      ko.getBindingHandler = getBindingHandler
+    }
+  }
+
+  try {
+    ko.applyBindings(viewModel, node)
+  } finally {
+    if (ownGetBindingAccessors === undefined) {
+      delete (provider as Partial<ko.IBindingProvider>).getBindingAccessors
+    } else {
+      Object.defineProperty(provider, 'getBindingAccessors', ownGetBindingAccessors)
+    }
+  }
 }
 
 function rejectDescendantControllingCustomHandlers() {
@@ -448,7 +542,7 @@ function rejectDescendantControllingCustomHandlers() {
  */
 export function applyBindingsSafely(viewModel: unknown, node: HTMLElement) {
   ensureDescendantBindingBoundary()
-  assertNoReactUnsafeBindings(node)
+  const validatedSources = validateNoReactUnsafeBindings(node)
   const removeContextMarkers = prepareDescendantBindingContextCapture(node)
   const restoreBindingHandlerLookup = rejectDescendantControllingCustomHandlers()
   const view = node.ownerDocument.defaultView
@@ -471,7 +565,7 @@ export function applyBindingsSafely(viewModel: unknown, node: HTMLElement) {
   }
 
   try {
-    ko.applyBindings(viewModel, node)
+    applyValidatedBindings(viewModel, node, validatedSources)
   } catch (error) {
     try {
       ko.cleanNode(node)
