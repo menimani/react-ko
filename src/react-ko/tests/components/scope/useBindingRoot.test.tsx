@@ -24,6 +24,59 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean
 }
 
 describe('useBindingRoot', () => {
+  const bindingRoots = ['RootKnockoutProvider', 'KnockoutScope'] as const
+  const childUpdates = ['mounts', 'rebinds'] as const
+
+  it.each(
+    bindingRoots.flatMap((bindingRoot) =>
+      childUpdates.map((childUpdate) => [bindingRoot, childUpdate] as const)
+    )
+  )(
+    '%s uses the replacement ViewModel when it %s a child in the same commit',
+    (bindingRoot, childUpdate) => {
+      const first = { firstLabel: ko.observable('First') }
+      const second = { secondLabel: ko.observable('Second') }
+
+      function BoundChild({ replacement }: { replacement: boolean }) {
+        if (childUpdate === 'mounts' && !replacement) return null
+        return (
+          <span
+            data-testid="simultaneous-update"
+            data-bind={replacement ? 'text: secondLabel' : 'text: firstLabel'}
+          />
+        )
+      }
+
+      function Harness({
+        viewModel,
+        replacement,
+      }: {
+        viewModel: typeof first | typeof second
+        replacement: boolean
+      }) {
+        const child = <BoundChild replacement={replacement} />
+        return bindingRoot === 'RootKnockoutProvider' ? (
+          <RootKnockoutProvider viewModel={viewModel}>{child}</RootKnockoutProvider>
+        ) : (
+          <RootKnockoutProvider viewModel={{}}>
+            <KnockoutScope viewModel={viewModel}>{child}</KnockoutScope>
+          </RootKnockoutProvider>
+        )
+      }
+
+      const { rerender } = render(
+        <Harness viewModel={first} replacement={false} />
+      )
+
+      rerender(<Harness viewModel={second} replacement />)
+
+      expect(screen.getByTestId('simultaneous-update')).toHaveProperty(
+        'textContent',
+        'Second'
+      )
+    }
+  )
+
   type StructuralToggle = (label: ko.Observable<string>) => {
     element: ReactElement
     reveal: () => void
