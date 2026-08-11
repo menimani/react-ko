@@ -64,6 +64,27 @@ function LocalVisibilityBinding({ binding, vm }: { binding: 'visible' | 'hidden'
   )
 }
 
+function LocalSvgAttributeBinding({ vm }: { vm: unknown }) {
+  const [strokeWidth, setStrokeWidth] = useState(1)
+  const [bound, setBound] = useState(true)
+
+  return (
+    <RootKnockoutProvider viewModel={vm}>
+      <>
+        <svg>
+          <line
+            data-testid="stroke-owner"
+            strokeWidth={strokeWidth}
+            data-bind={bound ? "attr: { 'stroke-width': knockoutStrokeWidth }" : undefined}
+          />
+        </svg>
+        <button onClick={() => setStrokeWidth(3)}>Update stroke width</button>
+        <button onClick={() => setBound(false)}>Retire stroke width</button>
+      </>
+    </RootKnockoutProvider>
+  )
+}
+
 describe('observeBindingDescendants', () => {
   it('reapplies a class binding after a local React className update and retires it safely', async () => {
     render(<LocalClassBinding vm={{ activeClass: ko.observable('ko-active') }} />)
@@ -75,6 +96,18 @@ describe('observeBindingDescendants', () => {
 
     act(() => screen.getByText('Retire class').click())
     await waitFor(() => expect(owner.className).toBe('react-updated'))
+  })
+
+  it('reapplies and safely retires an attr binding after a React SVG prop update', async () => {
+    render(<LocalSvgAttributeBinding vm={{ knockoutStrokeWidth: 2 }} />)
+    const owner = screen.getByTestId('stroke-owner')
+    expect(owner.getAttribute('stroke-width')).toBe('2')
+
+    act(() => screen.getByText('Update stroke width').click())
+    await waitFor(() => expect(owner.getAttribute('stroke-width')).toBe('2'))
+
+    act(() => screen.getByText('Retire stroke width').click())
+    await waitFor(() => expect(owner.getAttribute('stroke-width')).toBe('3'))
   })
 
   for (const binding of ['visible', 'hidden'] as const) {
