@@ -491,6 +491,57 @@ describe('observeBindingDescendants', () => {
     vi.resetModules()
   })
 
+  it('binds a late child inside a copy-B root provider to its inner view model', async () => {
+    vi.resetModules()
+    const first = await import('@/index')
+    vi.resetModules()
+    const second = await import('@/index')
+    const OuterRoot = first.RootKnockoutProvider
+    const InnerRoot = second.RootKnockoutProvider
+    const outerViewModel = { label: 'Outer provider' }
+    const innerViewModel = { label: 'Inner provider' }
+
+    function Harness({
+      showInner,
+      showLate,
+    }: {
+      showInner: boolean
+      showLate: boolean
+    }) {
+      return (
+        <OuterRoot viewModel={outerViewModel}>
+          <span data-testid="copy-a-ready" data-bind="text: label" />
+          {showInner ? (
+            <InnerRoot viewModel={innerViewModel}>
+              <span data-testid="copy-b-ready" data-bind="text: label" />
+              {showLate ? (
+                <span data-testid="two-copy-late" data-bind="text: label" />
+              ) : null}
+            </InnerRoot>
+          ) : null}
+        </OuterRoot>
+      )
+    }
+
+    const mounted = render(<Harness showInner={false} showLate={false} />)
+    try {
+      await waitFor(() =>
+        expect(screen.getByTestId('copy-a-ready').textContent).toBe('Outer provider')
+      )
+
+      mounted.rerender(<Harness showInner showLate={false} />)
+      await waitFor(() =>
+        expect(screen.getByTestId('copy-b-ready').textContent).toBe('Inner provider')
+      )
+
+      mounted.rerender(<Harness showInner showLate />)
+      expect(screen.getByTestId('two-copy-late').textContent).toBe('Inner provider')
+    } finally {
+      mounted.unmount()
+      vi.resetModules()
+    }
+  })
+
   it('retires css classes owned by a replaced binding', async () => {
     const vm = { flag: ko.observable(true) }
     render(<Host vm={vm} />)

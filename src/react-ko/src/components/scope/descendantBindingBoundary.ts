@@ -5,6 +5,8 @@ import { registerReactKoBindingHandler } from './bindingHandlerOwnership'
 // bound with its own ko.applyBindings call.
 export const DESCENDANT_BINDING_BOUNDARY = 'reactKoScopeBoundary'
 
-registerReactKoBindingHandler(DESCENDANT_BINDING_BOUNDARY, () => ({
-  init: () => ({ controlsDescendantBindings: true }),
-}))
+export function ensureDescendantBindingBoundary() {
+  registerReactKoBindingHandler(DESCENDANT_BINDING_BOUNDARY, () => ({
+    init: () => ({ controlsDescendantBindings: true }),
+  }))
+}

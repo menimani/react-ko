@@ -107,9 +107,11 @@ that pass are also disposed before the error reaches a React error boundary.
 Root providers and scopes can be nested: each is a descendant-binding boundary,
 so its children use only its own `viewModel` and are cleaned up with that binding
 root.
-react-ko reserves the Knockout binding names `reactKoScopeBoundary` and
-`reactKoCaptureDescendantContext`; loading the library throws if another handler
-has already registered either name.
+The internal Knockout binding names `reactKoScopeBoundary` and
+`reactKoCaptureDescendantContext` are registered lazily when a root provider or
+scope first applies bindings. Importing react-ko, including for `useKoValue`
+alone, leaves existing handlers under those names untouched. Mounting a binding
+root throws if another handler has already registered either name.
 React-rendered descendants mounted after the initial binding pass are also bound
 automatically to the nearest root or scope, before their layout effects run. When
 mounted below an existing Knockout `using` or `let` binding, they retain that

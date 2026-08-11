@@ -1,6 +1,9 @@
 import ko from 'knockout'
 import { version as reactVersion } from 'react'
-import { DESCENDANT_BINDING_BOUNDARY } from './descendantBindingBoundary'
+import {
+  DESCENDANT_BINDING_BOUNDARY,
+  ensureDescendantBindingBoundary,
+} from './descendantBindingBoundary'
 import { prepareDescendantBindingContextCapture } from './descendantBindingContexts'
 
 const REACT_UNSAFE_BINDINGS = new Set(['if', 'ifnot', 'foreach', 'template', 'with'])
@@ -216,6 +219,7 @@ export function assertNoReactUnsafeBindings(
  * binding on the same tree throws before React can register effect cleanup.
  */
 export function applyBindingsSafely(viewModel: unknown, node: HTMLElement) {
+  ensureDescendantBindingBoundary()
   assertNoReactUnsafeBindings(node)
   const removeContextMarkers = prepareDescendantBindingContextCapture(node)
   const view = node.ownerDocument.defaultView

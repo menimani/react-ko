@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import ko from 'knockout'
-import '@/components/scope/descendantBindingContexts'
+import { prepareDescendantBindingContextCapture } from '@/components/scope/descendantBindingContexts'
 
 const CAPTURE_DESCENDANT_CONTEXT = 'reactKoCaptureDescendantContext'
 
@@ -10,14 +10,18 @@ describe('descendantBindingContexts', () => {
     marker.setAttribute('data-bind', `${CAPTURE_DESCENDANT_CONTEXT}: true`)
     expect(marker.parentNode).toBeNull()
 
+    const removeMarkers = prepareDescendantBindingContextCapture(marker)
     // The handler is registered globally, so nothing stops a knockout caller
     // from binding a parentless marker outside the library's own flow.
     expect(() => ko.applyBindings({}, marker)).not.toThrow()
 
+    removeMarkers()
     ko.cleanNode(marker)
   })
 
-  it('keeps the existing knockout handler when the module loads again', async () => {
+  it('keeps the existing knockout handler when context capture is initialized again', async () => {
+    const registrationRoot = document.createElement('div')
+    prepareDescendantBindingContextCapture(registrationRoot)()
     const registered = ko.bindingHandlers[CAPTURE_DESCENDANT_CONTEXT]
     expect(registered).toBeDefined()
 
@@ -44,15 +48,22 @@ describe('descendantBindingContexts', () => {
     ko.cleanNode(root)
   })
 
-  it('rejects an unrelated handler registered under the capture name', async () => {
+  it('allows the public package to load before rejecting a capture collision on use', async () => {
     const registered = ko.bindingHandlers[CAPTURE_DESCENDANT_CONTEXT]
-    ko.bindingHandlers[CAPTURE_DESCENDANT_CONTEXT] = { init: () => undefined }
+    const consumerHandler = { init: () => undefined }
+    ko.bindingHandlers[CAPTURE_DESCENDANT_CONTEXT] = consumerHandler
 
     try {
       vi.resetModules()
-      await expect(
-        import('@/components/scope/descendantBindingContexts'),
-      ).rejects.toThrow(
+      await expect(import('@/index')).resolves.toBeDefined()
+      expect(ko.bindingHandlers[CAPTURE_DESCENDANT_CONTEXT]).toBe(consumerHandler)
+
+      const reloaded = await import('@/components/scope/descendantBindingContexts')
+      expect(() =>
+        reloaded.prepareDescendantBindingContextCapture(
+          document.createElement('div'),
+        ),
+      ).toThrow(
         `react-ko cannot register the "${CAPTURE_DESCENDANT_CONTEXT}" Knockout binding because that name is already registered by another handler.`,
       )
     } finally {
