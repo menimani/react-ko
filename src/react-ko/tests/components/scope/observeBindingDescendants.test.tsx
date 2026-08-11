@@ -714,6 +714,42 @@ describe('observeBindingDescendants', () => {
     await waitFor(() => expect(el.value).toBe('Before binding'))
   })
 
+  it('rejects retirement when the textinput preprocessor is overridden', async () => {
+    const registered = ko.bindingHandlers.textinput
+    const preprocess = vi.fn(
+      (
+        value: string,
+        name: string,
+        addBinding: (key: string, value: string) => void
+      ) => {
+        registered.preprocess?.(value, name, addBinding)
+        addBinding('attr', "{ title: 'custom effect' }")
+      }
+    )
+    ko.bindingHandlers.textinput = { preprocess }
+
+    try {
+      render(<Host vm={{ overriddenValue: 'Knockout value' }} />)
+      const host = screen.getByTestId('host')
+      const el = document.createElement('input')
+      el.setAttribute('data-bind', 'textinput: overriddenValue')
+
+      act(() => {
+        host.appendChild(el)
+      })
+      await waitFor(() => expect(el.getAttribute('title')).toBe('custom effect'))
+
+      expect(() => {
+        act(() => el.removeAttribute('data-bind'))
+      }).toThrow(
+        'react-ko cannot replace the Knockout "textinput" binding because its DOM effects cannot be safely retired.'
+      )
+      expect(preprocess).toHaveBeenCalled()
+    } finally {
+      ko.bindingHandlers.textinput = registered
+    }
+  })
+
   it('retires a binding whose data-bind attribute is removed', async () => {
     const vm = { flag: ko.observable(true) }
     render(<Host vm={vm} />)

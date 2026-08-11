@@ -99,9 +99,10 @@ Additional non-void names added through `HTMLElementTagNameMap` declaration merg
 are supported at both the type and runtime boundaries and do not need a hyphen.
 Known void tags such as `input`, `img`, and `br`, legacy childless tags such as
 `frame`, `basefont`, `bgsound`, `keygen`, and `menuitem`, parser-special tags
-`frameset`, `noembed`, `noframes`, `plaintext`, and `xmp`, and foreign-content
-roots such as `svg` are rejected at runtime. The obsolete names remain accepted
-by the `SemanticHost` type for v2 compatibility, but using them throws during
+`frameset`, `iframe`, `noembed`, `noframes`, `noscript`, `plaintext`, `script`,
+`style`, `template`, `textarea`, `title`, and `xmp`, and foreign-content roots
+such as `svg` are rejected at runtime. These names remain accepted by the
+`SemanticHost` type to preserve its v2 public contract, but using them throws during
 rendering so server markup cannot lose or reinterpret scope children before
 hydration.
 
