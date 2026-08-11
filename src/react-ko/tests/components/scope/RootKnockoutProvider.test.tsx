@@ -2127,6 +2127,73 @@ describe('RootKnockoutProvider', () => {
     expect(vm.choice()).toBe('late')
   })
 
+  it('reapplies selectedOptions when React changes a value-less option text', async () => {
+    const vm = { choices: ko.observableArray(['late']) }
+
+    function ChangingOptionTextSelect() {
+      const [late, setLate] = useState(false)
+      return (
+        <>
+          <button onClick={() => setLate(true)}>change multiple option text</button>
+          <select
+            multiple
+            data-testid="text-selected-options"
+            data-bind="selectedOptions: choices"
+          >
+            <option>{late ? 'late' : 'early'}</option>
+          </select>
+        </>
+      )
+    }
+
+    render(
+      <RootKnockoutProvider viewModel={vm}>
+        <ChangingOptionTextSelect />
+      </RootKnockoutProvider>
+    )
+    const select = screen.getByTestId('text-selected-options') as HTMLSelectElement
+
+    expect([...select.selectedOptions]).toEqual([])
+    fireEvent.click(screen.getByText('change multiple option text'))
+
+    await waitFor(() => {
+      expect([...select.selectedOptions].map(({ value }) => value)).toEqual(['late'])
+    })
+    expect(vm.choices()).toEqual(['late'])
+  })
+
+  it('reapplies valueAllowUnset when React changes a value-less option text', async () => {
+    const vm = { choice: ko.observable('late') }
+
+    function ChangingOptionTextSelect() {
+      const [late, setLate] = useState(false)
+      return (
+        <>
+          <button onClick={() => setLate(true)}>change value option text</button>
+          <select
+            data-testid="text-value-option"
+            data-bind="value: choice, valueAllowUnset: true"
+          >
+            <option>{late ? 'late' : 'early'}</option>
+          </select>
+        </>
+      )
+    }
+
+    render(
+      <RootKnockoutProvider viewModel={vm}>
+        <ChangingOptionTextSelect />
+      </RootKnockoutProvider>
+    )
+    const select = screen.getByTestId('text-value-option') as HTMLSelectElement
+
+    expect(select.value).toBe('')
+    fireEvent.click(screen.getByText('change value option text'))
+
+    await waitFor(() => expect(select.value).toBe('late'))
+    expect(vm.choice()).toBe('late')
+  })
+
   it.each([
     ['value', 'value', 'Knockout value', 'React initial', 'React latest'],
     ['checked', 'checked', false, false, true],
