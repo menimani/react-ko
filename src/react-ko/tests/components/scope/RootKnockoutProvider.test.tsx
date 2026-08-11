@@ -870,6 +870,57 @@ describe('RootKnockoutProvider', () => {
     }
   })
 
+  it('rejects a direct React text write before a sibling layout effect can overwrite it', () => {
+    const vm = { label: ko.observable('Knockout text') }
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    let showText = () => undefined
+    let textAfterUpdate: string | null | undefined
+
+    function LayoutNotifier({ notify }: { notify: boolean }) {
+      useLayoutEffect(() => {
+        if (notify) {
+          vm.label('Updated in layout')
+          textAfterUpdate = document.querySelector('[data-testid="direct-text-owner"]')
+            ?.textContent
+        }
+      }, [notify])
+
+      return null
+    }
+
+    function BindingOwner() {
+      const [show, setShow] = useState(false)
+      showText = () => setShow(true)
+
+      return (
+        <>
+          <div data-testid="direct-text-owner" data-bind="text: label">
+            {show ? 'React text' : null}
+          </div>
+          <LayoutNotifier notify={show} />
+        </>
+      )
+    }
+
+    try {
+      render(
+        <ErrorBoundary>
+          <RootKnockoutProvider viewModel={vm}>
+            <BindingOwner />
+          </RootKnockoutProvider>
+        </ErrorBoundary>
+      )
+      act(() => showText())
+
+      expect(screen.getByText('Binding failed')).toBeDefined()
+      expect(textAfterUpdate).toBe('React text')
+      expect(vm.label()).toBe('Updated in layout')
+      expect(vm.label.getSubscriptionsCount()).toBe(0)
+    } finally {
+      consoleError.mockRestore()
+    }
+  })
+
   it('rejects a late React child before a custom binding update can detach it', () => {
     const binding = 'replaceOnNotification'
     const notified = ko.observable(false)
