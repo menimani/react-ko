@@ -89,6 +89,8 @@ const nullableObservableRows = ko.observable<Row[] | null | undefined>(rows)
 const nullableComputedRows = ko.pureComputed<Row[] | null | undefined>(
   () => nullableObservableRows()
 )
+const readonlyRows = [{ id: 2, label: 'two' }] as const
+const readonlyObservableRows = ko.observable<readonly Row[]>(readonlyRows)
 
 ReactKo.KoForeach({
   items: rows,
@@ -104,6 +106,20 @@ ReactKo.KoForeach({ items: rows, children: (row) => row.label, boundaryAs: 'li',
 ReactKo.KoForeach({ items: computedRows, children: (row) => row.label })
 ReactKo.KoForeach({ items: nullableObservableRows, children: (row) => row.label })
 ReactKo.KoForeach({ items: nullableComputedRows, children: (row) => row.label })
+ReactKo.KoForeach({
+  items: readonlyRows,
+  children: (row) => {
+    expectType<'two'>(row.label)
+    return row.label
+  },
+})
+ReactKo.KoForeach({
+  items: readonlyObservableRows,
+  children: (row) => {
+    expectType<Row>(row)
+    return row.label
+  },
+})
 ReactKo.KoForeach<Row>({ items: null, children: (row) => row.label })
 ReactKo.KoForeach<Row>({ items: undefined, children: (row) => row.label })
 // @ts-expect-error The render callback receives the inferred item type.

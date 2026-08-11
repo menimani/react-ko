@@ -264,10 +264,9 @@ const vm = { todos: ko.observableArray<Todo>([]) }
 </RootKnockoutProvider>
 ```
 
-- `items` は `ko.ObservableArray<T>`、`ko.Observable<T[]>`、
-  `ko.Computed<T[]>`、素の `T[]` を受け付けます。素の値、observable、
-  computed のいずれでも配列値に `null` または `undefined` を指定でき、
-  どちらも空のリストとして描画されます。
+- `items` は可変・読み取り専用の配列を受け付け、observable や computed
+  の配列も指定できます。素の値、observable、computed のいずれでも配列値に
+  `null` または `undefined` を指定でき、どちらも空のリストとして描画されます。
 - `$data` / `$index` / `$parent` の代わりに、関数引数とクロージャを
   使います — 外側の変数（上の例の `vm`）はそのまま見え、行の中に React
   コンポーネントを置けます。

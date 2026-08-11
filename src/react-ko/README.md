@@ -267,10 +267,9 @@ const vm = { todos: ko.observableArray<Todo>([]) }
 </RootKnockoutProvider>
 ```
 
-- `items` accepts `ko.ObservableArray<T>`, `ko.Observable<T[]>`,
-  `ko.Computed<T[]>`, or a plain `T[]`. The array value may be `null` or
-  `undefined` for plain, observable, and computed sources; either renders an
-  empty list.
+- `items` accepts mutable or readonly arrays, including observable and computed
+  sources. The array value may be `null` or `undefined` for plain, observable,
+  and computed sources; either renders an empty list.
 - Instead of `$data`, `$index`, and `$parent`, use the function arguments
   and closures — outer variables (like `vm` above) are simply in scope, and
   React components can be used inside rows.
