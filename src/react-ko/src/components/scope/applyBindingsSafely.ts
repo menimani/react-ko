@@ -597,22 +597,23 @@ function rejectDescendantControllingCustomHandlers() {
         return init(...args)
       }
 
-      const auditElement = element.cloneNode(true) as typeof element
-      let auditResult: ReturnType<NonNullable<ko.BindingHandler['init']>>
-      // A custom init can mutate before it reports descendant ownership. Probe
-      // a detached clone so a rejected handler never touches React's live nodes.
-      try {
-        auditResult = init(auditElement, ...args.slice(1))
-      } finally {
-        ko.cleanNode(auditElement)
-      }
-      if (auditResult?.controlsDescendantBindings) {
+      const originalChildren = [...element.childNodes]
+      const result = init(...args)
+      if (result?.controlsDescendantBindings) {
+        // Restore the direct React nodes if the rejected init moved or removed
+        // them before reporting that it controls descendants.
+        const childrenChanged =
+          element.childNodes.length !== originalChildren.length ||
+          originalChildren.some((child, index) => element.childNodes[index] !== child)
+        if (childrenChanged) {
+          element.replaceChildren(...originalChildren)
+        }
         throw new Error(
           `react-ko cannot apply the Knockout "${name}" binding because its custom handler controls React-owned child nodes. ` +
             'Custom bindings on elements with React-owned children must leave their descendants in place.'
         )
       }
-      return init(...args)
+      return result
     }
     return detectingHandler
   }
