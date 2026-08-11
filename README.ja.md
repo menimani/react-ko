@@ -131,6 +131,9 @@ react-ko は Knockout バインディング名 `reactKoScopeBoundary` と
 React の props 更新と有効な Knockout バインディングは同じ要素を共有することもできます。
 React 側の最新のクラス、インラインスタイル、属性、フォームプロパティの初期値を保持しつつ、
 有効な Knockout バインディングが宣言した DOM 効果は引き続きそのバインディングが所有します。
+React が後から `option` を挿入したり、その `value` を変更したりした場合も、`selectedOptions` と
+`valueAllowUnset` を伴う `value` を再適用するため、後から一致した option は observable の
+再通知なしで同期されます。
 `attr` バインディングを取り除くと、React の属性 props は React DOM と同じ規則で復元されます。
 これには `acceptCharset` / `httpEquiv` のような別名を持つ props、false の `inert` やメディア無効化
 props の属性削除、boolean の `download` と `capture` の空文字の存在属性が含まれます。
