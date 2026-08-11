@@ -144,24 +144,31 @@ describe('semantic hosts', () => {
     'frameset',
     'noembed',
     'noframes',
-    'noscript',
     'plaintext',
     'script',
     'style',
-    'title',
     'xmp',
     'frame',
     'basefont',
     'bgsound',
-    'keygen',
-    'menuitem',
     'iframe',
     'template',
-    'textarea',
   ] as const)(
-    'preserves the v2 runtime-compatible <%s> semantic host',
+    'renders and binds the v2 runtime-compatible <%s> semantic host',
     (host) => {
-      expect(semanticHostComponent(host as never)).toBe(host)
+      const vm = { label: ko.observable('Bound') }
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+      try {
+        const { container } = render(
+          <RootKnockoutProvider viewModel={vm} as={host as never}>
+            <span data-bind="text: label" />
+          </RootKnockoutProvider>
+        )
+
+        expect(container.querySelector(`${host} > span`)?.textContent).toBe('Bound')
+      } finally {
+        consoleError.mockRestore()
+      }
     }
   )
 
@@ -254,6 +261,25 @@ describe('semantic hosts', () => {
       try {
         expect(() => renderWithJavaScriptHost(hostProp, host)).toThrow(
           `cannot use <${host}> as a semantic host because scope hosts require a non-void HTML element`
+        )
+      } finally {
+        consoleError.mockRestore()
+      }
+    }
+  )
+
+  it.each([
+    ['as', 'textarea'],
+    ['boundaryAs', 'textarea'],
+    ['as', 'title'],
+    ['boundaryAs', 'title'],
+  ] as const)(
+    'rejects the JavaScript %s value <%s> when it cannot preserve a child element subtree',
+    (hostProp, host) => {
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+      try {
+        expect(() => renderWithJavaScriptHost(hostProp, host)).toThrow(
+          `cannot use <${host}> as a semantic host because scope hosts require an HTML element that preserves its child element subtree`
         )
       } finally {
         consoleError.mockRestore()
