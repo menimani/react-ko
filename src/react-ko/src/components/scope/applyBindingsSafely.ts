@@ -403,6 +403,45 @@ export function assertNoReactUnsafeBindings(
   visit(root)
 }
 
+function rejectDescendantControllingCustomHandlers() {
+  const getBindingHandler = ko.getBindingHandler
+
+  ko.getBindingHandler = (name) => {
+    const handler = getBindingHandler(name)
+    const init = handler?.init
+    if (
+      init === undefined ||
+      name === DESCENDANT_BINDING_BOUNDARY ||
+      hasCanonicalKnockoutBindingHandler(name)
+    ) {
+      return handler
+    }
+
+    const detectingHandler = Object.create(handler) as ko.BindingHandler
+    detectingHandler.init = (...args) => {
+      const element = args[0]
+      const controlsReactOwnedChildren =
+        element instanceof Element && hasReactOwnedChildren(element)
+      const result = init(...args)
+      if (
+        result?.controlsDescendantBindings &&
+        controlsReactOwnedChildren
+      ) {
+        throw new Error(
+          `react-ko cannot apply the Knockout "${name}" binding because its custom handler controls React-owned child nodes. ` +
+            'Custom bindings on elements with React-owned children must leave their descendants in place.'
+        )
+      }
+      return result
+    }
+    return detectingHandler
+  }
+
+  return () => {
+    ko.getBindingHandler = getBindingHandler
+  }
+}
+
 /**
  * Applies a binding pass without leaving subscriptions behind when a later
  * binding on the same tree throws before React can register effect cleanup.
@@ -411,6 +450,7 @@ export function applyBindingsSafely(viewModel: unknown, node: HTMLElement) {
   ensureDescendantBindingBoundary()
   assertNoReactUnsafeBindings(node)
   const removeContextMarkers = prepareDescendantBindingContextCapture(node)
+  const restoreBindingHandlerLookup = rejectDescendantControllingCustomHandlers()
   const view = node.ownerDocument.defaultView
   const eventTargetPrototype = view?.EventTarget.prototype
   const addEventListener = eventTargetPrototype?.addEventListener
@@ -443,6 +483,7 @@ export function applyBindingsSafely(viewModel: unknown, node: HTMLElement) {
     if (eventTargetPrototype !== undefined && addEventListener !== undefined) {
       eventTargetPrototype.addEventListener = addEventListener
     }
+    restoreBindingHandlerLookup()
     removeContextMarkers()
   }
 }
