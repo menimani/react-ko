@@ -14,7 +14,7 @@ type NullableItems<T> =
 
 type Props<T> = SemanticHostProps & {
   items:
-    | ko.Observable<T[]>
+    | ko.ObservableArray<T>
     | ko.Observable<readonly T[]>
     | ko.Computed<T[]>
     | ko.Computed<readonly T[]>
