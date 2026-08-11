@@ -2194,6 +2194,78 @@ describe('RootKnockoutProvider', () => {
     expect(vm.choice()).toBe('late')
   })
 
+  it('reapplies selectedOptions when React empties a value-less option text', async () => {
+    const vm = { choices: ko.observableArray(['']) }
+
+    function EmptyOptionTextSelect() {
+      const [empty, setEmpty] = useState(false)
+      return (
+        <>
+          <button onClick={() => setEmpty(true)}>empty multiple option text</button>
+          <select
+            multiple
+            data-testid="empty-text-selected-options"
+            data-bind="selectedOptions: choices"
+          >
+            <option>{empty ? '' : 'early'}</option>
+          </select>
+        </>
+      )
+    }
+
+    render(
+      <RootKnockoutProvider viewModel={vm}>
+        <EmptyOptionTextSelect />
+      </RootKnockoutProvider>
+    )
+    const select = screen.getByTestId(
+      'empty-text-selected-options'
+    ) as HTMLSelectElement
+
+    expect([...select.selectedOptions]).toEqual([])
+    fireEvent.click(screen.getByText('empty multiple option text'))
+
+    await waitFor(() => {
+      expect([...select.selectedOptions].map(({ value }) => value)).toEqual([''])
+    })
+    expect(vm.choices()).toEqual([''])
+  })
+
+  it('reapplies valueAllowUnset when React empties a value-less option text', async () => {
+    const vm = { choice: ko.observable('') }
+
+    function EmptyOptionTextSelect() {
+      const [empty, setEmpty] = useState(false)
+      return (
+        <>
+          <button onClick={() => setEmpty(true)}>empty value option text</button>
+          <select
+            data-testid="empty-text-value-option"
+            data-bind="value: choice, valueAllowUnset: true"
+          >
+            <option>{empty ? '' : 'early'}</option>
+          </select>
+        </>
+      )
+    }
+
+    render(
+      <RootKnockoutProvider viewModel={vm}>
+        <EmptyOptionTextSelect />
+      </RootKnockoutProvider>
+    )
+    const select = screen.getByTestId(
+      'empty-text-value-option'
+    ) as HTMLSelectElement
+
+    expect(select.selectedIndex).toBe(-1)
+    fireEvent.click(screen.getByText('empty value option text'))
+
+    await waitFor(() => expect(select.value).toBe(''))
+    expect(select.selectedIndex).toBe(0)
+    expect(vm.choice()).toBe('')
+  })
+
   it.each([
     ['value', 'value', 'Knockout value', 'React initial', 'React latest'],
     ['checked', 'checked', false, false, true],

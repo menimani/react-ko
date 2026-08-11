@@ -94,9 +94,9 @@ const viewModel = {
 ホスト要素は構造用のままで、バインディング境界またはルート用 ref と
 `display: contents` 以外のスタイルや ARIA prop は受け取りません。どちらのホストも
 常に子要素を持つため、`boundaryAs` と `as` に指定できるのは非 void HTML 要素だけです。
-TypeScript と JavaScript の両方で、有効なカスタム要素名も指定できます。
-`HTMLElementTagNameMap` の宣言マージで追加したカスタム要素にも対応します。一方、`input`、
-`img`、`br` などの void 要素、`svg` などの SVG 要素、無効なカスタム要素名は拒否されます。
+`HTMLElementTagNameMap` の宣言マージで追加した非 void HTML 名にも対応し、その名前に
+ハイフンは不要です。型境界とランタイム境界の両方で利用できます。一方、`input`、`img`、
+`br` などの既知の void 要素と、`svg` などの外来コンテンツのルートはランタイムで拒否されます。
 
 `RootKnockoutProvider` または `KnockoutScope` の `viewModel` を置き換えると、
 Knockout バインディングが再適用されます。どちらのコンポーネントも、置き換え時と

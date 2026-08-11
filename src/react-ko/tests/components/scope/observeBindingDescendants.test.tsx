@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { render, screen, act, waitFor } from '@testing-library/react'
-import { Component, type ReactNode, useState } from 'react'
+import { Component, type ReactNode, useLayoutEffect, useRef, useState } from 'react'
 import ko from 'knockout'
 import { RootKnockoutProvider, KnockoutScope } from '@/index'
 
@@ -111,6 +111,35 @@ function LocalNamespacedSvgAttributeBinding({ vm }: { vm: unknown }) {
   )
 }
 
+function LocalPanoseSvgAttributeBinding({ vm }: { vm: unknown }) {
+  const [phase, setPhase] = useState(0)
+  const owner = useRef<SVGSVGElement>(null)
+  const reactPanose = phase === 0 ? 'react-initial' : 'react-latest'
+
+  useLayoutEffect(() => {
+    // React's canonical property table maps panose1 to panose-1. Reflect that
+    // spelling explicitly because the React version in this test matrix still
+    // writes the pre-fix panose1 attribute.
+    owner.current?.setAttribute('panose-1', reactPanose)
+  }, [reactPanose])
+
+  return (
+    <RootKnockoutProvider viewModel={vm}>
+      <>
+        <svg
+          ref={owner}
+          data-testid="panose-owner"
+          panose1={reactPanose}
+          data-bind={phase < 2 ? "attr: { 'panose-1': knockoutPanose }" : undefined}
+        />
+        <button onClick={() => setPhase((current) => current + 1)}>
+          Advance panose prop
+        </button>
+      </>
+    </RootKnockoutProvider>
+  )
+}
+
 describe('observeBindingDescendants', () => {
   it('reapplies a class binding after a local React className update and retires it safely', async () => {
     render(<LocalClassBinding vm={{ activeClass: ko.observable('ko-active') }} />)
@@ -159,6 +188,18 @@ describe('observeBindingDescendants', () => {
       expect(owner.getAttributeNS(xlink, 'href')).toBe('#react-latest')
       expect(owner.getAttributeNS(xml, 'space')).toBe('react-latest')
     })
+  })
+
+  it('reapplies and safely retires panose-1 after a React panose1 update', async () => {
+    render(<LocalPanoseSvgAttributeBinding vm={{ knockoutPanose: 'knockout' }} />)
+    const owner = screen.getByTestId('panose-owner')
+    expect(owner.getAttribute('panose-1')).toBe('knockout')
+
+    act(() => screen.getByText('Advance panose prop').click())
+    await waitFor(() => expect(owner.getAttribute('panose-1')).toBe('knockout'))
+
+    act(() => screen.getByText('Advance panose prop').click())
+    await waitFor(() => expect(owner.getAttribute('panose-1')).toBe('react-latest'))
   })
 
   for (const binding of ['visible', 'hidden'] as const) {

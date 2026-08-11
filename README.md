@@ -94,11 +94,11 @@ available on `RootKnockoutProvider`, `KoIf`, `KoIfNot`, `KoForeach`, and
 
 The host elements remain structural: they receive only the binding boundary or
 binding-root ref and `display: contents`, not styling or ARIA props. Because both
-hosts always contain children, `boundaryAs` and `as` accept only non-void HTML
-elements and valid custom-element names in both TypeScript and JavaScript. Custom
-elements added through `HTMLElementTagNameMap` declaration merging are supported;
-void tags such as `input`, `img`, and `br`, SVG tags such as `svg`, and invalid
-custom-element names are rejected.
+hosts always contain children, `boundaryAs` and `as` accept non-void HTML elements.
+Additional non-void names added through `HTMLElementTagNameMap` declaration merging
+are supported at both the type and runtime boundaries and do not need a hyphen.
+Known void tags such as `input`, `img`, and `br`, and foreign-content roots such as
+`svg`, are rejected at runtime.
 
 Replacing a `RootKnockoutProvider` or `KnockoutScope` `viewModel` reapplies its
 Knockout bindings. Both components dispose their bindings when replaced or
