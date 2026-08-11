@@ -214,6 +214,8 @@ Do not use Knockout control-flow bindings `if`, `ifnot`, `foreach`, `template`,
 or `with` to control React-rendered children. Those bindings remove or clone
 child DOM nodes that React still owns. `RootKnockoutProvider` and
 `KnockoutScope` reject them before applying any bindings in that binding root.
+This includes containerless control-flow comments inserted through
+`dangerouslySetInnerHTML`, both on initial render and on later replacements.
 Use `KoIf`, `KoIfNot`, `KoForeach`, and `KoWith` instead.
 
 The `text`, `html`, `component`, and `options` bindings also replace an

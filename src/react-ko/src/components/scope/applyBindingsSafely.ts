@@ -100,7 +100,7 @@ export function currentReactHostProps(
 }
 
 function propsOwnUnfiberedContent(props: ReactHostProps | null | undefined): boolean {
-  const innerHtml = (props?.dangerouslySetInnerHTML as { __html?: unknown } | undefined)?.__html
+  const innerHtml = reactInnerHtml(props)
   if (innerHtml !== undefined && innerHtml !== null && String(innerHtml) !== '') {
     return true
   }
@@ -113,6 +113,37 @@ function propsOwnUnfiberedContent(props: ReactHostProps | null | undefined): boo
   }
 
   return hasRenderedPrimitive(props?.children)
+}
+
+function reactInnerHtml(props: ReactHostProps | null | undefined) {
+  return (props?.dangerouslySetInnerHTML as { __html?: unknown } | undefined)?.__html
+}
+
+function reactOwnedVirtualBinding(element: Element): string | undefined {
+  const innerHtml = reactInnerHtml(currentReactHostProps(element))
+  if (innerHtml === undefined || innerHtml === null || String(innerHtml) === '') {
+    return undefined
+  }
+
+  function visit(node: Node): string | undefined {
+    if (node.nodeType === Node.COMMENT_NODE) {
+      const source = /^\s*ko\s+([\s\S]*?)\s*$/.exec(node.nodeValue ?? '')?.[1]
+      if (source !== undefined) {
+        const binding = ko.expressionRewriting
+          .parseObjectLiteral(source)
+          .find(({ key }) => key !== undefined && REACT_UNSAFE_BINDINGS.has(key))
+        if (binding?.key !== undefined) return binding.key
+      }
+    }
+
+    for (const child of node.childNodes) {
+      const binding = visit(child)
+      if (binding !== undefined) return binding
+    }
+    return undefined
+  }
+
+  return visit(element)
 }
 
 function fiberOwnsNode(fiber: ReactFiber | null | undefined, nodes: ReadonlySet<Node>): boolean {
@@ -183,13 +214,15 @@ export function assertNoReactUnsafeBindings(
 ) {
   function visit(element: Element) {
     const names = bindingNames(element)
-    const unsafeBinding = [...names].find(
-      (name) =>
-        REACT_UNSAFE_BINDINGS.has(name) ||
-        ((hasReactOwnedChildren(element) ||
-          (element === root && rootHadReactContentMutation)) &&
-          REACT_CHILD_UNSAFE_BINDINGS.has(name))
-    )
+    const unsafeBinding =
+      reactOwnedVirtualBinding(element) ??
+      [...names].find(
+        (name) =>
+          REACT_UNSAFE_BINDINGS.has(name) ||
+          ((hasReactOwnedChildren(element) ||
+            (element === root && rootHadReactContentMutation)) &&
+            REACT_CHILD_UNSAFE_BINDINGS.has(name))
+      )
 
     if (unsafeBinding !== undefined) {
       const advice = REACT_UNSAFE_BINDINGS.has(unsafeBinding)
