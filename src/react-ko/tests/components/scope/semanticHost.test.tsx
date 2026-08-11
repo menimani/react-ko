@@ -140,6 +140,13 @@ describe('semantic hosts', () => {
     }
   )
 
+  it.each(['textarea', 'title'] as const)(
+    'preserves the v2 runtime-compatible <%s> semantic host',
+    (host) => {
+      expect(semanticHostComponent(host)).toBe(host)
+    }
+  )
+
   it.each([
     'frameset',
     'noembed',
@@ -268,22 +275,4 @@ describe('semantic hosts', () => {
     }
   )
 
-  it.each([
-    ['as', 'textarea'],
-    ['boundaryAs', 'textarea'],
-    ['as', 'title'],
-    ['boundaryAs', 'title'],
-  ] as const)(
-    'rejects the JavaScript %s value <%s> when it cannot preserve a child element subtree',
-    (hostProp, host) => {
-      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
-      try {
-        expect(() => renderWithJavaScriptHost(hostProp, host)).toThrow(
-          `cannot use <${host}> as a semantic host because scope hosts require an HTML element that preserves its child element subtree`
-        )
-      } finally {
-        consoleError.mockRestore()
-      }
-    }
-  )
 })

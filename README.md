@@ -98,10 +98,9 @@ hosts always contain children, `boundaryAs` and `as` accept non-void HTML elemen
 Additional non-void names added through `HTMLElementTagNameMap` declaration merging
 are supported at both the type and runtime boundaries and do not need a hyphen.
 Known void tags such as `input`, `img`, and `br`, and foreign-content roots such as
-`svg`, are rejected at runtime. The text-only `textarea` and `title` elements are also
-rejected because they cannot preserve the binding subtree. All other `SemanticHost`
-values remain accepted at runtime for v2 compatibility; tighter host restrictions are
-deferred to a future major release.
+`svg`, are rejected at runtime. All other `SemanticHost` values, including the text-only
+`textarea` and `title` elements, remain accepted at runtime for v2 compatibility;
+tighter host restrictions are deferred to a future major release.
 
 Replacing a `RootKnockoutProvider` or `KnockoutScope` `viewModel` reapplies its
 Knockout bindings. Both components dispose their bindings when replaced or
@@ -132,10 +131,10 @@ Custom bindings that do not control descendants, such as tooltip bindings, remai
 supported on elements with React-rendered children and are responsible for leaving those
 children in place. A custom handler that returns `controlsDescendantBindings` is rejected
 on an element with React-rendered children so their nested bindings cannot be skipped
-silently. A custom binding may use an empty element only when it creates all
-owned content during initial binding. Content inserted by a later custom-binding update
-is not tracked as owned and may be rebound or rejected as a late descendant, so that
-pattern is not supported.
+silently. A custom binding may use an initially empty element and create its owned
+content during initial binding or a later update. Later Knockout-created content remains
+owned by that descendant controller and is not rebound; React-owned children inserted
+later are rejected.
 React prop updates and active Knockout bindings can also share an element: React's
 latest classes, inline styles, attributes, and form-property defaults are retained,
 while the active Knockout binding continues to own the DOM effects it declares.
