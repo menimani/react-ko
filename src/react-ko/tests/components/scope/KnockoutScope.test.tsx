@@ -120,6 +120,35 @@ describe('KnockoutScope', () => {
     expect(vm.name()).toBe('Changed in layout')
   })
 
+  it('binds initial descendants before their layout effects run without a root provider', () => {
+    const appVm = {}
+    const vm = { name: ko.observable('Initial') }
+
+    function ChangeInLayout() {
+      const input = useRef<HTMLInputElement>(null)
+
+      useLayoutEffect(() => {
+        if (input.current !== null) {
+          input.current.value = 'Changed in layout'
+          input.current.dispatchEvent(new Event('change', { bubbles: true }))
+        }
+      }, [])
+
+      return <input ref={input} data-bind="value: name" />
+    }
+
+    render(
+      <AppViewModelContext.Provider value={appVm}>
+        <KnockoutScope viewModel={vm}>
+          <ChangeInLayout />
+        </KnockoutScope>
+      </AppViewModelContext.Provider>
+    )
+
+    expect(vm.name()).toBe('Changed in layout')
+    expect(screen.getByDisplayValue('Changed in layout')).toBeDefined()
+  })
+
   it('sends a late binding error to a React error boundary with a stable view model', async () => {
     const appVm = {}
     const vm = {}

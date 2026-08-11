@@ -178,6 +178,32 @@ describe('RootKnockoutProvider', () => {
     expect(vm.name()).toBe('Changed in layout')
   })
 
+  it('binds initial descendants before their layout effects run', () => {
+    const vm = { name: ko.observable('Initial') }
+
+    function ChangeInLayout() {
+      const input = useRef<HTMLInputElement>(null)
+
+      useLayoutEffect(() => {
+        if (input.current !== null) {
+          input.current.value = 'Changed in layout'
+          input.current.dispatchEvent(new Event('change', { bubbles: true }))
+        }
+      }, [])
+
+      return <input ref={input} data-bind="value: name" />
+    }
+
+    render(
+      <RootKnockoutProvider viewModel={vm}>
+        <ChangeInLayout />
+      </RootKnockoutProvider>
+    )
+
+    expect(vm.name()).toBe('Changed in layout')
+    expect(screen.getByDisplayValue('Changed in layout')).toBeDefined()
+  })
+
   it('preserves a let descendant context for children mounted later', async () => {
     const vm = { label: ko.observable('Late alias') }
 
