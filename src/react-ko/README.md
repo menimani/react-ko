@@ -124,8 +124,10 @@ bindings restore the attributes, classes, styles, and form properties owned by
 the previous expression before applying the next one; a custom binding is rejected
 if its DOM effects cannot be safely retired.
 Custom bindings are also rejected on elements with React-rendered children because
-their descendant behavior cannot be audited before they run. Put a custom binding on
-an empty element when it needs to own that element's contents. Audited Knockout
+their descendant behavior cannot be audited before they run. A custom binding may use
+an empty element only when it creates all owned content during initial binding. Content
+inserted by a later custom-binding update is not tracked as owned and may be rebound or
+rejected as a late descendant, so that pattern is not supported. Audited Knockout
 built-ins that do not control descendants, including `class` and `hidden`, remain
 supported with React children. Replacing a built-in handler or registering a handler
 under an otherwise allowlisted option name makes that binding custom and it is rejected
