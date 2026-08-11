@@ -782,7 +782,6 @@ function releaseDirectTextInterceptor(view: Window & typeof globalThis) {
 
   if (!releaseInterceptorOwner(interceptor.owners)) return
 
-  const prototype = view.Node.prototype
   for (const {
     prototype: propertyPrototype,
     name,
