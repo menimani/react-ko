@@ -181,6 +181,33 @@ describe('daemon startup', () => {
     expect(runnerStarts).toHaveLength(2)
   })
 
+  it('does not record a scan cycle when reloading the project adapter fails', async () => {
+    const reloadProject = vi.fn(async () => {
+      throw new Error('project reload exploded')
+    })
+    const loop = createLoop({
+      paths,
+      config: { ...loadConfig({}), autoPr: false, reviewEnabled: false, scanParallel: 1 },
+      forge: makeForge(),
+      runner: makeRunner(),
+      project: stubProject,
+      reloadProject,
+      log: (line) => logged.push(line),
+      now: () => new Date(2026, 7, 8, 12, 0, 0),
+    })
+
+    expect(await loop.triggerScanIfIdle()).toBe('continue')
+
+    expect(reloadProject).toHaveBeenCalledOnce()
+    expect(existsSync(join(paths.queueDir, 'scan-count.txt'))).toBe(false)
+    expect(readdirSync(paths.tasksDir)).toEqual([])
+    expect(readdirSync(paths.statusDir)).toEqual([])
+    expect(runnerStarts).toEqual([])
+    expect(logText()).toContain(
+      'scan startup failed while reloading project adapter: project reload exploded'
+    )
+  })
+
   it.each([
     ['Library dependencies', 0],
     ['Orchestration dependencies', 1],

@@ -94,6 +94,70 @@ describe('applyBindingsSafely', () => {
     expect(element.querySelector('span')?.textContent).toBe('React child')
   })
 
+  it('rejects an audited handler whose update method was mutated in place', () => {
+    const handler = ko.bindingHandlers.visible
+    const registeredUpdate = handler.update
+    const update = vi.fn((element: Element) => {
+      element.replaceChildren('Knockout replacement')
+    })
+    handler.update = update
+
+    try {
+      const { container } = render(
+        <div data-bind="visible: shown">
+          <span>React child</span>
+        </div>
+      )
+
+      expect(() => applyBindingsSafely({ shown: true }, container)).toThrow(
+        'react-ko cannot apply the Knockout "visible" binding'
+      )
+      expect(update).not.toHaveBeenCalled()
+      expect(container.querySelector('span')?.textContent).toBe('React child')
+    } finally {
+      handler.update = registeredUpdate
+    }
+  })
+
+  it('allows a handlerless event Bubble option with React-owned children', () => {
+    const handle = vi.fn()
+    const { container } = render(
+      <button data-bind="click: handle, clickBubble: false">
+        <span>React child</span>
+      </button>
+    )
+
+    expect(() => applyBindingsSafely({ handle }, container)).not.toThrow()
+    fireEvent.click(container.querySelector('span')!)
+
+    expect(handle).toHaveBeenCalledOnce()
+    expect(container.querySelector('span')?.textContent).toBe('React child')
+  })
+
+  it('rejects a registered handler using a Bubble option name', () => {
+    const registered = ko.bindingHandlers.clickBubble
+    const update = vi.fn((element: Element) => {
+      element.replaceChildren('Knockout replacement')
+    })
+    ko.bindingHandlers.clickBubble = { update }
+
+    try {
+      const { container } = render(
+        <button data-bind="click: handle, clickBubble: false">
+          <span>React child</span>
+        </button>
+      )
+
+      expect(() => applyBindingsSafely({ handle: vi.fn() }, container)).toThrow(
+        'react-ko cannot apply the Knockout "clickBubble" binding'
+      )
+      expect(update).not.toHaveBeenCalled()
+    } finally {
+      if (registered === undefined) delete ko.bindingHandlers.clickBubble
+      else ko.bindingHandlers.clickBubble = registered
+    }
+  })
+
   it.each(['optionsText', 'visible'])(
     'rejects a custom handler colliding with the allowlisted %s name',
     (binding) => {

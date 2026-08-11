@@ -58,17 +58,34 @@ const REACT_CHILD_HANDLERLESS_BINDINGS = new Set([
   'valueAllowUnset',
   'valueUpdate',
 ])
-const REACT_CHILD_AUDITED_BINDING_HANDLERS = new Map(
-  [...REACT_CHILD_AUDITED_BINDINGS].map((name) => [name, ko.bindingHandlers[name]])
+function bindingHandlerMethods(name: string) {
+  const handler = ko.bindingHandlers[name]
+  return handler === undefined
+    ? undefined
+    : {
+        init: handler.init,
+        update: handler.update,
+        preprocess: handler.preprocess,
+      }
+}
+
+const REACT_CHILD_AUDITED_BINDING_HANDLER_METHODS = new Map(
+  [...REACT_CHILD_AUDITED_BINDINGS].map((name) => [name, bindingHandlerMethods(name)])
 )
 
 function hasAuditedBindingHandler(name: string) {
   const registeredHandler = ko.bindingHandlers[name]
+  const auditedMethods = REACT_CHILD_AUDITED_BINDING_HANDLER_METHODS.get(name)
   return (
-    REACT_CHILD_AUDITED_BINDINGS.has(name) &&
-    (REACT_CHILD_HANDLERLESS_BINDINGS.has(name)
-      ? registeredHandler === undefined
-      : registeredHandler === REACT_CHILD_AUDITED_BINDING_HANDLERS.get(name))
+    (name.endsWith('Bubble') && registeredHandler === undefined) ||
+    (REACT_CHILD_AUDITED_BINDINGS.has(name) &&
+      (REACT_CHILD_HANDLERLESS_BINDINGS.has(name)
+        ? registeredHandler === undefined
+        : registeredHandler !== undefined &&
+          auditedMethods !== undefined &&
+          registeredHandler.init === auditedMethods.init &&
+          registeredHandler.update === auditedMethods.update &&
+          registeredHandler.preprocess === auditedMethods.preprocess))
   )
 }
 

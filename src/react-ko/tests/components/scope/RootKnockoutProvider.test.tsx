@@ -927,6 +927,53 @@ describe('RootKnockoutProvider', () => {
     }
   })
 
+  it('rejects late React text before a custom binding can later detach it', async () => {
+    const binding = 'replaceTextOnNotification'
+    const notified = ko.observable(false)
+    const replace = vi.fn()
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    let showText = () => undefined
+
+    ko.bindingHandlers[binding] = {
+      update(element, valueAccessor) {
+        if (ko.unwrap(valueAccessor())) {
+          replace()
+          element.replaceChildren('Knockout replacement')
+        }
+      },
+    }
+
+    function BindingOwner() {
+      const [show, setShow] = useState(false)
+      showText = () => setShow(true)
+
+      return (
+        <div data-bind={`${binding}: notified`}>
+          {show ? 'React text' : null}
+        </div>
+      )
+    }
+
+    try {
+      render(
+        <ErrorBoundary>
+          <RootKnockoutProvider viewModel={{ notified }}>
+            <BindingOwner />
+          </RootKnockoutProvider>
+        </ErrorBoundary>
+      )
+      act(() => showText())
+
+      await waitFor(() => expect(screen.getByText('Binding failed')).toBeDefined())
+      expect(notified.getSubscriptionsCount()).toBe(0)
+      act(() => notified(true))
+      expect(replace).not.toHaveBeenCalled()
+    } finally {
+      delete ko.bindingHandlers[binding]
+      consoleError.mockRestore()
+    }
+  })
+
   it.each([
     ['text', 'text: text'],
     ['html', 'html: markup'],

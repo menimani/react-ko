@@ -10,6 +10,7 @@ import {
   KoWith,
   RootKnockoutProvider,
 } from '@/index'
+import { semanticHostComponent } from '@/components/scope/semanticHost'
 
 declare global {
   interface HTMLElementTagNameMap {
@@ -90,6 +91,13 @@ describe('semantic hosts', () => {
       'Custom host'
     )
   })
+
+  it.each(['marquee', 'dir', 'font', 'frameset'])(
+    'accepts the mapped non-void <%s> host at runtime',
+    (host) => {
+      expect(() => semanticHostComponent(host as never)).not.toThrow()
+    }
+  )
 
   it.each([
     ['root', 'as'],
