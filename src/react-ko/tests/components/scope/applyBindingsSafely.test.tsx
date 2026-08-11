@@ -253,6 +253,41 @@ describe('applyBindingsSafely', () => {
     }
   })
 
+  it('compiles and validates data-bind through a getBindings-only provider', () => {
+    const provider = ko.bindingProvider.instance
+    const getBindings = vi.fn((node: Node, context: ko.BindingContext) =>
+      node.nodeType === Node.ELEMENT_NODE &&
+      (node as Element).hasAttribute('data-bind')
+        ? { attr: { title: context.$data.label } }
+        : null
+    )
+    ko.bindingProvider.instance = {
+      nodeHasBindings(node) {
+        return (
+          node.nodeType === Node.ELEMENT_NODE &&
+          (node as Element).hasAttribute('data-bind')
+        )
+      },
+      getBindings,
+    } as ko.IBindingProvider
+
+    try {
+      const { container } = render(
+        <button data-bind="text: label">
+          <span>React child</span>
+        </button>
+      )
+
+      applyBindingsSafely({ label: 'Provider tooltip' }, container)
+
+      expect(getBindings).toHaveBeenCalled()
+      expect(container.querySelector('button')?.title).toBe('Provider tooltip')
+      expect(container.querySelector('span')?.textContent).toBe('React child')
+    } finally {
+      ko.bindingProvider.instance = provider
+    }
+  })
+
   it('rejects and cleans a custom handler that controls React-owned descendants', () => {
     const binding = 'customDescendantController'
     const label = ko.observable('Bound before failure')
@@ -286,6 +321,64 @@ describe('applyBindingsSafely', () => {
       expect(dispose).toHaveBeenCalledOnce()
       expect(ko.getBindingHandler).toBe(getBindingHandler)
     } finally {
+      delete ko.bindingHandlers[binding]
+    }
+  })
+
+  it('rejects a controlling custom handler before its live init removes children', () => {
+    const binding = 'destructiveDescendantController'
+    const init = vi.fn((element: Node) => {
+      const auditTarget = element as Element
+      auditTarget.replaceChildren()
+      return { controlsDescendantBindings: true }
+    })
+    ko.bindingHandlers[binding] = {
+      init,
+    }
+
+    try {
+      const { container } = render(
+        <section data-bind={`${binding}: true`}>
+          <span>React child</span>
+        </section>
+      )
+      const child = container.querySelector('span')
+
+      expect(() => applyBindingsSafely({}, container)).toThrow(
+        `react-ko cannot apply the Knockout "${binding}" binding because its custom handler controls React-owned child nodes.`
+      )
+      expect(container.querySelector('span')).toBe(child)
+      expect(container.querySelector('span')?.textContent).toBe('React child')
+      expect(init).toHaveBeenCalledOnce()
+      expect(init.mock.calls[0][0]).not.toBe(container.querySelector('section'))
+    } finally {
+      delete ko.bindingHandlers[binding]
+    }
+  })
+
+  it('rejects a controlling custom handler on an element from another realm', () => {
+    const binding = 'crossRealmDescendantController'
+    ko.bindingHandlers[binding] = {
+      init() {
+        return { controlsDescendantBindings: true }
+      },
+    }
+    const iframe = document.createElement('iframe')
+    document.body.append(iframe)
+
+    try {
+      const foreignDocument = iframe.contentDocument!
+      const container = foreignDocument.createElement('div')
+      container.innerHTML =
+        `<section data-bind="${binding}: true"><span>React child</span></section>`
+      foreignDocument.body.append(container)
+
+      expect(() => applyBindingsSafely({}, container)).toThrow(
+        `react-ko cannot apply the Knockout "${binding}" binding because its custom handler controls React-owned child nodes.`
+      )
+      expect(container.querySelector('span')?.textContent).toBe('React child')
+    } finally {
+      iframe.remove()
       delete ko.bindingHandlers[binding]
     }
   })
