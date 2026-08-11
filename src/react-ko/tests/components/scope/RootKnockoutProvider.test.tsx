@@ -963,6 +963,56 @@ describe('RootKnockoutProvider', () => {
     }
   })
 
+  it('rejects text returned by a late React child before Knockout can detach it', () => {
+    const vm = { label: ko.observable('Knockout text') }
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    let showChild = () => undefined
+    let childTextAfterUpdate: string | null | undefined
+    let connectedAfterUpdate = false
+
+    function UpdatingChild() {
+      useLayoutEffect(() => {
+        const childText = document.querySelector('[data-testid="component-text-owner"]')
+          ?.lastChild
+        vm.label('Updated in layout')
+        childTextAfterUpdate = childText?.textContent
+        connectedAfterUpdate = childText?.isConnected ?? false
+      }, [])
+
+      return 'React child text'
+    }
+
+    function BindingOwner() {
+      const [show, setShow] = useState(false)
+      showChild = () => setShow(true)
+
+      return (
+        <div data-testid="component-text-owner" data-bind="text: label">
+          {show ? <UpdatingChild /> : null}
+        </div>
+      )
+    }
+
+    try {
+      render(
+        <ErrorBoundary>
+          <RootKnockoutProvider viewModel={vm}>
+            <BindingOwner />
+          </RootKnockoutProvider>
+        </ErrorBoundary>
+      )
+      act(() => showChild())
+
+      expect(screen.getByText('Binding failed')).toBeDefined()
+      expect(childTextAfterUpdate).toBe('React child text')
+      expect(connectedAfterUpdate).toBe(true)
+      expect(vm.label()).toBe('Updated in layout')
+      expect(vm.label.getSubscriptionsCount()).toBe(0)
+    } finally {
+      consoleError.mockRestore()
+    }
+  })
+
   it('rejects a direct React text write before a sibling layout effect can overwrite it', () => {
     const vm = { label: ko.observable('Knockout text') }
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)

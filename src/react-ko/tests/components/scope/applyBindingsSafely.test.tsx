@@ -79,6 +79,18 @@ describe('applyBindingsSafely', () => {
     expect(container.textContent).toBe('React text')
   })
 
+  it('rejects a content binding over a direct React number without detaching the tree', () => {
+    const { container, rerender } = render(<div data-bind="text: value">{123}</div>)
+
+    expect(() => applyBindingsSafely({ value: 'Knockout value' }, container)).toThrow(
+      'react-ko cannot apply the Knockout "text" binding'
+    )
+    expect(container.textContent).toBe('123')
+
+    rerender(<div data-bind="text: value">{456}</div>)
+    expect(container.textContent).toBe('456')
+  })
+
   it('handles direct React bigint content according to the React major', () => {
     const bigint = 123n as unknown as ReactNode
     const { container } = render(<div data-bind="text: value">{bigint}</div>)
