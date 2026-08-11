@@ -36,7 +36,12 @@ export const KnockoutScope = React.memo(function KnockoutScope<T>({
   const handleBindingError = useCallback((error: unknown) => {
     setBindingFailure({ error })
   }, [])
-  const { container, generation, bindingEstablished } = useBindingRoot(
+  const {
+    container,
+    generation,
+    bindingEstablished,
+    preserveServerChildren,
+  } = useBindingRoot(
     viewModel,
     parentGeneration,
     handleBindingError,
@@ -57,7 +62,9 @@ export const KnockoutScope = React.memo(function KnockoutScope<T>({
       <ScopeBindGenerationContext.Provider value={generation}>
         <BoundaryHost data-bind={`${DESCENDANT_BINDING_BOUNDARY}: true`} style={{ display: 'contents' }}>
           <BindingHost ref={container} style={{ display: 'contents' }}>
-            {bindingEstablished && !replacingHost ? children : null}
+            {(preserveServerChildren || bindingEstablished) && !replacingHost
+              ? children
+              : null}
           </BindingHost>
         </BoundaryHost>
       </ScopeBindGenerationContext.Provider>

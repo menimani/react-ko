@@ -7,6 +7,7 @@ declare global {
 }
 
 type Assert<T extends true> = T
+type AssertNot<T extends false> = T
 
 type MarqueeIsSemanticHost = Assert<'marquee' extends SemanticHost ? true : false>
 type DirIsSemanticHost = Assert<'dir' extends SemanticHost ? true : false>
@@ -15,9 +16,19 @@ type FramesetIsSemanticHost = Assert<'frameset' extends SemanticHost ? true : fa
 type CustomElementIsSemanticHost = Assert<
   'custom-host' extends SemanticHost ? true : false
 >
+type FrameIsNotSemanticHost = AssertNot<'frame' extends SemanticHost ? true : false>
+type BasefontIsNotSemanticHost = AssertNot<
+  'basefont' extends SemanticHost ? true : false
+>
+type KeygenIsNotSemanticHost = AssertNot<
+  'keygen' extends SemanticHost ? true : false
+>
 
 void (true satisfies MarqueeIsSemanticHost)
 void (true satisfies DirIsSemanticHost)
 void (true satisfies FontIsSemanticHost)
 void (true satisfies FramesetIsSemanticHost)
 void (true satisfies CustomElementIsSemanticHost)
+void (false satisfies FrameIsNotSemanticHost)
+void (false satisfies BasefontIsNotSemanticHost)
+void (false satisfies KeygenIsNotSemanticHost)

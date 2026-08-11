@@ -186,8 +186,10 @@ export function KoInput({ value }: Props) {
 `KnockoutScope` calls `useAppViewModel` internally, so it must be rendered under
 either `RootKnockoutProvider` or an `AppViewModelContext.Provider`. The root
 provider also applies bindings for any `data-bind` attributes outside nested
-scopes. Both components establish their binding host before mounting children,
-so descendant layout effects interact with DOM that is already bound.
+scopes. On client-only mounts, both components establish their binding host
+before mounting children, so descendant layout effects interact with DOM that
+is already bound. During server rendering and hydration, they preserve the
+server-rendered child subtree so React can hydrate it in place.
 
 ```tsx
 import ko from 'knockout'

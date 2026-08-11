@@ -145,15 +145,11 @@ const NON_VOID_SEMANTIC_HOST_NAMES = [
 
 type NonVoidSemanticHost = (typeof NON_VOID_SEMANTIC_HOST_NAMES)[number]
 
-export type SemanticHost =
-  | NonVoidSemanticHost
-  | Exclude<keyof HTMLElementTagNameMap, VoidSemanticHost>
-
 const NON_VOID_SEMANTIC_HOSTS: ReadonlySet<string> = new Set(
   NON_VOID_SEMANTIC_HOST_NAMES
 )
 
-const RESERVED_CUSTOM_ELEMENT_NAMES = new Set([
+const RESERVED_CUSTOM_ELEMENT_NAMES = [
   'annotation-xml',
   'color-profile',
   'font-face',
@@ -162,13 +158,63 @@ const RESERVED_CUSTOM_ELEMENT_NAMES = new Set([
   'font-face-format',
   'font-face-name',
   'missing-glyph',
-])
+] as const
+
+type ReservedCustomElementName = (typeof RESERVED_CUSTOM_ELEMENT_NAMES)[number]
+type CustomElementNameStart =
+  | 'a'
+  | 'b'
+  | 'c'
+  | 'd'
+  | 'e'
+  | 'f'
+  | 'g'
+  | 'h'
+  | 'i'
+  | 'j'
+  | 'k'
+  | 'l'
+  | 'm'
+  | 'n'
+  | 'o'
+  | 'p'
+  | 'q'
+  | 'r'
+  | 's'
+  | 't'
+  | 'u'
+  | 'v'
+  | 'w'
+  | 'x'
+  | 'y'
+  | 'z'
+
+type DeclarationMergedCustomElementHost = {
+  [Host in keyof HTMLElementTagNameMap]: Host extends string
+    ? Host extends `${CustomElementNameStart}${string}-${string}`
+      ? Host extends Lowercase<Host>
+        ? Host
+        : never
+      : never
+    : never
+}[keyof HTMLElementTagNameMap]
+
+type CustomElementSemanticHost = Exclude<
+  DeclarationMergedCustomElementHost,
+  ReservedCustomElementName
+>
+
+export type SemanticHost = NonVoidSemanticHost | CustomElementSemanticHost
+
+const RESERVED_CUSTOM_ELEMENT_NAME_SET: ReadonlySet<string> = new Set(
+  RESERVED_CUSTOM_ELEMENT_NAMES
+)
 
 const CUSTOM_ELEMENT_NAME =
   /^[a-z][.0-9_a-z\-\u00b7\u00c0-\u00d6\u00d8-\u00f6\u00f8-\u037d\u037f-\u1fff\u200c-\u200d\u203f-\u2040\u2070-\u218f\u2c00-\u2fef\u3001-\ud7ff\uf900-\ufdcf\ufdf0-\ufffd\u{10000}-\u{effff}]*-[.0-9_a-z\-\u00b7\u00c0-\u00d6\u00d8-\u00f6\u00f8-\u037d\u037f-\u1fff\u200c-\u200d\u203f-\u2040\u2070-\u218f\u2c00-\u2fef\u3001-\ud7ff\uf900-\ufdcf\ufdf0-\ufffd\u{10000}-\u{effff}]*$/u
 
 function isCustomElementHost(host: string) {
-  return CUSTOM_ELEMENT_NAME.test(host) && !RESERVED_CUSTOM_ELEMENT_NAMES.has(host)
+  return CUSTOM_ELEMENT_NAME.test(host) && !RESERVED_CUSTOM_ELEMENT_NAME_SET.has(host)
 }
 
 export type SemanticHostProps = {
