@@ -288,6 +288,109 @@ describe('applyBindingsSafely', () => {
     }
   })
 
+  it('restores custom binding provider method descriptors after applying bindings', () => {
+    const originalProvider = ko.bindingProvider.instance
+    const provider = Object.create(originalProvider) as ko.IBindingProvider & {
+      getBindingsString: ko.bindingProvider['getBindingsString']
+    }
+    Object.defineProperties(provider, {
+      getBindingAccessors: {
+        configurable: false,
+        enumerable: true,
+        value: originalProvider.getBindingAccessors,
+        writable: true,
+      },
+      getBindings: {
+        configurable: true,
+        enumerable: false,
+        value: originalProvider.getBindings,
+        writable: false,
+      },
+      getBindingsString: {
+        configurable: false,
+        enumerable: false,
+        value: ko.bindingProvider.prototype.getBindingsString,
+        writable: true,
+      },
+    })
+    const originalDescriptors = Object.getOwnPropertyDescriptors(provider)
+    ko.bindingProvider.instance = provider
+
+    try {
+      const container = document.createElement('div')
+      container.innerHTML = '<button data-bind="attr: { title: label }"></button>'
+
+      applyBindingsSafely({ label: 'Restored provider' }, container)
+
+      expect(container.querySelector('button')?.title).toBe('Restored provider')
+      for (const method of [
+        'getBindingAccessors',
+        'getBindings',
+        'getBindingsString',
+      ] as const) {
+        expect(Object.getOwnPropertyDescriptor(provider, method)).toEqual(
+          originalDescriptors[method]
+        )
+      }
+    } finally {
+      ko.bindingProvider.instance = originalProvider
+    }
+  })
+
+  it('restores custom binding provider method descriptors when a binding throws', () => {
+    const binding = 'throwingBinding'
+    const originalProvider = ko.bindingProvider.instance
+    const provider = Object.create(originalProvider) as ko.IBindingProvider & {
+      getBindingsString: ko.bindingProvider['getBindingsString']
+    }
+    Object.defineProperties(provider, {
+      getBindingAccessors: {
+        configurable: false,
+        enumerable: true,
+        value: originalProvider.getBindingAccessors,
+        writable: true,
+      },
+      getBindings: {
+        configurable: true,
+        enumerable: false,
+        value: originalProvider.getBindings,
+        writable: false,
+      },
+      getBindingsString: {
+        configurable: false,
+        enumerable: false,
+        value: ko.bindingProvider.prototype.getBindingsString,
+        writable: true,
+      },
+    })
+    const originalDescriptors = Object.getOwnPropertyDescriptors(provider)
+    ko.bindingProvider.instance = provider
+    ko.bindingHandlers[binding] = {
+      init() {
+        throw new Error('Binding failed')
+      },
+    }
+
+    try {
+      const container = document.createElement('div')
+      container.innerHTML = `<button data-bind="${binding}: true"></button>`
+
+      expect(() => applyBindingsSafely({}, container)).toThrow('Binding failed')
+      for (const method of [
+        'getBindingAccessors',
+        'getBindings',
+        'getBindingsString',
+      ] as const) {
+        expect(Object.getOwnPropertyDescriptor(provider, method)).toEqual(
+          originalDescriptors[method]
+        )
+      }
+    } finally {
+      delete ko.bindingHandlers[binding]
+      ko.bindingProvider.instance = originalProvider
+    }
+  })
+
   it('rejects and cleans a custom handler that controls React-owned descendants', () => {
     const binding = 'customDescendantController'
     const label = ko.observable('Bound before failure')
