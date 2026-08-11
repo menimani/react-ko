@@ -7,8 +7,26 @@ import { promisify } from 'node:util'
 import { expect, it } from 'vitest'
 
 const require = createRequire(import.meta.url)
-const tsupRequire = createRequire(require.resolve('tsup/package.json'))
 const execFileAsync = promisify(execFile)
+
+// esbuild runs in a child Node process rather than here: `bin/esbuild` is a
+// native executable on Linux and macOS so it cannot be spawned through node,
+// and esbuild's JS API refuses to start under this suite's jsdom environment.
+async function bundleMinified(entryPoint: string, outfile: string) {
+  const esbuildPath = require.resolve('esbuild')
+  await execFileAsync(process.execPath, [
+    '-e',
+    `require(${JSON.stringify(esbuildPath)}).build({
+      entryPoints: [${JSON.stringify(entryPoint)}],
+      bundle: true,
+      minify: true,
+      format: 'esm',
+      platform: 'browser',
+      external: ['react'],
+      outfile: ${JSON.stringify(outfile)},
+    }).catch((error) => { console.error(error); process.exit(1) })`,
+  ])
+}
 
 it('retires the built-in options binding from a minified consumer bundle', async () => {
   const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../..')
@@ -16,20 +34,10 @@ it('retires the built-in options binding from a minified consumer bundle', async
   const outfile = join(outDir, 'minifiedOptionsRetirement.js')
 
   try {
-    const esbuild = join(
-      dirname(tsupRequire.resolve('esbuild/package.json')),
-      'bin/esbuild'
-    )
-    await execFileAsync(process.execPath, [
-      esbuild,
+    await bundleMinified(
       join(packageRoot, 'tests/fixtures/minifiedOptionsRetirement.ts'),
-      '--bundle',
-      '--minify',
-      '--format=esm',
-      '--platform=browser',
-      '--external:react',
-      `--outfile=${outfile}`,
-    ])
+      outfile
+    )
 
     const bundle = await import(pathToFileURL(outfile).href) as {
       retireOptionsBinding(): {
