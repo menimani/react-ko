@@ -19,7 +19,8 @@ from or equivalent to `orchestration/tests/*.sh`.
   it protected — values read from status files compare clean — still holds and is tested).
 - The command surface is the `scripts` block of `orchestration/ts/package.json` —
   `orchestrate.sh` is not kept (decided 2026-08-08; supersedes the frozen-wrapper plan).
-  Each command dispatches into `src/cli.ts`. The skills (`loop-start`, `loop-stop`,
+  Each operational command dispatches into `src/cli.ts`; `test` runs vitest and
+  `typecheck` runs TypeScript directly. The skills (`loop-start`, `loop-stop`,
   `loop-delegate`) are updated to the npm form as part of the cutover. What stays
   frozen: the environment variable names (they pass through npm unchanged, so launch
   commands keep their shape) and the output lines the skills and tests key on
