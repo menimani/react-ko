@@ -1457,11 +1457,20 @@ function bindAddedNodes(
   bindingStates: BindingStateStore
 ) {
   for (const record of records) {
+    if (
+      record.type === 'characterData' &&
+      record.target.parentNode?.nodeType === Node.ELEMENT_NODE &&
+      belongsToBindingRoot(record.target, root) &&
+      hasReactOwnership(record.target, record.target.parentNode as Element)
+    ) {
+      assertNoReactUnsafeBindings(record.target.parentNode as HTMLElement)
+    }
+
     for (const node of record.addedNodes) {
       if (
-        node.nodeType !== Node.ELEMENT_NODE ||
+        (node.nodeType !== Node.ELEMENT_NODE && node.nodeType !== Node.TEXT_NODE) ||
         !belongsToBindingRoot(node, root) ||
-        ko.contextFor(node) !== undefined ||
+        (node.nodeType === Node.ELEMENT_NODE && ko.contextFor(node) !== undefined) ||
         isKnockoutOwnedContentAddition(record, node, bindingStates)
       ) {
         continue
@@ -1471,6 +1480,9 @@ function bindAddedNodes(
       // descendant scope boundary encountered during that pass.
       if (record.target.nodeType === Node.ELEMENT_NODE) {
         assertNoReactUnsafeBindings(record.target as HTMLElement)
+      }
+      if (node.nodeType === Node.TEXT_NODE) {
+        continue
       }
       const bindingContext = descendantBindingContextFor(node, root)
       prepareBindingTree(node as HTMLElement, root, bindingStates)
