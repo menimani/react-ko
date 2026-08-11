@@ -409,6 +409,24 @@ Knockout の遅延更新モード（`ko.options.deferUpdates = true`）はライ
 
 ---
 
+## v2 からの移行
+
+v3 では、配列ソースの宣言上の戻り値型を従来からの実行時動作に合わせました。
+`useKoValue(ko.ObservableArray<T>)` は `T[] | null | undefined` を返すように
+なったため、直ちに `.length` を読んだり `.map()` を呼んだりして、必ず配列で
+あると仮定するコードは型チェックを通らなくなります。空配列をフォールバックに
+したい場合は、呼び出し箇所で次のようにガードしてください：
+
+```tsx
+const items = useKoValue(vm.items) ?? []
+```
+
+この変更は `ko.ObservableArray` ソースだけに適用されます。配列以外の
+オーバーロードは変更されず、nullish な配列値は実行時に従来どおりそのまま
+返されます。
+
+---
+
 ## v1 からの移行
 
 v2 には破壊的変更が含まれます：

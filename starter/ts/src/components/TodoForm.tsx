@@ -38,7 +38,7 @@ export function TodoForm() {
   }
 
   const [vm] = useState(() => new ViewModel())
-  const itemCount = useKoValue(vm.list).length
+  const itemCount = (useKoValue(vm.list) ?? []).length
 
   return (
     <KnockoutScope viewModel={vm}>
