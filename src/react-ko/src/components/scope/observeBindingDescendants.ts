@@ -170,7 +170,7 @@ type BindingState = {
 
 type BindingStateStore = WeakMap<HTMLElement, BindingState>
 
-function bindingNames(source: string | null) {
+function rawBindingNames(source: string | null) {
   if (source === null) {
     return new Set<string>()
   }
@@ -178,9 +178,15 @@ function bindingNames(source: string | null) {
   return new Set(
     ko.expressionRewriting
       .parseObjectLiteral(source)
-      .flatMap(({ key }) =>
-        key === undefined ? [] : [key === 'textinput' ? 'textInput' : key]
-      )
+      .flatMap(({ key }) => (key === undefined ? [] : [key]))
+  )
+}
+
+function bindingNames(source: string | null) {
+  return new Set(
+    [...rawBindingNames(source)].map((name) =>
+      name === 'textinput' ? 'textInput' : name
+    )
   )
 }
 
@@ -1700,18 +1706,22 @@ function restoreStyle(element: HTMLElement, snapshot: DomSnapshot) {
 
 function assertBindingsCanBeRetired(state: BindingState) {
   const names = bindingNames(state.source)
-  const unsafe = [...names].find(
-    (name) =>
+  const unsafe = [...rawBindingNames(state.source)].find((rawName) => {
+    const name = rawName === 'textinput' ? 'textInput' : rawName
+    return (
       !(
         SAFELY_RETIRABLE_BINDINGS.has(name) &&
         (name === DESCENDANT_BINDING_BOUNDARY
           ? hasReactKoBindingHandler(name)
-          : hasCanonicalKnockoutBindingHandler(name))
+          : hasCanonicalKnockoutBindingHandler(rawName))
       ) &&
-      !(name.endsWith('Bubble') &&
-        ko.bindingHandlers[name] === undefined &&
-        (names.has('event') || (name === 'clickBubble' && names.has('click'))))
-  )
+      !(
+        name.endsWith('Bubble') &&
+        ko.bindingHandlers[rawName] === undefined &&
+        (names.has('event') || (name === 'clickBubble' && names.has('click')))
+      )
+    )
+  })
   if (unsafe !== undefined) {
     throw new Error(
       `react-ko cannot replace the Knockout "${unsafe}" binding because its DOM effects cannot be safely retired.`

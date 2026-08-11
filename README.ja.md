@@ -97,10 +97,11 @@ const viewModel = {
 `HTMLElementTagNameMap` の宣言マージで追加した非 void HTML 名にも対応し、その名前に
 ハイフンは不要です。型境界とランタイム境界の両方で利用できます。一方、`input`、`img`、
 `br` などの既知の void 要素、`frame`、`basefont`、`bgsound`、`keygen`、`menuitem` などの
-子要素を持てない旧式の要素、パーサーが特別に扱う `frameset`、`noembed`、`noframes`、
-`plaintext`、`xmp`、および `svg` などの外来コンテンツのルートはランタイムで拒否されます。
-v2 の互換性を維持するため、これらの廃止された名前は `SemanticHost` 型では引き続き
-許可されますが、使用するとレンダー中に例外が発生します。これにより、hydration の前に
+子要素を持てない旧式の要素、パーサーが特別に扱う `frameset`、`iframe`、`noembed`、
+`noframes`、`noscript`、`plaintext`、`script`、`style`、`template`、`textarea`、`title`、
+`xmp`、および `svg` などの外来コンテンツのルートはランタイムで拒否されます。
+v2 の公開契約を維持するため、これらの名前は `SemanticHost` 型では引き続き許可されますが、
+使用するとレンダー中に例外が発生します。これにより、hydration の前に
 サーバーマークアップがスコープの子要素を失ったりテキストとして解釈したりすることを防ぎます。
 
 `RootKnockoutProvider` または `KnockoutScope` の `viewModel` を置き換えると、

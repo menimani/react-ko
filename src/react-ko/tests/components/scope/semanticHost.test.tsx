@@ -159,7 +159,20 @@ describe('semantic hosts', () => {
     }
   )
 
-  it.each(['frameset', 'noembed', 'noframes', 'plaintext', 'xmp'])(
+  it.each([
+    'frameset',
+    'iframe',
+    'noembed',
+    'noframes',
+    'noscript',
+    'plaintext',
+    'script',
+    'style',
+    'template',
+    'textarea',
+    'title',
+    'xmp',
+  ])(
     'rejects the parser-special <%s> host for both public provider props in client and server rendering',
     (host) => {
       const consoleError = vi
@@ -180,42 +193,61 @@ describe('semantic hosts', () => {
     }
   )
 
-  it.each(['frameset', 'noembed', 'noframes', 'plaintext', 'xmp'])(
-    'rejects the parser-special <%s> host during hydration',
+  it.each([
+    'frameset',
+    'iframe',
+    'noembed',
+    'noframes',
+    'noscript',
+    'plaintext',
+    'script',
+    'style',
+    'template',
+    'textarea',
+    'title',
+    'xmp',
+  ])(
+    'rejects the parser-special <%s> host for both public provider props during hydration',
     async (host) => {
       const Provider = RootKnockoutProvider as unknown as ComponentType<
         Record<string, unknown>
       >
-      const tree = (
-        <HydrationErrorBoundary>
-          {createElement(Provider, {
-            viewModel: {},
-            children: createElement('span', null, 'Hydrated child'),
-            as: host,
-          })}
-        </HydrationErrorBoundary>
-      )
-      const container = document.createElement('div')
-      container.innerHTML = '<div><div><span>Hydrated child</span></div></div>'
-      document.body.appendChild(container)
       const consoleError = vi
         .spyOn(console, 'error')
         .mockImplementation(() => undefined)
-      let root: Root | undefined
 
       try {
-        await act(async () => {
-          root = hydrateRoot(container, tree)
-        })
+        for (const hostProp of ['as', 'boundaryAs'] as const) {
+          const tree = (
+            <HydrationErrorBoundary>
+              {createElement(Provider, {
+                viewModel: {},
+                children: createElement('span', null, 'Hydrated child'),
+                [hostProp]: host,
+              })}
+            </HydrationErrorBoundary>
+          )
+          const container = document.createElement('div')
+          container.innerHTML = '<div><div><span>Hydrated child</span></div></div>'
+          document.body.appendChild(container)
+          let root: Root | undefined
 
-        expect(container.textContent).toContain(
-          `cannot use the parser-special HTML element <${host}>`
-        )
-      } finally {
-        if (root !== undefined) {
-          act(() => root?.unmount())
+          try {
+            await act(async () => {
+              root = hydrateRoot(container, tree)
+            })
+
+            expect(container.textContent).toContain(
+              `cannot use the parser-special HTML element <${host}>`
+            )
+          } finally {
+            if (root !== undefined) {
+              act(() => root?.unmount())
+            }
+            container.remove()
+          }
         }
-        container.remove()
+      } finally {
         consoleError.mockRestore()
       }
     }

@@ -56,9 +56,16 @@ const FOREIGN_CONTENT_HOSTS: ReadonlySet<string> = new Set(['math', 'svg'])
 // markup as text, so server output cannot reconstruct the tree React hydrates.
 const PARSER_SPECIAL_HOSTS: ReadonlySet<string> = new Set([
   'frameset',
+  'iframe',
   'noembed',
   'noframes',
+  'noscript',
   'plaintext',
+  'script',
+  'style',
+  'template',
+  'textarea',
+  'title',
   'xmp',
 ])
 
