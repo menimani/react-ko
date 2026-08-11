@@ -567,14 +567,17 @@ describe('applyBindingsSafely', () => {
       const child = container.querySelector('[data-testid="virtual-child"]')
       const rangeParent = child?.parentNode
       const rangeNodes = [...(rangeParent?.childNodes ?? [])]
+      const rangeStart = rangeNodes[0] as Comment
 
       expect(() => applyBindingsSafely({}, container)).toThrow(
         `react-ko cannot apply the Knockout "${binding}" binding because its custom handler controls React-owned child nodes.`
       )
       expect([...(rangeParent?.childNodes ?? [])]).toEqual(rangeNodes)
+      expect(ko.virtualElements.childNodes(rangeStart)).toEqual([child])
       expect(container.querySelector('[data-testid="virtual-child"]')).toBe(child)
       expect(container.textContent).toBe('React child')
       expect(init).toHaveBeenCalledOnce()
+      expect(init.mock.calls[0][0]).toBe(rangeStart)
     } finally {
       delete ko.virtualElements.allowedBindings[binding]
       delete ko.bindingHandlers[binding]
