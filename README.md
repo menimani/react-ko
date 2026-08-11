@@ -97,8 +97,10 @@ binding-root ref and `display: contents`, not styling or ARIA props. Because bot
 hosts always contain children, `boundaryAs` and `as` accept non-void HTML elements.
 Additional non-void names added through `HTMLElementTagNameMap` declaration merging
 are supported at both the type and runtime boundaries and do not need a hyphen.
-Known void tags such as `input`, `img`, and `br`, and foreign-content roots such as
-`svg`, are rejected at runtime.
+Known void tags such as `input`, `img`, and `br`, legacy childless tags such as
+`frame`, `basefont`, `bgsound`, `keygen`, and `menuitem`, and foreign-content roots
+such as `svg` are rejected at runtime. The legacy names remain accepted by the
+`SemanticHost` type for v2 compatibility, but using them throws during rendering.
 
 Replacing a `RootKnockoutProvider` or `KnockoutScope` `viewModel` reapplies its
 Knockout bindings. Both components dispose their bindings when replaced or

@@ -96,7 +96,10 @@ const viewModel = {
 常に子要素を持つため、`boundaryAs` と `as` に指定できるのは非 void HTML 要素だけです。
 `HTMLElementTagNameMap` の宣言マージで追加した非 void HTML 名にも対応し、その名前に
 ハイフンは不要です。型境界とランタイム境界の両方で利用できます。一方、`input`、`img`、
-`br` などの既知の void 要素と、`svg` などの外来コンテンツのルートはランタイムで拒否されます。
+`br` などの既知の void 要素、`frame`、`basefont`、`bgsound`、`keygen`、`menuitem` などの
+子要素を持てない旧式の要素、および `svg` などの外来コンテンツのルートはランタイムで
+拒否されます。v2 の互換性を維持するため、これらの旧式の名前は `SemanticHost` 型では
+引き続き許可されますが、使用するとレンダー中に例外が発生します。
 
 `RootKnockoutProvider` または `KnockoutScope` の `viewModel` を置き換えると、
 Knockout バインディングが再適用されます。どちらのコンポーネントも、置き換え時と
