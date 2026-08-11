@@ -21,8 +21,6 @@ type VoidSemanticHost = typeof VOID_SEMANTIC_HOSTS extends Set<infer Host>
   ? Host
   : never
 
-export type SemanticHost = Exclude<keyof HTMLElementTagNameMap, VoidSemanticHost>
-
 const NON_VOID_SEMANTIC_HOST_NAMES = [
   'a',
   'abbr',
@@ -144,6 +142,12 @@ const NON_VOID_SEMANTIC_HOST_NAMES = [
   'video',
   'xmp',
 ] as const
+
+type NonVoidSemanticHost = (typeof NON_VOID_SEMANTIC_HOST_NAMES)[number]
+
+export type SemanticHost =
+  | NonVoidSemanticHost
+  | Exclude<keyof HTMLElementTagNameMap, VoidSemanticHost>
 
 const NON_VOID_SEMANTIC_HOSTS: ReadonlySet<string> = new Set(
   NON_VOID_SEMANTIC_HOST_NAMES

@@ -9,5 +9,9 @@
     "allowSyntheticDefaultImports": false,
     "skipLibCheck": false
   },
-  "files": ["../../dist/index.d.ts", "app-view-model-context.ts"]
+  "files": [
+    "../../dist/index.d.ts",
+    "app-view-model-context.ts",
+    "semantic-host.ts"
+  ]
 }
