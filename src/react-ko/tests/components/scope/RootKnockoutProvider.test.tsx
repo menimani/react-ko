@@ -1676,6 +1676,73 @@ describe('RootKnockoutProvider', () => {
     expect(input.value).toBe('React value')
   })
 
+  it('reapplies an attr binding after defaultChecked updates and restores the latest default', async () => {
+    function LocallyUpdatedInput() {
+      const [phase, setPhase] = useState(0)
+      return (
+        <>
+          <button onClick={() => setPhase((current) => current + 1)}>
+            advance default checked
+          </button>
+          <input
+            type="checkbox"
+            data-testid="default-checked-owner"
+            defaultChecked={phase > 0}
+            data-bind={phase < 2 ? 'attr: { checked: false }' : undefined}
+          />
+        </>
+      )
+    }
+
+    render(
+      <RootKnockoutProvider viewModel={{}}>
+        <LocallyUpdatedInput />
+      </RootKnockoutProvider>
+    )
+    const input = screen.getByTestId('default-checked-owner') as HTMLInputElement
+    expect(input.hasAttribute('checked')).toBe(false)
+
+    fireEvent.click(screen.getByText('advance default checked'))
+    await waitFor(() => expect(input.hasAttribute('checked')).toBe(false))
+
+    fireEvent.click(screen.getByText('advance default checked'))
+    expect(input.hasAttribute('checked')).toBe(true)
+  })
+
+  it('keeps a value binding after defaultValue updates and restores the latest default', async () => {
+    const vm = { name: ko.observable('Knockout value') }
+
+    function LocallyUpdatedInput() {
+      const [phase, setPhase] = useState(0)
+      return (
+        <>
+          <button onClick={() => setPhase((current) => current + 1)}>
+            advance default value
+          </button>
+          <input
+            data-testid="default-value-owner"
+            defaultValue={phase === 0 ? 'react-initial' : 'react-latest'}
+            data-bind={phase < 2 ? 'value: name' : undefined}
+          />
+        </>
+      )
+    }
+
+    render(
+      <RootKnockoutProvider viewModel={vm}>
+        <LocallyUpdatedInput />
+      </RootKnockoutProvider>
+    )
+    const input = screen.getByTestId('default-value-owner') as HTMLInputElement
+    expect(input.value).toBe('Knockout value')
+
+    fireEvent.click(screen.getByText('advance default value'))
+    await waitFor(() => expect(input.value).toBe('Knockout value'))
+
+    fireEvent.click(screen.getByText('advance default value'))
+    expect(input.value).toBe('react-latest')
+  })
+
   it('restores the options selected by React when selectedOptions is retired', () => {
     const vm = { choices: ko.observableArray(['knockout']) }
 
