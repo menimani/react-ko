@@ -43,7 +43,7 @@ function defaultItemKey(
  * replaced by the function arguments and closures.
  */
 export function KoForeach<T>({ items, children, itemKey, boundaryAs, as }: Props<T>) {
-  const array = useKoValue<T[]>(items)
+  const array = useKoValue<T[]>(items) ?? []
   const occurrences = new WeakMap<object, number>()
 
   return (

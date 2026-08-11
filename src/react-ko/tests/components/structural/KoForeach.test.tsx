@@ -165,6 +165,33 @@ describe('KoForeach', () => {
     expect(screen.getByText('C')).toBeDefined()
   })
 
+  it.each([null, undefined])(
+    'renders nothing when an observable array is updated to %s and recovers',
+    (emptyValue) => {
+      const items = ko.observableArray(['A'])
+
+      render(
+        <RootKnockoutProvider viewModel={{}}>
+          <KoForeach items={items}>
+            {(item) => <span>{item}</span>}
+          </KoForeach>
+        </RootKnockoutProvider>
+      )
+
+      act(() => {
+        items(emptyValue as unknown as string[])
+      })
+
+      expect(screen.queryByText('A')).toBeNull()
+
+      act(() => {
+        items(['B'])
+      })
+
+      expect(screen.getByText('B')).toBeDefined()
+    }
+  )
+
   it('renders plain arrays', () => {
     render(
       <RootKnockoutProvider viewModel={{}}>
