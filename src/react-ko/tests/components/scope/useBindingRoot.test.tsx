@@ -1,6 +1,15 @@
 import { describe, it, expect } from 'vitest'
 import { render, screen, act } from '@testing-library/react'
-import { Component, useLayoutEffect, useRef, type ReactElement, type ReactNode } from 'react'
+import {
+  Component,
+  Suspense,
+  startTransition,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactElement,
+  type ReactNode,
+} from 'react'
 import ko from 'knockout'
 import {
   RootKnockoutProvider,
@@ -24,6 +33,46 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean
 }
 
 describe('useBindingRoot', () => {
+  it('continues binding children after an interrupted ViewModel replacement', async () => {
+    const first = { label: ko.observable('First') }
+    const second = { label: ko.observable('Second') }
+    const suspended = new Promise<void>(() => undefined)
+    let replaceViewModel = () => undefined
+    let showLateChild = () => undefined
+
+    function SuspendedReplacement() {
+      throw suspended
+    }
+
+    function LateChild() {
+      const [visible, setVisible] = useState(false)
+      showLateChild = () => setVisible(true)
+      return visible ? <span data-testid="late-child" data-bind="text: label" /> : null
+    }
+
+    function Harness() {
+      const [replacement, setReplacement] = useState(false)
+      replaceViewModel = () => setReplacement(true)
+      return (
+        <RootKnockoutProvider viewModel={replacement ? second : first}>
+          <Suspense fallback={null}>
+            {replacement ? <SuspendedReplacement /> : null}
+          </Suspense>
+          <LateChild />
+        </RootKnockoutProvider>
+      )
+    }
+
+    render(<Harness />)
+
+    await act(async () => {
+      startTransition(replaceViewModel)
+    })
+    act(showLateChild)
+
+    expect(screen.getByTestId('late-child')).toHaveProperty('textContent', 'First')
+  })
+
   const bindingRoots = ['RootKnockoutProvider', 'KnockoutScope'] as const
   const childUpdates = ['mounts', 'rebinds'] as const
 
