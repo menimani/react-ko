@@ -4,7 +4,6 @@ const MISSING_APP_VIEW_MODEL = Symbol('MISSING_APP_VIEW_MODEL')
 
 /**
  * Context to store the global AppViewModel.
- * Intended to be overridden by consumer's ViewModel type.
  */
 export const AppViewModelContext = createContext<unknown>(MISSING_APP_VIEW_MODEL)
 
