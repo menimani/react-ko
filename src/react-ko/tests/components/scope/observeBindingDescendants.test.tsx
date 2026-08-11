@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { render, screen, act, waitFor } from '@testing-library/react'
-import { Component, type ReactNode } from 'react'
+import { Component, type ReactNode, useState } from 'react'
 import ko from 'knockout'
 import { RootKnockoutProvider, KnockoutScope } from '@/index'
 
@@ -26,7 +26,72 @@ function Host({ vm }: { vm: unknown }) {
   )
 }
 
+function LocalClassBinding({ vm }: { vm: unknown }) {
+  const [className, setClassName] = useState('react-initial')
+  const [bound, setBound] = useState(true)
+
+  return (
+    <RootKnockoutProvider viewModel={vm}>
+      <>
+        <span
+          data-testid="class-owner"
+          className={className}
+          data-bind={bound ? 'class: activeClass' : undefined}
+        />
+        <button onClick={() => setClassName('react-updated')}>Update class</button>
+        <button onClick={() => setBound(false)}>Retire class</button>
+      </>
+    </RootKnockoutProvider>
+  )
+}
+
+function LocalVisibilityBinding({ binding, vm }: { binding: 'visible' | 'hidden'; vm: unknown }) {
+  const [display, setDisplay] = useState('inline')
+  const [bound, setBound] = useState(true)
+
+  return (
+    <RootKnockoutProvider viewModel={vm}>
+      <>
+        <span
+          data-testid={`${binding}-owner`}
+          style={{ display }}
+          data-bind={bound ? `${binding}: concealed` : undefined}
+        />
+        <button onClick={() => setDisplay('flex')}>Update {binding} display</button>
+        <button onClick={() => setBound(false)}>Retire {binding}</button>
+      </>
+    </RootKnockoutProvider>
+  )
+}
+
 describe('observeBindingDescendants', () => {
+  it('reapplies a class binding after a local React className update and retires it safely', async () => {
+    render(<LocalClassBinding vm={{ activeClass: ko.observable('ko-active') }} />)
+    const owner = screen.getByTestId('class-owner')
+    expect(owner.className).toBe('react-initial ko-active')
+
+    act(() => screen.getByText('Update class').click())
+    await waitFor(() => expect(owner.className).toBe('react-updated ko-active'))
+
+    act(() => screen.getByText('Retire class').click())
+    await waitFor(() => expect(owner.className).toBe('react-updated'))
+  })
+
+  for (const binding of ['visible', 'hidden'] as const) {
+    it(`reapplies and safely retires a ${binding} binding after a local React display update`, async () => {
+      const concealed = binding === 'visible' ? false : true
+      render(<LocalVisibilityBinding binding={binding} vm={{ concealed }} />)
+      const owner = screen.getByTestId(`${binding}-owner`)
+      expect(owner.style.display).toBe('none')
+
+      act(() => screen.getByText(`Update ${binding} display`).click())
+      await waitFor(() => expect(owner.style.display).toBe('none'))
+
+      act(() => screen.getByText(`Retire ${binding}`).click())
+      await waitFor(() => expect(owner.style.display).toBe('flex'))
+    })
+  }
+
   it('leaves html binding descendants unbound after observable updates', async () => {
     const vm = {
       label: 'Bound unexpectedly',

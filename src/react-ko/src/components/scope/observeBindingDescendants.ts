@@ -62,6 +62,7 @@ const SAFELY_RETIRABLE_BINDINGS = new Set([
   'attr',
   'checked',
   'checkedValue',
+  'class',
   'click',
   'component',
   'css',
@@ -71,6 +72,7 @@ const SAFELY_RETIRABLE_BINDINGS = new Set([
   'hasFocus',
   'hasfocus',
   'html',
+  'hidden',
   'let',
   'options',
   'optionsAfterRender',
@@ -1018,7 +1020,10 @@ function refreshReactOwnedDom(
       reactProp !== undefined && reactPropChanged(state.reactProps, currentProps, reactProp)
     if (!propsChanged || reactProp === undefined) continue
 
-    if (record.attributeName === 'class' && names.has('css')) {
+    if (
+      record.attributeName === 'class' &&
+      (names.has('class') || names.has('css'))
+    ) {
       updateAttributeBaselineFromReactProp(
         state,
         'class',
@@ -1026,12 +1031,23 @@ function refreshReactOwnedDom(
         currentProps.get(reactProp)
       )
       changed.add(element)
-    } else if (record.attributeName === 'style' && names.has('style')) {
+    } else if (
+      record.attributeName === 'style' &&
+      (names.has('style') || names.has('visible') || names.has('hidden')) &&
+      (names.has('style') ||
+        stylePropChanged(
+          state.reactProps.get('style'),
+          currentProps.get('style'),
+          'display'
+        ))
+    ) {
       updateStyleBaselineFromReactProps(
         state,
         state.reactProps.get('style'),
         currentProps.get('style')
       )
+      state.beforeBinding.styleDisplay =
+        state.beforeBinding.style.get('display')?.value ?? ''
       changed.add(element)
     } else if (names.has('attr') && state.ownedAttributes.has(record.attributeName)) {
       updateAttributeBaselineFromReactProp(
@@ -1051,7 +1067,10 @@ function refreshReactOwnedDom(
       const names = bindingNames(state.source)
       const currentProps = snapshotReactProps(element)
 
-      if (names.has('css') && reactPropChanged(state.reactProps, currentProps, 'className')) {
+      if (
+        (names.has('class') || names.has('css')) &&
+        reactPropChanged(state.reactProps, currentProps, 'className')
+      ) {
         const className = currentProps.get('className')
         if (className === undefined || className === null) {
           state.beforeBinding.attributes.delete('class')
@@ -1063,8 +1082,17 @@ function refreshReactOwnedDom(
 
       const previousStyle = state.reactProps.get('style')
       const currentStyle = currentProps.get('style')
-      if (names.has('style') && reactPropChanged(state.reactProps, currentProps, 'style')) {
+      const displayChanged = stylePropChanged(previousStyle, currentStyle, 'display')
+      if (
+        (names.has('style') ||
+          ((names.has('visible') || names.has('hidden')) && displayChanged)) &&
+        reactPropChanged(state.reactProps, currentProps, 'style')
+      ) {
         updateStyleBaselineFromReactProps(state, previousStyle, currentStyle)
+        if (displayChanged) {
+          state.beforeBinding.styleDisplay =
+            state.beforeBinding.style.get('display')?.value ?? ''
+        }
         changed.add(element)
       }
 
@@ -1207,17 +1235,17 @@ function restoreRetiredDomEffects(element: HTMLElement, state: BindingState) {
     selected?: boolean
   }
 
-  if (names.has('css')) {
+  if (names.has('class') || names.has('css')) {
     restoreAttribute(element, state.beforeBinding, 'class')
   }
   if (names.has('style')) {
     restoreStyle(element, state.beforeBinding)
-  } else if (names.has('visible')) {
+  } else if (names.has('visible') || names.has('hidden')) {
     element.style.display = state.beforeBinding.styleDisplay
   }
   if (names.has('attr')) {
     for (const name of state.ownedAttributes) {
-      if (name === 'class' && names.has('css')) continue
+      if (name === 'class' && (names.has('class') || names.has('css'))) continue
       if (name === 'style' && names.has('style')) continue
       restoreAttribute(element, state.beforeBinding, name)
     }
