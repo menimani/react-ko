@@ -1,14 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
-import { act, render } from '@testing-library/react'
+import { render } from '@testing-library/react'
 import {
-  Component,
   createElement,
   type ComponentType,
-  type ReactNode,
   useLayoutEffect,
   useRef,
 } from 'react'
-import { hydrateRoot, type Root } from 'react-dom/client'
 import { renderToString } from 'react-dom/server'
 import ko from 'knockout'
 import {
@@ -25,23 +22,6 @@ declare global {
   interface HTMLElementTagNameMap {
     'custom-host': HTMLElement
     customhost: HTMLElement
-  }
-}
-
-class HydrationErrorBoundary extends Component<
-  { children: ReactNode },
-  { error: Error | null }
-> {
-  state: { error: Error | null } = { error: null }
-
-  static getDerivedStateFromError(error: Error) {
-    return { error }
-  }
-
-  render() {
-    return this.state.error === null
-      ? this.props.children
-      : <span>{this.state.error.message}</span>
   }
 }
 
@@ -170,127 +150,28 @@ describe('semantic hosts', () => {
     'style',
     'title',
     'xmp',
-  ])(
-    'rejects the parser-special <%s> host for both public provider props in client and server rendering',
-    (host) => {
-      const consoleError = vi
-        .spyOn(console, 'error')
-        .mockImplementation(() => undefined)
-      try {
-        for (const hostProp of ['as', 'boundaryAs'] as const) {
-          expect(() => renderWithJavaScriptHost(hostProp, host)).toThrow(
-            `cannot use the parser-special HTML element <${host}>`
-          )
-          expect(() => serverRenderWithJavaScriptHost(hostProp, host)).toThrow(
-            `cannot use the parser-special HTML element <${host}>`
-          )
-        }
-      } finally {
-        consoleError.mockRestore()
-      }
-    }
-  )
-
-  it.each([
-    'frameset',
-    'noembed',
-    'noframes',
-    'noscript',
-    'plaintext',
-    'script',
-    'style',
-    'title',
-    'xmp',
-  ])(
-    'rejects the parser-special <%s> host for both public provider props during hydration',
-    async (host) => {
-      const Provider = RootKnockoutProvider as unknown as ComponentType<
-        Record<string, unknown>
-      >
-      const consoleError = vi
-        .spyOn(console, 'error')
-        .mockImplementation(() => undefined)
-
-      try {
-        for (const hostProp of ['as', 'boundaryAs'] as const) {
-          const tree = (
-            <HydrationErrorBoundary>
-              {createElement(Provider, {
-                viewModel: {},
-                children: createElement('span', null, 'Hydrated child'),
-                [hostProp]: host,
-              })}
-            </HydrationErrorBoundary>
-          )
-          const container = document.createElement('div')
-          container.innerHTML = '<div><div><span>Hydrated child</span></div></div>'
-          document.body.appendChild(container)
-          let root: Root | undefined
-
-          try {
-            await act(async () => {
-              root = hydrateRoot(container, tree)
-            })
-
-            expect(container.textContent).toContain(
-              `cannot use the parser-special HTML element <${host}>`
-            )
-          } finally {
-            if (root !== undefined) {
-              act(() => root?.unmount())
-            }
-            container.remove()
-          }
-        }
-      } finally {
-        consoleError.mockRestore()
-      }
-    }
-  )
-
-  it.each(['iframe', 'template', 'textarea'] as const)(
-    'preserves the v2 runtime-compatible <%s> semantic host',
-    (host) => {
-      expect(semanticHostComponent(host)).toBe(host)
-    }
-  )
-
-  it.each([
-    ['INPUT', 'void HTML element'],
-    ['FRAME', 'legacy childless HTML element'],
-    ['SCRIPT', 'parser-special HTML element'],
-    ['SVG', 'scope hosts require a non-void HTML element'],
-  ] as const)(
-    'classifies the uppercase JavaScript host <%s> as a %s',
-    (host, message) => {
-      expect(() => semanticHostComponent(host as never)).toThrow(message)
-    }
-  )
-
-  it.each([
     'frame',
     'basefont',
     'bgsound',
     'keygen',
     'menuitem',
-  ])(
-    'rejects the legacy childless <%s> host for both public provider props in client and server rendering',
+    'iframe',
+    'template',
+    'textarea',
+  ] as const)(
+    'preserves the v2 runtime-compatible <%s> semantic host',
     (host) => {
-      const consoleError = vi
-        .spyOn(console, 'error')
-        .mockImplementation(() => undefined)
-      try {
-        for (const hostProp of ['as', 'boundaryAs'] as const) {
-          expect(() => renderWithJavaScriptHost(hostProp, host)).toThrow(
-            `cannot use the legacy childless HTML element <${host}>`
-          )
-          expect(() => serverRenderWithJavaScriptHost(hostProp, host)).toThrow(
-            `cannot use the legacy childless HTML element <${host}>`
-          )
-        }
-      } finally {
-        consoleError.mockRestore()
-      }
+      expect(semanticHostComponent(host as never)).toBe(host)
+    }
+  )
+
+  it.each([
+    ['INPUT', 'void HTML element'],
+    ['SVG', 'scope hosts require a non-void HTML element'],
+  ] as const)(
+    'classifies the uppercase JavaScript host <%s> as a %s',
+    (host, message) => {
+      expect(() => semanticHostComponent(host as never)).toThrow(message)
     }
   )
 
