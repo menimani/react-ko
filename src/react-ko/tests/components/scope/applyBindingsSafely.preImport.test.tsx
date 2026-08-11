@@ -5,6 +5,42 @@ import { expect, it, vi } from 'vitest'
 
 const require = createRequire(import.meta.url)
 
+const canonicalDebugHandlerMethods = [
+  ['attr', 'update'],
+  ['checked', 'init'],
+  ['checkedValue', 'update'],
+  ['class', 'update'],
+  ['click', 'init'],
+  ['component', 'init'],
+  ['css', 'update'],
+  ['disable', 'update'],
+  ['enable', 'update'],
+  ['event', 'init'],
+  ['hasFocus', 'init'],
+  ['hasFocus', 'update'],
+  ['hasfocus', 'init'],
+  ['hasfocus', 'update'],
+  ['hidden', 'update'],
+  ['html', 'init'],
+  ['html', 'update'],
+  ['let', 'init'],
+  ['options', 'init'],
+  ['options', 'update'],
+  ['selectedOptions', 'init'],
+  ['selectedOptions', 'update'],
+  ['style', 'update'],
+  ['submit', 'init'],
+  ['text', 'init'],
+  ['text', 'update'],
+  ['textInput', 'init'],
+  ['textinput', 'preprocess'],
+  ['uniqueName', 'init'],
+  ['using', 'init'],
+  ['value', 'init'],
+  ['value', 'update'],
+  ['visible', 'update'],
+] as const
+
 it('accepts unchanged built-in handlers from the official Knockout debug build', async () => {
   const debugKo = require(
     'knockout/build/output/knockout-latest.debug.js'
@@ -26,7 +62,16 @@ it('accepts unchanged built-in handlers from the official Knockout debug build',
     )
 
     expect(() => applyBindingsSafely({ shown: true }, container)).not.toThrow()
-    expect(hasCanonicalKnockoutBindingHandler('visible')).toBe(true)
+    for (const [name, method] of canonicalDebugHandlerMethods) {
+      expect(
+        debugKo.bindingHandlers[name]?.[method],
+        `${name}.${method} should exist in the debug build`
+      ).toBeTypeOf('function')
+      expect(
+        hasCanonicalKnockoutBindingHandler(name),
+        `${name}.${method} should match its debug-build fingerprint`
+      ).toBe(true)
+    }
     expect(container.querySelector('span')?.textContent).toBe('React child')
   } finally {
     vi.doUnmock('knockout')
