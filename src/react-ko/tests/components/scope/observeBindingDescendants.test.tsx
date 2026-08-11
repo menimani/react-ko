@@ -307,6 +307,10 @@ describe('observeBindingDescendants', () => {
 
   it('restores prototype interceptors only after the last root unmounts', () => {
     const originalAppendChild = Node.prototype.appendChild
+    const originalNodeValueSetter = Object.getOwnPropertyDescriptor(
+      Node.prototype,
+      'nodeValue'
+    )?.set
     const originalValueSetter = Object.getOwnPropertyDescriptor(
       HTMLInputElement.prototype,
       'value'
@@ -323,6 +327,9 @@ describe('observeBindingDescendants', () => {
 
     second.unmount()
     expect(Node.prototype.appendChild).toBe(originalAppendChild)
+    expect(Object.getOwnPropertyDescriptor(Node.prototype, 'nodeValue')?.set).toBe(
+      originalNodeValueSetter
+    )
     expect(Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set).toBe(
       originalValueSetter
     )

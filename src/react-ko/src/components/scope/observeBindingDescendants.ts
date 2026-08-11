@@ -20,6 +20,7 @@ const bindingObservers = new Map<
     reconcile: (records: MutationRecord[], reactCommitInProgress?: boolean) => void
     shouldDeferDataBindChange: (element: Element) => boolean
     shouldDeferInsertion: (parent: Node) => boolean
+    shouldReconcileDirectTextWrite: (element: HTMLElement) => boolean
     onError: (error: unknown) => void
   }
 >()
@@ -57,6 +58,16 @@ type ChildListInterceptor = {
   interceptedReplaceChild: typeof Node.prototype.replaceChild
 }
 const childListInterceptors = new Map<typeof Node.prototype, ChildListInterceptor>()
+type DirectTextInterceptor = {
+  count: number
+  properties: Array<{
+    prototype: object
+    name: string
+    descriptor: PropertyDescriptor
+    interceptedSet: (this: Node, value: unknown) => void
+  }>
+}
+const directTextInterceptors = new Map<typeof Node.prototype, DirectTextInterceptor>()
 const CONTENT_BINDINGS = new Set(['text', 'html', 'component', 'options'])
 const SAFELY_RETIRABLE_BINDINGS = new Set([
   'attr',
@@ -361,6 +372,25 @@ function reconcileInsertedChildren(parent: Node, reactOwned: boolean) {
   }
 }
 
+function reconcileDirectTextWrite(node: Node) {
+  const element =
+    node.nodeType === Node.ELEMENT_NODE
+      ? (node as HTMLElement)
+      : node.parentElement
+  if (element === null) return
+
+  const root = nearestBindingRoot(element)
+  const state = root === undefined ? undefined : bindingObservers.get(root)
+  if (
+    root !== undefined &&
+    state !== undefined &&
+    state.shouldReconcileDirectTextWrite(element) &&
+    !reconcilingRoots.has(root)
+  ) {
+    reconcileBindingDescendants(root)
+  }
+}
+
 function releaseAttributeInterceptor(prototype: typeof Element.prototype) {
   const interceptor = attributeInterceptors.get(prototype)
   if (interceptor === undefined) {
@@ -625,6 +655,64 @@ function interceptChildListInsertions(root: HTMLElement) {
   })
 
   return () => releaseChildListInterceptor(prototype)
+}
+
+function releaseDirectTextInterceptor(prototype: typeof Node.prototype) {
+  const interceptor = directTextInterceptors.get(prototype)
+  if (interceptor === undefined) return
+
+  interceptor.count -= 1
+  if (interceptor.count !== 0) return
+
+  for (const {
+    prototype: propertyPrototype,
+    name,
+    descriptor,
+    interceptedSet,
+  } of interceptor.properties) {
+    if (Object.getOwnPropertyDescriptor(propertyPrototype, name)?.set === interceptedSet) {
+      Object.defineProperty(propertyPrototype, name, descriptor)
+    }
+  }
+  directTextInterceptors.delete(prototype)
+}
+
+function interceptDirectTextWrites(root: HTMLElement) {
+  const view = root.ownerDocument.defaultView
+  if (view === null) return () => undefined
+
+  const prototype = view.Node.prototype
+  const existing = directTextInterceptors.get(prototype)
+  if (existing !== undefined) {
+    existing.count += 1
+    return () => releaseDirectTextInterceptor(prototype)
+  }
+
+  const properties: DirectTextInterceptor['properties'] = []
+  // React can update a direct text child without calling a child-list method.
+  // Observe every DOM setter it uses before sibling layout effects can notify
+  // the content binding that still owns the host's current child nodes.
+  for (const [propertyPrototype, name] of [
+    [prototype, 'nodeValue'],
+    [prototype, 'textContent'],
+    [view.CharacterData.prototype, 'data'],
+  ] as Array<[object, string]>) {
+    const descriptor = Object.getOwnPropertyDescriptor(propertyPrototype, name)
+    if (descriptor?.set === undefined) continue
+    const set = descriptor.set
+    const interceptedSet = function (this: Node, value: unknown) {
+      set.call(this, value)
+      reconcileDirectTextWrite(this)
+    }
+    Object.defineProperty(propertyPrototype, name, {
+      ...descriptor,
+      set: interceptedSet,
+    })
+    properties.push({ prototype: propertyPrototype, name, descriptor, interceptedSet })
+  }
+  directTextInterceptors.set(prototype, { count: 1, properties })
+
+  return () => releaseDirectTextInterceptor(prototype)
 }
 
 function isKnockoutOwnedContentAddition(
@@ -1636,6 +1724,14 @@ export function observeBindingDescendants(
         fiber.alternate !== null &&
         fiber.alternate.pendingProps['data-bind'] !== state.source
     },
+    shouldReconcileDirectTextWrite: (element) => {
+      const state = bindingStates.get(element)
+      return (
+        state !== undefined &&
+        state.ownedContent !== null &&
+        hasDirectReactContentTransition(element, state.reactProps, true)
+      )
+    },
   })
   observer.observe(root, {
     attributes: true,
@@ -1645,6 +1741,7 @@ export function observeBindingDescendants(
   })
   const stopIntercepting = interceptDataBindChanges(root)
   const stopInterceptingInsertions = interceptChildListInsertions(root)
+  const stopInterceptingDirectText = interceptDirectTextWrites(root)
 
   return () => {
     // A removal and root unmount can happen before the observer callback. Drain
@@ -1655,6 +1752,7 @@ export function observeBindingDescendants(
     bindingObservers.delete(root)
     stopIntercepting()
     stopInterceptingInsertions()
+    stopInterceptingDirectText()
     cleanRemovedNodes(pendingRecords, root)
     releaseReactTrackedChecked(root, root)
   }
