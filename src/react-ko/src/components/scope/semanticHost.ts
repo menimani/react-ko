@@ -52,6 +52,16 @@ export type SemanticHost =
 
 const FOREIGN_CONTENT_HOSTS: ReadonlySet<string> = new Set(['math', 'svg'])
 
+// The HTML parser either drops these elements' descendants or treats their
+// markup as text, so server output cannot reconstruct the tree React hydrates.
+const PARSER_SPECIAL_HOSTS: ReadonlySet<string> = new Set([
+  'frameset',
+  'noembed',
+  'noframes',
+  'plaintext',
+  'xmp',
+])
+
 // These obsolete elements remain in HTMLElementTagNameMap, but cannot safely
 // contain a scope subtree in React or parsed server markup.
 const LEGACY_CHILDLESS_HOSTS: ReadonlySet<string> = new Set([
@@ -86,6 +96,12 @@ export function semanticHostComponent(host: SemanticHost) {
   if (LEGACY_CHILDLESS_HOSTS.has(host)) {
     throw new Error(
       `react-ko cannot use the legacy childless HTML element <${String(host)}> as a semantic host because scope hosts always contain children.`
+    )
+  }
+
+  if (PARSER_SPECIAL_HOSTS.has(host)) {
+    throw new Error(
+      `react-ko cannot use the parser-special HTML element <${String(host)}> as a semantic host because its children cannot be hydrated reliably.`
     )
   }
 

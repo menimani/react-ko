@@ -3,9 +3,11 @@ import {
   applyBindingsSafely,
   assertNoReactUnsafeBindings,
   currentReactHostProps,
+  hasCanonicalKnockoutBindingHandler,
   hasReactOwnedChildren,
   REACT_RENDERS_BIGINT,
 } from './applyBindingsSafely'
+import { hasReactKoBindingHandler } from './bindingHandlerOwnership'
 import { descendantBindingContextFor } from './descendantBindingContexts'
 import { DESCENDANT_BINDING_BOUNDARY } from './descendantBindingBoundary'
 
@@ -163,6 +165,7 @@ type BindingState = {
   ownedAttributes: Set<string>
   beforeBinding: DomSnapshot
   reactProps: Map<string, unknown>
+  reactOwned: boolean
 }
 
 type BindingStateStore = WeakMap<HTMLElement, BindingState>
@@ -327,6 +330,7 @@ function prepareBindingTree(
     ownedAttributes: new Set(),
     beforeBinding: snapshotDom(element),
     reactProps: snapshotReactProps(element),
+    reactOwned: hasReactOwnership(element),
   })
 
   for (const child of element.children) {
@@ -935,6 +939,7 @@ function trackBindingTree(
     ownedAttributes,
     beforeBinding,
     reactProps: snapshotReactProps(element),
+    reactOwned: hasReactOwnership(element),
   })
 
   for (const child of element.children) {
@@ -1068,7 +1073,8 @@ function changedOptionSelects(
       if (
         node.nodeType !== Node.ELEMENT_NODE ||
         ownedContent?.has(node) === true ||
-        !hasReactOwnership(parent)
+        !(bindingStates.get(node as HTMLElement)?.reactOwned === true ||
+          hasReactOwnership(node))
       ) {
         continue
       }
@@ -1696,12 +1702,15 @@ function assertBindingsCanBeRetired(state: BindingState) {
   const names = bindingNames(state.source)
   const unsafe = [...names].find(
     (name) =>
-      !SAFELY_RETIRABLE_BINDINGS.has(name) &&
       !(
-        name.endsWith('Bubble') &&
+        SAFELY_RETIRABLE_BINDINGS.has(name) &&
+        (name === DESCENDANT_BINDING_BOUNDARY
+          ? hasReactKoBindingHandler(name)
+          : hasCanonicalKnockoutBindingHandler(name))
+      ) &&
+      !(name.endsWith('Bubble') &&
         ko.bindingHandlers[name] === undefined &&
-        (names.has('event') || (name === 'clickBubble' && names.has('click')))
-      )
+        (names.has('event') || (name === 'clickBubble' && names.has('click'))))
   )
   if (unsafe !== undefined) {
     throw new Error(
