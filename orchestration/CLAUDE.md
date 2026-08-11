@@ -2,8 +2,8 @@
 
 Claude Code designs and merges the work; a runner (Codex by default) executes it in a
 dedicated git worktree. The command surface is the `scripts` block of
-`orchestration/ts/package.json` — `npm run -C orchestration/ts <command>`, and running an
-unknown command lists what exists rather than looking for a list here. Environment
+`orchestration/ts/package.json` — `npm run -C orchestration/ts <command>`, and
+`npm run -C orchestration/ts` lists the available commands. Environment
 variables pass through npm unchanged, so settings go in front of the command as they
 always did.
 
