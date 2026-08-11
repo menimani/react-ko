@@ -168,7 +168,7 @@ describe('KoForeach', () => {
   it.each([null, undefined])(
     'renders nothing when an observable array is updated to %s and recovers',
     (emptyValue) => {
-      const items = ko.observableArray(['A'])
+      const items = ko.observable<string[] | null | undefined>(['A'])
 
       render(
         <RootKnockoutProvider viewModel={{}}>
@@ -179,7 +179,7 @@ describe('KoForeach', () => {
       )
 
       act(() => {
-        items(emptyValue as unknown as string[])
+        items(emptyValue)
       })
 
       expect(screen.queryByText('A')).toBeNull()

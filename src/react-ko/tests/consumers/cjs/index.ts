@@ -81,6 +81,10 @@ type Row = { id: number; label: string }
 const rows: Row[] = [{ id: 1, label: 'one' }]
 const observableRows = ko.observableArray(rows)
 const computedRows = ko.pureComputed(() => observableRows())
+const nullableObservableRows = ko.observable<Row[] | null | undefined>(rows)
+const nullableComputedRows = ko.pureComputed<Row[] | null | undefined>(
+  () => nullableObservableRows()
+)
 
 ReactKo.KoForeach({
   items: rows,
@@ -94,6 +98,10 @@ ReactKo.KoForeach({
 ReactKo.KoForeach({ items: observableRows, children: (row) => row.label })
 ReactKo.KoForeach({ items: rows, children: (row) => row.label, boundaryAs: 'li', as: 'span' })
 ReactKo.KoForeach({ items: computedRows, children: (row) => row.label })
+ReactKo.KoForeach({ items: nullableObservableRows, children: (row) => row.label })
+ReactKo.KoForeach({ items: nullableComputedRows, children: (row) => row.label })
+ReactKo.KoForeach<Row>({ items: null, children: (row) => row.label })
+ReactKo.KoForeach<Row>({ items: undefined, children: (row) => row.label })
 // @ts-expect-error The render callback receives the inferred item type.
 ReactKo.KoForeach({ items: rows, children: (row: string) => row })
 // @ts-expect-error itemKey must return a React key.
