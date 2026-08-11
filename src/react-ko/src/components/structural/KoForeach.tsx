@@ -3,8 +3,15 @@ import type * as ko from 'knockout'
 import { KnockoutScope, useKoValue } from '@/index'
 import type { SemanticHostProps } from '@/components/scope/semanticHost'
 
+type NullableItems<T> =
+  | ko.Observable<T[] | null | undefined>
+  | ko.Computed<T[] | null | undefined>
+  | T[]
+  | null
+  | undefined
+
 type Props<T> = SemanticHostProps & {
-  items: ko.ObservableArray<T> | ko.Observable<T[]> | ko.Computed<T[]> | T[]
+  items: ko.ObservableArray<T> | ko.Observable<T[]> | ko.Computed<T[]> | NullableItems<T>
   children: (item: T, index: number) => React.ReactNode
   itemKey?: (item: T, index: number) => React.Key
 }
@@ -43,7 +50,7 @@ function defaultItemKey(
  * replaced by the function arguments and closures.
  */
 export function KoForeach<T>({ items, children, itemKey, boundaryAs, as }: Props<T>) {
-  const array = useKoValue<T[]>(items) ?? []
+  const array = useKoValue<T[] | null | undefined>(items as NullableItems<T>) ?? []
   const occurrences = new WeakMap<object, number>()
 
   return (
