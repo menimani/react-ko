@@ -314,6 +314,46 @@ function directReactContent(props: ReactHostProps | ReadonlyMap<string, unknown>
   return null
 }
 
+function sameDirectReactContent(
+  left: ReturnType<typeof directReactContent>,
+  right: ReturnType<typeof directReactContent>
+) {
+  return (
+    left === right ||
+    (left !== null &&
+      right !== null &&
+      left.kind === right.kind &&
+      left.value === right.value)
+  )
+}
+
+function pendingDirectReactProps(
+  element: HTMLElement,
+  previousProps: ReadonlyMap<string, unknown>
+) {
+  const fiber = reactHostFiber(element)
+  const candidates = [
+    currentReactHostProps(element, true),
+    fiber?.pendingProps,
+    fiber?.alternate?.pendingProps,
+    currentReactHostProps(element),
+  ].filter(
+    (props, index, all): props is ReactHostProps =>
+      props !== undefined && all.indexOf(props) === index
+  )
+  const previous = directReactContent(previousProps)
+  // Empty text and empty HTML have no DOM identity to distinguish their
+  // removal from the previous render. In that case the candidate that differs
+  // from the recorded props is the pending transition on both React majors.
+  return (
+    candidates.find(
+      (props) =>
+        (props['data-bind'] ?? null) === element.getAttribute('data-bind') &&
+        !sameDirectReactContent(directReactContent(props), previous)
+    ) ?? candidates[0]
+  )
+}
+
 function hasDirectReactContentTransition(
   element: HTMLElement,
   previousProps: ReadonlyMap<string, unknown>,
@@ -321,7 +361,9 @@ function hasDirectReactContentTransition(
 ) {
   const previous = directReactContent(previousProps)
   const current = directReactContent(
-    currentReactHostProps(element, reactCommitInProgress)
+    reactCommitInProgress
+      ? pendingDirectReactProps(element, previousProps)
+      : currentReactHostProps(element)
   )
 
   return (
@@ -1036,8 +1078,7 @@ function selectBindingDependsOnOptions(state: BindingState | undefined) {
 function changedOptionSelects(
   records: MutationRecord[],
   root: HTMLElement,
-  bindingStates: BindingStateStore,
-  reactCommitInProgress: boolean
+  bindingStates: BindingStateStore
 ) {
   const changed = new Set<HTMLElement>()
 
@@ -1072,7 +1113,7 @@ function changedOptionSelects(
       hasDirectReactContentTransition(
         parent as HTMLElement,
         state.reactProps,
-        reactCommitInProgress
+        true
       )
     if (!hasReactOwnership(node, parent) && !removedReactText) return
 
@@ -2034,8 +2075,7 @@ export function observeBindingDescendants(
     for (const select of changedOptionSelects(
       records,
       root,
-      bindingStates,
-      reactCommitInProgress
+      bindingStates
     )) {
       changedElements.add(select)
     }

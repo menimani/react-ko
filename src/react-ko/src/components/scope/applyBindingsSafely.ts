@@ -230,6 +230,50 @@ function propsMatchDataBind(element: Element, props: ReactHostProps | undefined)
   return (props?.['data-bind'] ?? null) === element.getAttribute('data-bind')
 }
 
+function propsMatchDirectContent(
+  element: Element,
+  props: ReactHostProps | undefined
+) {
+  const innerHtml = reactInnerHtml(props)
+  if (innerHtml !== undefined && innerHtml !== null) {
+    return element.innerHTML === String(innerHtml)
+  }
+
+  const children = props?.children
+  return (
+    (typeof children === 'string' ||
+      typeof children === 'number' ||
+      (typeof children === 'bigint' && REACT_RENDERS_BIGINT)) &&
+    element.textContent === String(children)
+  )
+}
+
+function propsMayRenderChildren(props: ReactHostProps | undefined): boolean {
+  const innerHtml = reactInnerHtml(props)
+  if (innerHtml !== undefined && innerHtml !== null) {
+    return String(innerHtml) !== ''
+  }
+
+  function mayRender(child: unknown): boolean {
+    if (typeof child === 'string') return child !== ''
+    if (typeof child === 'number') return true
+    if (typeof child === 'bigint') return REACT_RENDERS_BIGINT
+    if (Array.isArray(child)) return child.some(mayRender)
+    return child !== null && typeof child === 'object'
+  }
+
+  return mayRender(props?.children)
+}
+
+function hasReactTaggedDescendant(element: Element): boolean {
+  function visit(node: Node): boolean {
+    if (hasReactTag(node)) return true
+    return [...node.childNodes].some(visit)
+  }
+
+  return [...element.childNodes].some(visit)
+}
+
 function committedFiber(fiber: ReactFiber | undefined): ReactFiber | undefined {
   if (fiber === undefined) return undefined
 
@@ -264,17 +308,37 @@ export function currentReactHostProps(
       : ((element as unknown as Record<string, unknown>)[fiberKey] as ReactFiber)
   const current = committedFiber(fiber)
 
-  if (preferWorkInProgress && current?.alternate?.pendingProps !== undefined) {
-    return current.alternate.pendingProps
+  if (preferWorkInProgress) {
+    // React 18 and 19 can switch the root's current fiber on opposite sides
+    // of a host mutation. Identify the render being committed from the DOM it
+    // has already written instead of assuming that it is always `alternate`.
+    const candidates = [current, current?.alternate, fiber, fiber?.alternate]
+      .map((candidate) => candidate?.pendingProps)
+      .filter(
+        (props, index, all): props is ReactHostProps =>
+          props !== undefined && all.indexOf(props) === index
+      )
+    const matchingContent = candidates.find((props) =>
+      propsMatchDirectContent(element, props)
+    )
+    if (matchingContent !== undefined) return matchingContent
+    const ownsTaggedContent = hasReactTaggedDescendant(element)
+    const matchingPresence = candidates.filter(
+      (props) => propsMayRenderChildren(props) === ownsTaggedContent
+    )
+    if (matchingPresence.length === 1) return matchingPresence[0]
+    const matchingDataBind = candidates.filter((props) =>
+      propsMatchDataBind(element, props)
+    )
+    if (matchingDataBind.length > 0) return matchingDataBind[0]
   }
 
   if (propsMatchDataBind(element, current?.pendingProps)) {
     return current?.pendingProps
   }
 
-  // React mutates data-bind before switching the root's current fiber. During
-  // that window select only the work-in-progress props matching the DOM.
-  // Never combine both alternates: the other one can describe an older commit.
+  // A host attribute can move ahead of the root's current fiber. During that
+  // window select only the props whose data-bind value matches the DOM.
   const workInProgress = [fiber, fiber?.alternate].find((candidate) =>
     propsMatchDataBind(element, candidate?.pendingProps)
   )
