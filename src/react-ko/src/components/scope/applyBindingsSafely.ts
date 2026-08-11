@@ -162,17 +162,21 @@ export function hasCanonicalKnockoutBindingHandler(name: string) {
     registered.preprocess === canonical.preprocess
 }
 
-function bindingNames(element: Element): Set<string> {
-  const source = element.getAttribute('data-bind')
+function bindingNamesFromSource(source: string | null): Set<string> {
   if (source === null) {
     return new Set()
   }
 
+  const effectiveSource = ko.expressionRewriting.preProcessBindings(source)
   return new Set(
     ko.expressionRewriting
-      .parseObjectLiteral(source)
+      .parseObjectLiteral(effectiveSource)
       .flatMap(({ key }) => (key === undefined ? [] : [key]))
   )
+}
+
+function bindingNames(element: Element): Set<string> {
+  return bindingNamesFromSource(element.getAttribute('data-bind'))
 }
 
 function hasReactTag(node: Node): boolean {
@@ -281,10 +285,10 @@ function reactOwnedVirtualBinding(element: Element): string | undefined {
     if (node.nodeType === Node.COMMENT_NODE) {
       const source = /^\s*ko\s+([\s\S]*?)\s*$/.exec(node.nodeValue ?? '')?.[1]
       if (source !== undefined) {
-        const binding = ko.expressionRewriting
-          .parseObjectLiteral(source)
-          .find(({ key }) => key !== undefined && REACT_UNSAFE_BINDINGS.has(key))
-        if (binding?.key !== undefined) return binding.key
+        const binding = [...bindingNamesFromSource(source)].find((name) =>
+          REACT_UNSAFE_BINDINGS.has(name)
+        )
+        if (binding !== undefined) return binding
       }
     }
 

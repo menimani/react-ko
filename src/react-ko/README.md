@@ -218,6 +218,8 @@ child DOM nodes that React still owns. `RootKnockoutProvider` and
 `KnockoutScope` reject them before applying any bindings in that binding root.
 This includes containerless control-flow comments inserted through
 `dangerouslySetInnerHTML`, both on initial render and on later replacements.
+Safety checks inspect bindings after custom `preprocess` hooks run, so a custom
+alias cannot inject one of these bindings around React-rendered children.
 Use `KoIf`, `KoIfNot`, `KoForeach`, and `KoWith` instead.
 
 The `text`, `html`, `component`, and `options` bindings also replace an

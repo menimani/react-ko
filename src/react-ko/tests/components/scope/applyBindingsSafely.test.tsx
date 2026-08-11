@@ -166,6 +166,36 @@ describe('applyBindingsSafely', () => {
     }
   })
 
+  it.each(['if', 'ifnot', 'foreach', 'template', 'with', 'text', 'html'])(
+    'rejects an unsafe %s binding injected by a custom preprocessor',
+    (injectedBinding) => {
+      const binding = 'unsafeAlias'
+      const value = ko.observable(injectedBinding === 'foreach' ? [] : true)
+      ko.bindingHandlers[binding] = {
+        preprocess(expression, _name, addBinding) {
+          addBinding(injectedBinding, expression)
+        },
+      }
+
+      try {
+        const { container } = render(
+          <div data-bind={`${binding}: value`}>
+            <span>React child</span>
+          </div>
+        )
+        const child = container.querySelector('span')
+
+        expect(() => applyBindingsSafely({ value }, container)).toThrow(
+          `react-ko cannot apply the Knockout "${injectedBinding}" binding`
+        )
+        expect(container.querySelector('span')).toBe(child)
+        expect(value.getSubscriptionsCount()).toBe(0)
+      } finally {
+        delete ko.bindingHandlers[binding]
+      }
+    }
+  )
+
   it('leaves the React tree attached for later rerenders after rejecting a descendant-mutating binding', () => {
     const label = ko.observable('Knockout label')
     const handleClick = vi.fn()

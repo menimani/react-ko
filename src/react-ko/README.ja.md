@@ -215,7 +215,9 @@ React が描画した children を制御するために、Knockout の `if`、`i
 `RootKnockoutProvider` と `KnockoutScope` は、そのバインディングルート内のいずれの
 バインディングも適用する前にこれらを拒否します。これには、初回レンダー時または
 後続の置換時に `dangerouslySetInnerHTML` で挿入される、コンテナーレスの制御フローコメントも
-含まれます。代わりに `KoIf`、`KoIfNot`、
+含まれます。安全性チェックはカスタム `preprocess` フックの実行後のバインディングを検査するため、
+カスタムエイリアスから React が描画した children に対してこれらのバインディングを追加することもできません。
+代わりに `KoIf`、`KoIfNot`、
 `KoForeach`、`KoWith` を使ってください。
 
 `text`、`html`、`component`、`options` バインディングも要素の内容を置き換えます。
