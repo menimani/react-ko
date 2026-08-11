@@ -758,10 +758,11 @@ function recordOwnedAttributeChanges(
   bindingStates: BindingStateStore
 ) {
   for (const record of records) {
+    const attributeName = mutationAttributeName(record)
     if (
       record.type !== 'attributes' ||
-      record.attributeName === null ||
-      record.attributeName === 'data-bind'
+      attributeName === null ||
+      attributeName === 'data-bind'
     ) {
       continue
     }
@@ -769,7 +770,7 @@ function recordOwnedAttributeChanges(
     const element = record.target as HTMLElement
     const state = bindingStates.get(element)
     if (state !== undefined && bindingNames(state.source).has('attr')) {
-      state.ownedAttributes.add(record.attributeName)
+      state.ownedAttributes.add(attributeName)
     }
   }
 }
@@ -1010,9 +1011,39 @@ const REACT_PROP_ATTRIBUTE_ALIASES = new Map([
   ['vertOriginY', 'vert-origin-y'],
   ['wordSpacing', 'word-spacing'],
   ['writingMode', 'writing-mode'],
+  ['xlinkActuate', 'xlink:actuate'],
+  ['xlinkArcrole', 'xlink:arcrole'],
+  ['xlinkHref', 'xlink:href'],
+  ['xlinkRole', 'xlink:role'],
+  ['xlinkShow', 'xlink:show'],
+  ['xlinkTitle', 'xlink:title'],
+  ['xlinkType', 'xlink:type'],
+  ['xmlBase', 'xml:base'],
+  ['xmlLang', 'xml:lang'],
+  ['xmlSpace', 'xml:space'],
   ['xmlnsXlink', 'xmlns:xlink'],
   ['xHeight', 'x-height'],
 ])
+
+const ATTRIBUTE_NAMESPACE_PREFIXES = new Map([
+  ['http://www.w3.org/1999/xlink', 'xlink'],
+  ['http://www.w3.org/XML/1998/namespace', 'xml'],
+  ['http://www.w3.org/2000/xmlns/', 'xmlns'],
+])
+const ATTRIBUTE_PREFIX_NAMESPACES = new Map(
+  [...ATTRIBUTE_NAMESPACE_PREFIXES].map(([namespace, prefix]) => [prefix, namespace])
+)
+
+function mutationAttributeName(record: MutationRecord) {
+  if (record.attributeName === null) return null
+  const prefix =
+    record.attributeNamespace === null
+      ? undefined
+      : ATTRIBUTE_NAMESPACE_PREFIXES.get(record.attributeNamespace)
+  return prefix === undefined
+    ? record.attributeName
+    : `${prefix}:${record.attributeName}`
+}
 
 function reactAttributeValue(name: string, value: unknown) {
   if (value === null || value === undefined) return null
@@ -1072,10 +1103,11 @@ function refreshReactOwnedDom(
   const changed = new Set<HTMLElement>()
 
   for (const record of records) {
+    const attributeName = mutationAttributeName(record)
     if (
       record.type !== 'attributes' ||
-      record.attributeName === null ||
-      record.attributeName === 'data-bind'
+      attributeName === null ||
+      attributeName === 'data-bind'
     ) {
       continue
     }
@@ -1086,7 +1118,7 @@ function refreshReactOwnedDom(
     const names = bindingNames(state.source)
     const currentProps = snapshotReactProps(element)
     const reactProp = reactPropForAttribute(
-      record.attributeName,
+      attributeName,
       state.reactProps,
       currentProps
     )
@@ -1095,7 +1127,7 @@ function refreshReactOwnedDom(
     if (!propsChanged || reactProp === undefined) continue
 
     if (
-      record.attributeName === 'class' &&
+      attributeName === 'class' &&
       (names.has('class') || names.has('css'))
     ) {
       updateAttributeBaselineFromReactProp(
@@ -1106,7 +1138,7 @@ function refreshReactOwnedDom(
       )
       changed.add(element)
     } else if (
-      record.attributeName === 'style' &&
+      attributeName === 'style' &&
       (names.has('style') || names.has('visible') || names.has('hidden')) &&
       (names.has('style') ||
         stylePropChanged(
@@ -1123,10 +1155,10 @@ function refreshReactOwnedDom(
       state.beforeBinding.styleDisplay =
         state.beforeBinding.style.get('display')?.value ?? ''
       changed.add(element)
-    } else if (names.has('attr') && state.ownedAttributes.has(record.attributeName)) {
+    } else if (names.has('attr') && state.ownedAttributes.has(attributeName)) {
       updateAttributeBaselineFromReactProp(
         state,
-        record.attributeName,
+        attributeName,
         reactProp,
         currentProps.get(reactProp)
       )
@@ -1274,10 +1306,16 @@ function restoreAttribute(
   name: string
 ) {
   const value = snapshot.attributes.get(name)
+  const separator = name.indexOf(':')
+  const prefix = separator === -1 ? undefined : name.slice(0, separator)
+  const namespace =
+    prefix === undefined ? undefined : ATTRIBUTE_PREFIX_NAMESPACES.get(prefix)
   if (value === undefined) {
-    element.removeAttribute(name)
+    if (namespace === undefined) element.removeAttribute(name)
+    else element.removeAttributeNS(namespace, name.slice(separator + 1))
   } else {
-    element.setAttribute(name, value)
+    if (namespace === undefined) element.setAttribute(name, value)
+    else element.setAttributeNS(namespace, name, value)
   }
 }
 

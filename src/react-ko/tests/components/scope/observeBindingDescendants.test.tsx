@@ -85,6 +85,32 @@ function LocalSvgAttributeBinding({ vm }: { vm: unknown }) {
   )
 }
 
+function LocalNamespacedSvgAttributeBinding({ vm }: { vm: unknown }) {
+  const [phase, setPhase] = useState(0)
+
+  return (
+    <RootKnockoutProvider viewModel={vm}>
+      <>
+        <svg xmlnsXlink="http://www.w3.org/1999/xlink">
+          <use
+            data-testid="namespaced-owner"
+            xlinkHref={phase === 0 ? '#react-initial' : '#react-latest'}
+            xmlSpace={phase === 0 ? 'default' : 'react-latest'}
+            data-bind={
+              phase < 2
+                ? "attr: { 'xlink:href': knockoutHref, 'xml:space': knockoutSpace }"
+                : undefined
+            }
+          />
+        </svg>
+        <button onClick={() => setPhase((current) => current + 1)}>
+          Advance namespaced props
+        </button>
+      </>
+    </RootKnockoutProvider>
+  )
+}
+
 describe('observeBindingDescendants', () => {
   it('reapplies a class binding after a local React className update and retires it safely', async () => {
     render(<LocalClassBinding vm={{ activeClass: ko.observable('ko-active') }} />)
@@ -108,6 +134,31 @@ describe('observeBindingDescendants', () => {
 
     act(() => screen.getByText('Retire stroke width').click())
     await waitFor(() => expect(owner.getAttribute('stroke-width')).toBe('3'))
+  })
+
+  it('reapplies and safely retires namespaced attr bindings after React prop updates', async () => {
+    render(
+      <LocalNamespacedSvgAttributeBinding
+        vm={{ knockoutHref: '#knockout', knockoutSpace: 'knockout-space' }}
+      />
+    )
+    const owner = screen.getByTestId('namespaced-owner')
+    const xlink = 'http://www.w3.org/1999/xlink'
+    const xml = 'http://www.w3.org/XML/1998/namespace'
+    expect(owner.getAttributeNS(xlink, 'href')).toBe('#knockout')
+    expect(owner.getAttributeNS(xml, 'space')).toBe('knockout-space')
+
+    act(() => screen.getByText('Advance namespaced props').click())
+    await waitFor(() => {
+      expect(owner.getAttributeNS(xlink, 'href')).toBe('#knockout')
+      expect(owner.getAttributeNS(xml, 'space')).toBe('knockout-space')
+    })
+
+    act(() => screen.getByText('Advance namespaced props').click())
+    await waitFor(() => {
+      expect(owner.getAttributeNS(xlink, 'href')).toBe('#react-latest')
+      expect(owner.getAttributeNS(xml, 'space')).toBe('react-latest')
+    })
   })
 
   for (const binding of ['visible', 'hidden'] as const) {

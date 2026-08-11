@@ -58,24 +58,123 @@ const REACT_CHILD_HANDLERLESS_BINDINGS = new Set([
   'valueAllowUnset',
   'valueUpdate',
 ])
-function bindingHandlerMethods(name: string) {
+
+type BindingHandlerMethodFingerprints = {
+  init?: string
+  update?: string
+  preprocess?: string
+}
+
+// These structural fingerprints come from Knockout 3.5.1's published build.
+// They use arity plus property names and literals so bundler renaming is ignored.
+// Unlike ko.bindingHandlers, they cannot be replaced before react-ko loads.
+// A different handler implementation fails closed only when React owns children.
+const CANONICAL_KNOCKOUT_BINDING_HANDLER_METHODS = new Map<
+  string,
+  BindingHandlerMethodFingerprints
+>([
+  ['attr', { update: '2:23:a84c6e9e:8b48f812' }],
+  ['checked', { init: '3:55:2433ca9a:43e115a6' }],
+  ['checkedValue', { update: '2:3:c6f6c6db:66bfbe4f' }],
+  ['class', { update: '2:10:45f24797:93db470b' }],
+  ['click', { init: '5:4:fe129414:cc7aa6f8' }],
+  ['css', { update: '2:12:0f7f420b:7e9690a7' }],
+  ['disable', { update: '2:5:55dbe217:a6cddbbb' }],
+  ['enable', { update: '2:7:c79518e2:127851d6' }],
+  ['event', { init: '5:18:06ba27b4:5189d2d0' }],
+  [
+    'hasFocus',
+    {
+      init: '3:25:e8553987:42de89a3',
+      update: '2:16:a8b5f3ba:cbbf369e',
+    },
+  ],
+  [
+    'hasfocus',
+    {
+      init: '3:25:e8553987:42de89a3',
+      update: '2:16:a8b5f3ba:cbbf369e',
+    },
+  ],
+  ['hidden', { update: '2:5:24e9a882:da594dc6' }],
+  ['let', { init: '5:2:81aa6587:f4cd58f3' }],
+  [
+    'selectedOptions',
+    {
+      init: '3:40:c0dc56d9:1998b265',
+      update: '0:0:811c9dc5:9e3779b9',
+    },
+  ],
+  ['style', { update: '2:18:2e828152:305618ee' }],
+  ['submit', { init: '5:10:8242751b:a48426c7' }],
+  ['textInput', { init: '3:44:e91ccd9e:3f56f17a' }],
+  ['textinput', { preprocess: '3:1:f91bd5c2:f96a400e' }],
+  ['uniqueName', { init: '2:6:e9d63526:d274950a' }],
+  ['using', { init: '5:8:eaee5158:5ca6c27c' }],
+  [
+    'value',
+    {
+      init: '3:96:a0b37ed3:fe0c1e5f',
+      update: '0:0:811c9dc5:9e3779b9',
+    },
+  ],
+  ['visible', { update: '2:11:7f5f2c63:19ae2937' }],
+])
+
+function hashFunctionSource(source: string, seed: number) {
+  let hash = seed >>> 0
+  for (let index = 0; index < source.length; index += 1) {
+    hash = Math.imul(hash ^ source.charCodeAt(index), 16777619) >>> 0
+  }
+  return hash.toString(16).padStart(8, '0')
+}
+
+function methodFingerprint(method: unknown) {
+  if (typeof method !== 'function') return undefined
+  const source = Function.prototype.toString.call(method)
+  const tokens = [
+    ...source.matchAll(/(["'])(?:\\.|(?!\1).)*\1/g),
+  ].map((match) =>
+    match[0]
+      .slice(1, -1)
+      .replace(/\\(["'\\])/g, '$1')
+  )
+  tokens.push(
+    ...[...source.matchAll(/\.\s*([A-Za-z_$][\w$]*)/g)].map(
+      (match) => match[1]
+    )
+  )
+  const shape = tokens.sort().join('\0')
+  return [
+    method.length,
+    tokens.length,
+    hashFunctionSource(shape, 0x811c9dc5),
+    hashFunctionSource(shape, 0x9e3779b9),
+  ].join(':')
+}
+
+function bindingHandlerMethodFingerprints(name: string) {
   const handler = ko.bindingHandlers[name]
   return handler === undefined
     ? undefined
     : {
-        init: handler.init,
-        update: handler.update,
-        preprocess: handler.preprocess,
+        init: methodFingerprint(handler.init),
+        update: methodFingerprint(handler.update),
+        preprocess: methodFingerprint(handler.preprocess),
       }
 }
 
-const REACT_CHILD_AUDITED_BINDING_HANDLER_METHODS = new Map(
-  [...REACT_CHILD_AUDITED_BINDINGS].map((name) => [name, bindingHandlerMethods(name)])
+const REACT_KO_BOUNDARY_HANDLER_METHODS = bindingHandlerMethodFingerprints(
+  DESCENDANT_BINDING_BOUNDARY
 )
 
 function hasAuditedBindingHandler(name: string) {
   const registeredHandler = ko.bindingHandlers[name]
-  const auditedMethods = REACT_CHILD_AUDITED_BINDING_HANDLER_METHODS.get(name)
+  const registeredMethods = bindingHandlerMethodFingerprints(name)
+  const auditedMethods =
+    name === DESCENDANT_BINDING_BOUNDARY
+      ? REACT_KO_BOUNDARY_HANDLER_METHODS
+      : CANONICAL_KNOCKOUT_BINDING_HANDLER_METHODS.get(name)
   return (
     (name.endsWith('Bubble') && registeredHandler === undefined) ||
     (REACT_CHILD_AUDITED_BINDINGS.has(name) &&
@@ -83,9 +182,10 @@ function hasAuditedBindingHandler(name: string) {
         ? registeredHandler === undefined
         : registeredHandler !== undefined &&
           auditedMethods !== undefined &&
-          registeredHandler.init === auditedMethods.init &&
-          registeredHandler.update === auditedMethods.update &&
-          registeredHandler.preprocess === auditedMethods.preprocess))
+          registeredMethods !== undefined &&
+          registeredMethods.init === auditedMethods.init &&
+          registeredMethods.update === auditedMethods.update &&
+          registeredMethods.preprocess === auditedMethods.preprocess))
   )
 }
 
