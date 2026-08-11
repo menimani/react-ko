@@ -1754,7 +1754,10 @@ function restoreRetiredDomEffects(element: HTMLElement, state: BindingState) {
       restoreAttribute(element, state.beforeBinding, name)
     }
   }
-  if (names.has('uniqueName')) {
+  // Knockout's checked binding delegates to uniqueName for unnamed radios so
+  // that old IE does not merge unrelated radio groups. Retiring checked must
+  // undo that implicit attribute just as retiring uniqueName does.
+  if (names.has('uniqueName') || names.has('checked')) {
     restoreAttribute(element, state.beforeBinding, 'name')
   }
   if (
