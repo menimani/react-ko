@@ -414,6 +414,70 @@ describe('RootKnockoutProvider', () => {
     }
   })
 
+  it.each([
+    ['checked', 'uniqueName', 'checked: selected', 'init'],
+    ['click', 'event', 'click: handle', 'init'],
+    ['disable', 'enable', 'disable: disabled', 'update'],
+    ['hidden', 'visible', 'hidden: hidden', 'update'],
+    ['textinput', 'textInput', 'textinput: value', 'init'],
+  ] as const)(
+    'rejects retirement of %s when its delegated %s handler is overridden',
+    async (binding, delegate, source, method) => {
+      const registered = ko.bindingHandlers[delegate]
+      const customEffect = vi.fn((element: Element) => {
+        element.setAttribute('title', 'custom delegated effect')
+      })
+      ko.bindingHandlers[delegate] =
+        method === 'init' ? { init: customEffect } : { update: customEffect }
+      const viewModel = {
+        selected: ko.observable(true),
+        handle: vi.fn(),
+        disabled: ko.observable(true),
+        hidden: ko.observable(true),
+        value: ko.observable('Knockout value'),
+      }
+
+      function Harness({ bound }: { bound: boolean }) {
+        const dataBind = bound ? source : undefined
+        return (
+          <ErrorMessageBoundary>
+            <RootKnockoutProvider viewModel={viewModel}>
+              {binding === 'checked' ? (
+                <input type="radio" data-testid="delegated-binding" data-bind={dataBind} />
+              ) : binding === 'click' ? (
+                <button data-testid="delegated-binding" data-bind={dataBind} />
+              ) : binding === 'textinput' ? (
+                <input data-testid="delegated-binding" data-bind={dataBind} />
+              ) : (
+                <span data-testid="delegated-binding" data-bind={dataBind} />
+              )}
+            </RootKnockoutProvider>
+          </ErrorMessageBoundary>
+        )
+      }
+
+      try {
+        const { rerender } = render(<Harness bound />)
+        expect(screen.getByTestId('delegated-binding').getAttribute('title')).toBe(
+          'custom delegated effect'
+        )
+
+        rerender(<Harness bound={false} />)
+
+        await waitFor(() =>
+          expect(
+            screen.getByText(
+              `react-ko cannot replace the Knockout "${binding}" binding because its DOM effects cannot be safely retired.`
+            )
+          ).toBeDefined()
+        )
+        expect(customEffect).toHaveBeenCalled()
+      } finally {
+        ko.bindingHandlers[delegate] = registered
+      }
+    }
+  )
+
   it('removes DOM effects owned by retired bindings before applying replacements', () => {
     const vm = {
       first: ko.observable(true),
