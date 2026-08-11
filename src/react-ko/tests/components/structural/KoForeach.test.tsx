@@ -192,6 +192,49 @@ describe('KoForeach', () => {
     }
   )
 
+  it.each([null, undefined])(
+    'renders nothing for an initially %s plain value',
+    (items) => {
+      render(
+        <RootKnockoutProvider viewModel={{}}>
+          <KoForeach items={items}>{() => <span>Unexpected row</span>}</KoForeach>
+        </RootKnockoutProvider>
+      )
+
+      expect(screen.queryByText('Unexpected row')).toBeNull()
+    }
+  )
+
+  it.each([null, undefined])(
+    'renders nothing when a computed array changes to %s and recovers',
+    (emptyValue) => {
+      const source = ko.observable<string[] | null | undefined>(['A'])
+      const items = ko.computed(() => source())
+
+      render(
+        <RootKnockoutProvider viewModel={{}}>
+          <KoForeach items={items}>
+            {(item) => <span>{item}</span>}
+          </KoForeach>
+        </RootKnockoutProvider>
+      )
+
+      expect(screen.getByText('A')).toBeDefined()
+
+      act(() => {
+        source(emptyValue)
+      })
+
+      expect(screen.queryByText('A')).toBeNull()
+
+      act(() => {
+        source(['B'])
+      })
+
+      expect(screen.getByText('B')).toBeDefined()
+    }
+  )
+
   it('renders plain arrays', () => {
     render(
       <RootKnockoutProvider viewModel={{}}>
