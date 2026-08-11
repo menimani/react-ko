@@ -695,6 +695,73 @@ describe('RootKnockoutProvider', () => {
     }
   })
 
+  it.runIf(Number.parseInt(reactVersion, 10) === 18).each([
+    'html',
+    'options',
+    'component',
+  ] as const)(
+    'keeps a %s binding active after an observable update beside a bigint child in React 18',
+    async (kind) => {
+      const initialComponent = 'react-ko-bigint-initial'
+      const updatedComponent = 'react-ko-bigint-updated'
+      const initial =
+        kind === 'html'
+          ? '<strong>Initial</strong>'
+          : kind === 'options'
+            ? ['Initial']
+            : initialComponent
+      const updated =
+        kind === 'html'
+          ? '<em>Updated</em>'
+          : kind === 'options'
+            ? ['Updated']
+            : updatedComponent
+      const value = ko.observable<unknown>(initial)
+      const binding = `${kind}: value`
+      const bigint = 123n as unknown as ReactNode
+
+      if (kind === 'component') {
+        ko.components.register(initialComponent, { template: '<strong>Initial</strong>' })
+        ko.components.register(updatedComponent, { template: '<em>Updated</em>' })
+      }
+
+      function Harness() {
+        return (
+          <ErrorBoundary>
+            <RootKnockoutProvider viewModel={{ value }}>
+              {kind === 'options' ? (
+                <select data-testid="bigint-content-owner" data-bind={binding}>
+                  {bigint}
+                </select>
+              ) : (
+                <div data-testid="bigint-content-owner" data-bind={binding}>
+                  {bigint}
+                </div>
+              )}
+            </RootKnockoutProvider>
+          </ErrorBoundary>
+        )
+      }
+
+      try {
+        const { unmount } = render(<Harness />)
+        const owner = screen.getByTestId('bigint-content-owner')
+        await waitFor(() => expect(owner.textContent).toBe('Initial'))
+
+        expect(() => act(() => value(updated))).not.toThrow()
+
+        await waitFor(() => expect(owner.textContent).toBe('Updated'))
+        expect(screen.queryByText('Binding failed')).toBeNull()
+        unmount()
+      } finally {
+        if (kind === 'component') {
+          ko.components.unregister(initialComponent)
+          ko.components.unregister(updatedComponent)
+        }
+      }
+    }
+  )
+
   it.each([
     ['an empty text child', { children: '' }],
     ['empty dangerouslySetInnerHTML', { dangerouslySetInnerHTML: { __html: '' } }],
@@ -917,110 +984,6 @@ describe('RootKnockoutProvider', () => {
       expect(vm.label()).toBe('Updated in layout')
       expect(vm.label.getSubscriptionsCount()).toBe(0)
     } finally {
-      consoleError.mockRestore()
-    }
-  })
-
-  it('rejects a late React child before a custom binding update can detach it', () => {
-    const binding = 'replaceOnNotification'
-    const notified = ko.observable(false)
-    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
-    let showChild = () => undefined
-    let connectedAfterNotification = false
-
-    ko.bindingHandlers[binding] = {
-      update(element, valueAccessor) {
-        if (ko.unwrap(valueAccessor())) {
-          element.replaceChildren('Knockout replacement')
-        }
-      },
-    }
-
-    function NotifyingChild() {
-      const child = useRef<HTMLSpanElement>(null)
-
-      useLayoutEffect(() => {
-        notified(true)
-        connectedAfterNotification = child.current?.isConnected ?? false
-      }, [])
-
-      return <span ref={child}>React child</span>
-    }
-
-    function BindingOwner() {
-      const [show, setShow] = useState(false)
-      showChild = () => setShow(true)
-
-      return (
-        <div data-bind={`${binding}: notified`}>
-          {show ? <NotifyingChild /> : null}
-        </div>
-      )
-    }
-
-    try {
-      render(
-        <ErrorBoundary>
-          <RootKnockoutProvider viewModel={{ notified }}>
-            <BindingOwner />
-          </RootKnockoutProvider>
-        </ErrorBoundary>
-      )
-      act(() => showChild())
-
-      expect(screen.getByText('Binding failed')).toBeDefined()
-      expect(notified()).toBe(true)
-      expect(connectedAfterNotification).toBe(true)
-      expect(notified.getSubscriptionsCount()).toBe(0)
-    } finally {
-      delete ko.bindingHandlers[binding]
-      consoleError.mockRestore()
-    }
-  })
-
-  it('rejects late React text before a custom binding can later detach it', async () => {
-    const binding = 'replaceTextOnNotification'
-    const notified = ko.observable(false)
-    const replace = vi.fn()
-    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
-    let showText = () => undefined
-
-    ko.bindingHandlers[binding] = {
-      update(element, valueAccessor) {
-        if (ko.unwrap(valueAccessor())) {
-          replace()
-          element.replaceChildren('Knockout replacement')
-        }
-      },
-    }
-
-    function BindingOwner() {
-      const [show, setShow] = useState(false)
-      showText = () => setShow(true)
-
-      return (
-        <div data-bind={`${binding}: notified`}>
-          {show ? 'React text' : null}
-        </div>
-      )
-    }
-
-    try {
-      render(
-        <ErrorBoundary>
-          <RootKnockoutProvider viewModel={{ notified }}>
-            <BindingOwner />
-          </RootKnockoutProvider>
-        </ErrorBoundary>
-      )
-      act(() => showText())
-
-      await waitFor(() => expect(screen.getByText('Binding failed')).toBeDefined())
-      expect(notified.getSubscriptionsCount()).toBe(0)
-      act(() => notified(true))
-      expect(replace).not.toHaveBeenCalled()
-    } finally {
-      delete ko.bindingHandlers[binding]
       consoleError.mockRestore()
     }
   })

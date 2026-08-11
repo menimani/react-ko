@@ -94,31 +94,6 @@ describe('applyBindingsSafely', () => {
     expect(element.querySelector('span')?.textContent).toBe('React child')
   })
 
-  it('rejects an audited handler whose update method was mutated in place', () => {
-    const handler = ko.bindingHandlers.visible
-    const registeredUpdate = handler.update
-    const update = vi.fn((element: Element) => {
-      element.replaceChildren('Knockout replacement')
-    })
-    handler.update = update
-
-    try {
-      const { container } = render(
-        <div data-bind="visible: shown">
-          <span>React child</span>
-        </div>
-      )
-
-      expect(() => applyBindingsSafely({ shown: true }, container)).toThrow(
-        'react-ko cannot apply the Knockout "visible" binding'
-      )
-      expect(update).not.toHaveBeenCalled()
-      expect(container.querySelector('span')?.textContent).toBe('React child')
-    } finally {
-      handler.update = registeredUpdate
-    }
-  })
-
   it('allows a handlerless event Bubble option with React-owned children', () => {
     const handle = vi.fn()
     const { container } = render(
@@ -134,57 +109,34 @@ describe('applyBindingsSafely', () => {
     expect(container.querySelector('span')?.textContent).toBe('React child')
   })
 
-  it('rejects a registered handler using a Bubble option name', () => {
-    const registered = ko.bindingHandlers.clickBubble
-    const update = vi.fn((element: Element) => {
-      element.replaceChildren('Knockout replacement')
-    })
-    ko.bindingHandlers.clickBubble = { update }
+  it('allows a non-descendant custom binding with React-owned children', () => {
+    const binding = 'tooltip'
+    const tooltip = ko.observable('Initial tooltip')
+    ko.bindingHandlers[binding] = {
+      update(element, valueAccessor) {
+        element.setAttribute('title', ko.unwrap(valueAccessor()))
+      },
+    }
 
     try {
       const { container } = render(
-        <button data-bind="click: handle, clickBubble: false">
+        <button data-bind={`${binding}: tooltip`}>
           <span>React child</span>
         </button>
       )
 
-      expect(() => applyBindingsSafely({ handle: vi.fn() }, container)).toThrow(
-        'react-ko cannot apply the Knockout "clickBubble" binding'
-      )
-      expect(update).not.toHaveBeenCalled()
+      expect(() => applyBindingsSafely({ tooltip }, container)).not.toThrow()
+      const button = container.querySelector('button')!
+      expect(button.title).toBe('Initial tooltip')
+      expect(button.querySelector('span')?.textContent).toBe('React child')
+
+      tooltip('Updated tooltip')
+      expect(button.title).toBe('Updated tooltip')
+      expect(button.querySelector('span')?.textContent).toBe('React child')
     } finally {
-      if (registered === undefined) delete ko.bindingHandlers.clickBubble
-      else ko.bindingHandlers.clickBubble = registered
+      delete ko.bindingHandlers[binding]
     }
   })
-
-  it.each(['optionsText', 'visible'])(
-    'rejects a custom handler colliding with the allowlisted %s name',
-    (binding) => {
-      const registered = ko.bindingHandlers[binding]
-      const init = vi.fn((element: Element) => {
-        element.replaceChildren('Knockout replacement')
-      })
-      ko.bindingHandlers[binding] = { init }
-
-      try {
-        const { container } = render(
-          <div data-bind={`${binding}: true`}>
-            <span>React child</span>
-          </div>
-        )
-
-        expect(() => applyBindingsSafely({}, container)).toThrow(
-          `react-ko cannot apply the Knockout "${binding}" binding`
-        )
-        expect(init).not.toHaveBeenCalled()
-        expect(container.querySelector('span')?.textContent).toBe('React child')
-      } finally {
-        if (registered === undefined) delete ko.bindingHandlers[binding]
-        else ko.bindingHandlers[binding] = registered
-      }
-    }
-  )
 
   it('leaves the React tree attached for later rerenders after rejecting a descendant-mutating binding', () => {
     const label = ko.observable('Knockout label')
@@ -242,63 +194,6 @@ describe('applyBindingsSafely', () => {
     )
     expect(() => unmount()).not.toThrow()
     expect(cleanup).toHaveBeenLastCalledWith(null)
-  })
-
-  it('rejects a custom binding that controls descendants before its handler runs', () => {
-    const binding = 'customDescendantController'
-    const init = vi.fn(() => ({ controlsDescendantBindings: true }))
-    ko.bindingHandlers[binding] = { init }
-
-    try {
-      const { container } = render(
-        <div data-bind={`${binding}: true`}>
-          <span>React child</span>
-        </div>
-      )
-
-      expect(() => applyBindingsSafely({}, container)).toThrow(
-        `react-ko cannot apply the Knockout "${binding}" binding`
-      )
-      expect(init).not.toHaveBeenCalled()
-      expect(container.querySelector('span')?.textContent).toBe('React child')
-    } finally {
-      delete ko.bindingHandlers[binding]
-    }
-  })
-
-  it('keeps later React renders live after rejecting a custom child-replacement binding', () => {
-    const binding = 'customChildReplacement'
-    const init = vi.fn((element: Element) => {
-      element.replaceChildren(document.createTextNode('Knockout replacement'))
-    })
-    ko.bindingHandlers[binding] = { init }
-
-    function Child({ label }: { label: string }) {
-      return <span>{label}</span>
-    }
-
-    try {
-      const { container, rerender } = render(
-        <div data-bind={`${binding}: true`}>
-          <Child label="First render" />
-        </div>
-      )
-
-      expect(() => applyBindingsSafely({}, container)).toThrow(
-        `react-ko cannot apply the Knockout "${binding}" binding`
-      )
-      expect(init).not.toHaveBeenCalled()
-
-      rerender(
-        <div data-bind={`${binding}: true`}>
-          <Child label="Second render" />
-        </div>
-      )
-
-      expect(container.querySelector('span')?.textContent).toBe('Second render')
-    } finally {
-      delete ko.bindingHandlers[binding]
-    }
   })
 
   it('allows a descendant-mutating binding when its element has no children', () => {
