@@ -9,6 +9,11 @@ import { prepareDescendantBindingContextCapture } from './descendantBindingConte
 const REACT_UNSAFE_BINDINGS = new Set(['if', 'ifnot', 'foreach', 'template', 'with'])
 const REACT_CHILD_UNSAFE_BINDINGS = new Set(['text', 'html', 'component', 'options'])
 export const REACT_RENDERS_BIGINT = Number.parseInt(reactVersion, 10) >= 19
+const customDescendantControllers = new WeakMap<Element, string>()
+
+export function customDescendantControllerFor(element: Element) {
+  return customDescendantControllers.get(element)
+}
 
 type BindingHandlerMethodFingerprints = {
   init?: readonly string[]
@@ -593,13 +598,18 @@ function rejectDescendantControllingCustomHandlers() {
       const element = args[0]
       const controlsReactOwnedChildren =
         element.nodeType === 1 && hasReactOwnedChildren(element as Element)
-      if (!controlsReactOwnedChildren) {
-        return init(...args)
-      }
-
-      const originalChildren = [...element.childNodes]
+      const originalChildren = controlsReactOwnedChildren
+        ? [...element.childNodes]
+        : []
       const result = init(...args)
       if (result?.controlsDescendantBindings) {
+        if (element.nodeType === 1) {
+          customDescendantControllers.set(element as Element, name)
+        }
+        if (!controlsReactOwnedChildren) {
+          return result
+        }
+
         // Restore the direct React nodes if the rejected init moved or removed
         // them before reporting that it controls descendants.
         const childrenChanged =
@@ -628,6 +638,12 @@ function rejectDescendantControllingCustomHandlers() {
  * binding on the same tree throws before React can register effect cleanup.
  */
 export function applyBindingsSafely(viewModel: unknown, node: HTMLElement) {
+  function clearRecordedControllers(element: Element) {
+    customDescendantControllers.delete(element)
+    for (const child of element.children) clearRecordedControllers(child)
+  }
+
+  clearRecordedControllers(node)
   ensureDescendantBindingBoundary()
   const provider = ko.bindingProvider.instance as ko.IBindingProvider & {
     getBindingsString?: ko.bindingProvider['getBindingsString']

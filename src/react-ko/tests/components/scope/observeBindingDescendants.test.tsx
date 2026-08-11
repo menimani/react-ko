@@ -141,6 +141,55 @@ function LocalPanoseSvgAttributeBinding({ vm }: { vm: unknown }) {
 }
 
 describe('observeBindingDescendants', () => {
+  it('rejects a late React child owned by an initially empty custom descendant controller', async () => {
+    const binding = 'customLateDescendantController'
+    const removeChildren = ko.observable(false)
+    ko.bindingHandlers[binding] = {
+      init() {
+        return { controlsDescendantBindings: true }
+      },
+      update(element, valueAccessor) {
+        if (ko.unwrap(valueAccessor())) {
+          ko.utils.emptyDomNode(element)
+        }
+      },
+    }
+
+    function LateChild() {
+      useLayoutEffect(() => {
+        removeChildren(true)
+      }, [])
+      return <span>Late React child</span>
+    }
+
+    function Harness({ showChild }: { showChild: boolean }) {
+      return (
+        <ErrorBoundary>
+          <RootKnockoutProvider viewModel={{ removeChildren }}>
+            <section
+              data-testid="custom-controller"
+              data-bind={`${binding}: removeChildren`}
+            >
+              {showChild ? <LateChild /> : null}
+            </section>
+          </RootKnockoutProvider>
+        </ErrorBoundary>
+      )
+    }
+
+    try {
+      const mounted = render(<Harness showChild={false} />)
+      expect(screen.getByTestId('custom-controller').childNodes).toHaveLength(0)
+      expect(removeChildren.getSubscriptionsCount()).toBe(1)
+
+      mounted.rerender(<Harness showChild />)
+
+      await waitFor(() => expect(screen.getByText('Binding failed')).toBeDefined())
+    } finally {
+      delete ko.bindingHandlers[binding]
+    }
+  })
+
   it('rejects a React-owned virtual binding introduced by an HTML replacement', async () => {
     const viewModel = { visible: ko.observable(false) }
 

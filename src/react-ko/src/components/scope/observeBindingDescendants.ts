@@ -2,6 +2,7 @@ import ko from 'knockout'
 import {
   applyBindingsSafely,
   assertNoReactUnsafeBindings,
+  customDescendantControllerFor,
   currentReactHostProps,
   hasCanonicalKnockoutBindingHandler,
   hasReactOwnedChildren,
@@ -168,6 +169,7 @@ type DomSnapshot = {
 
 type BindingState = {
   source: string | null
+  customDescendantController: string | null
   ownedContent: Set<Node> | null
   ownedAttributes: Set<string>
   beforeBinding: DomSnapshot
@@ -339,6 +341,7 @@ function prepareBindingTree(
 
   bindingStates.set(element, {
     source: element.getAttribute('data-bind'),
+    customDescendantController: null,
     ownedContent: null,
     ownedAttributes: new Set(),
     beforeBinding: snapshotDom(element),
@@ -946,9 +949,14 @@ function trackBindingTree(
       ownedAttributes.add(name)
     }
   }
+  const customDescendantController = customDescendantControllerFor(element) ?? null
   bindingStates.set(element, {
     source,
-    ownedContent: controlsElementContent(source) ? new Set(element.childNodes) : null,
+    customDescendantController,
+    ownedContent:
+      controlsElementContent(source) || customDescendantController !== null
+        ? new Set(element.childNodes)
+        : null,
     ownedAttributes,
     beforeBinding,
     reactProps: snapshotReactProps(element),
@@ -1678,6 +1686,12 @@ function refreshOwnedContent(
               (child) => !owned.has(child) && hasReactOwnership(child, element)
             )))
       if (contested) {
+        if (state.customDescendantController !== null) {
+          throw new Error(
+            `react-ko cannot apply the Knockout "${state.customDescendantController}" binding because its custom handler controls React-owned child nodes. ` +
+              'Custom bindings on elements with React-owned children must leave their descendants in place.'
+          )
+        }
         assertNoReactUnsafeBindings(
           element,
           directReactContentTransition,
