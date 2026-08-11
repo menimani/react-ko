@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { render, screen, act, waitFor } from '@testing-library/react'
 import { Component, type ReactNode, useLayoutEffect, useRef, useState } from 'react'
 import ko from 'knockout'
@@ -374,6 +374,62 @@ describe('observeBindingDescendants', () => {
     expect(Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set).toBe(
       originalValueSetter
     )
+  })
+
+  it('restores prototype interceptors shared by two module instances', async () => {
+    const methods = [
+      [Node.prototype, 'appendChild'],
+      [Node.prototype, 'insertBefore'],
+      [Node.prototype, 'replaceChild'],
+      [Element.prototype, 'setAttribute'],
+      [Element.prototype, 'removeAttribute'],
+    ] as const
+    const properties = [
+      [Node.prototype, 'nodeValue'],
+      [Node.prototype, 'textContent'],
+      [CharacterData.prototype, 'data'],
+      [HTMLInputElement.prototype, 'value'],
+      [HTMLInputElement.prototype, 'checked'],
+      [HTMLTextAreaElement.prototype, 'value'],
+      [HTMLSelectElement.prototype, 'value'],
+      [HTMLOptionElement.prototype, 'selected'],
+    ] as const
+    const originals = [...methods, ...properties].map(([prototype, name]) => ({
+      prototype,
+      name,
+      descriptor: Object.getOwnPropertyDescriptor(prototype, name),
+    }))
+    const rootA = document.createElement('div')
+    const rootB = document.createElement('div')
+
+    vi.resetModules()
+    const first = await import('@/components/scope/observeBindingDescendants')
+    vi.resetModules()
+    const second = await import('@/components/scope/observeBindingDescendants')
+
+    const stopFirst = first.observeBindingDescendants(
+      {},
+      rootA,
+      () => undefined,
+      first.prepareBindingDescendants(rootA)
+    )
+    const stopSecond = second.observeBindingDescendants(
+      {},
+      rootB,
+      () => undefined,
+      second.prepareBindingDescendants(rootB)
+    )
+
+    stopFirst()
+    expect(Node.prototype.appendChild).not.toBe(
+      originals.find(({ name }) => name === 'appendChild')?.descriptor?.value
+    )
+
+    stopSecond()
+    for (const { prototype, name, descriptor } of originals) {
+      expect(Object.getOwnPropertyDescriptor(prototype, name)).toEqual(descriptor)
+    }
+    vi.resetModules()
   })
 
   it('retires css classes owned by a replaced binding', async () => {

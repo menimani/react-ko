@@ -27,7 +27,7 @@ const bindingObservers = new Map<
 >()
 const reconcilingRoots = new Set<HTMLElement>()
 type AttributeInterceptor = {
-  count: number
+  owners: Map<InterceptorOwner, number>
   setAttribute: typeof Element.prototype.setAttribute
   removeAttribute: typeof Element.prototype.removeAttribute
   interceptedSetAttribute: typeof Element.prototype.setAttribute
@@ -39,7 +39,6 @@ type AttributeInterceptor = {
     interceptedSet: (this: Element, value: unknown) => void
   }>
 }
-const attributeInterceptors = new Map<typeof Element.prototype, AttributeInterceptor>()
 const scheduledPropertyRoots = new Set<HTMLElement>()
 type TrackedCheckedInterceptor = {
   descriptor: PropertyDescriptor
@@ -50,7 +49,7 @@ const trackedCheckedInterceptors = new WeakMap<
   TrackedCheckedInterceptor
 >()
 type ChildListInterceptor = {
-  count: number
+  owners: Map<InterceptorOwner, number>
   appendChild: typeof Node.prototype.appendChild
   insertBefore: typeof Node.prototype.insertBefore
   replaceChild: typeof Node.prototype.replaceChild
@@ -58,9 +57,8 @@ type ChildListInterceptor = {
   interceptedInsertBefore: typeof Node.prototype.insertBefore
   interceptedReplaceChild: typeof Node.prototype.replaceChild
 }
-const childListInterceptors = new Map<typeof Node.prototype, ChildListInterceptor>()
 type DirectTextInterceptor = {
-  count: number
+  owners: Map<InterceptorOwner, number>
   properties: Array<{
     prototype: object
     name: string
@@ -68,7 +66,28 @@ type DirectTextInterceptor = {
     interceptedSet: (this: Node, value: unknown) => void
   }>
 }
-const directTextInterceptors = new Map<typeof Node.prototype, DirectTextInterceptor>()
+type InterceptorOwner = {
+  reconcileChangedDataBind: (element: Element, name: string) => void
+  reconcileChangedProperty: (element: Element) => void
+  hasReactOwnership: (node: Node, parent?: Element) => boolean
+  reconcileInsertedChildren: (parent: Node, reactOwned: boolean) => void
+  reconcileDirectTextWrite: (node: Node) => void
+}
+type PrototypeInterceptorRegistry = {
+  attribute?: AttributeInterceptor
+  childList?: ChildListInterceptor
+  directText?: DirectTextInterceptor
+}
+const INTERCEPTOR_REGISTRY = Symbol.for(
+  'react-ko.observeBindingDescendants.prototypeInterceptors'
+)
+
+function interceptorRegistry(view: Window & typeof globalThis) {
+  const registries = view as unknown as {
+    [key: symbol]: PrototypeInterceptorRegistry | undefined
+  }
+  return (registries[INTERCEPTOR_REGISTRY] ??= {})
+}
 const CONTENT_BINDINGS = new Set(['text', 'html', 'component', 'options'])
 const SAFELY_RETIRABLE_BINDINGS = new Set([
   'attr',
@@ -392,17 +411,41 @@ function reconcileDirectTextWrite(node: Node) {
   }
 }
 
-function releaseAttributeInterceptor(prototype: typeof Element.prototype) {
-  const interceptor = attributeInterceptors.get(prototype)
+const interceptorOwner: InterceptorOwner = {
+  reconcileChangedDataBind,
+  reconcileChangedProperty,
+  hasReactOwnership,
+  reconcileInsertedChildren,
+  reconcileDirectTextWrite,
+}
+
+function addInterceptorOwner(owners: Map<InterceptorOwner, number>) {
+  owners.set(interceptorOwner, (owners.get(interceptorOwner) ?? 0) + 1)
+}
+
+function releaseInterceptorOwner(owners: Map<InterceptorOwner, number>) {
+  const count = owners.get(interceptorOwner)
+  if (count === undefined) return false
+  if (count > 1) {
+    owners.set(interceptorOwner, count - 1)
+    return false
+  }
+  owners.delete(interceptorOwner)
+  return owners.size === 0
+}
+
+function releaseAttributeInterceptor(view: Window & typeof globalThis) {
+  const registry = interceptorRegistry(view)
+  const interceptor = registry.attribute
   if (interceptor === undefined) {
     return
   }
 
-  interceptor.count -= 1
-  if (interceptor.count !== 0) {
+  if (!releaseInterceptorOwner(interceptor.owners)) {
     return
   }
 
+  const prototype = view.Element.prototype
   if (prototype.setAttribute === interceptor.interceptedSetAttribute) {
     prototype.setAttribute = interceptor.setAttribute
   }
@@ -419,7 +462,7 @@ function releaseAttributeInterceptor(prototype: typeof Element.prototype) {
       Object.defineProperty(propertyPrototype, name, descriptor)
     }
   }
-  attributeInterceptors.delete(prototype)
+  delete registry.attribute
 }
 
 function reconcileChangedProperty(element: Element) {
@@ -501,7 +544,10 @@ function releaseReactTrackedChecked(
   }
 }
 
-function interceptFormProperties(view: Window & typeof globalThis) {
+function interceptFormProperties(
+  view: Window & typeof globalThis,
+  owners: Map<InterceptorOwner, number>
+) {
   const intercepted: AttributeInterceptor['formProperties'] = []
   const properties: Array<[object, string]> = [
     [view.HTMLInputElement.prototype, 'value'],
@@ -516,7 +562,9 @@ function interceptFormProperties(view: Window & typeof globalThis) {
     const set = descriptor.set
     const interceptedSet = function (this: Element, value: unknown) {
       set.call(this, value)
-      reconcileChangedProperty(this)
+      for (const owner of owners.keys()) {
+        owner.reconcileChangedProperty(this)
+      }
     }
     Object.defineProperty(prototype, name, {
       ...descriptor,
@@ -533,52 +581,59 @@ function interceptDataBindChanges(root: HTMLElement) {
     return () => undefined
   }
 
+  const registry = interceptorRegistry(view)
   const prototype = view.Element.prototype
-  const existing = attributeInterceptors.get(prototype)
+  const existing = registry.attribute
   if (existing !== undefined) {
-    existing.count += 1
-    return () => releaseAttributeInterceptor(prototype)
+    addInterceptorOwner(existing.owners)
+    return () => releaseAttributeInterceptor(view)
   }
 
   const setAttribute = prototype.setAttribute
   const removeAttribute = prototype.removeAttribute
+  const owners = new Map([[interceptorOwner, 1]])
   // MutationObserver callbacks run after layout effects, and a state update
   // below the binding root does not rerender that root. Drain the queued
   // data-bind record directly from React's attribute mutation in that case.
   const interceptedSetAttribute: typeof prototype.setAttribute = function (name, value) {
     setAttribute.call(this, name, value)
-    reconcileChangedDataBind(this, name)
+    for (const owner of owners.keys()) {
+      owner.reconcileChangedDataBind(this, name)
+    }
   }
   const interceptedRemoveAttribute: typeof prototype.removeAttribute = function (name) {
     removeAttribute.call(this, name)
-    reconcileChangedDataBind(this, name)
+    for (const owner of owners.keys()) {
+      owner.reconcileChangedDataBind(this, name)
+    }
   }
   prototype.setAttribute = interceptedSetAttribute
   prototype.removeAttribute = interceptedRemoveAttribute
-  const formProperties = interceptFormProperties(view)
-  attributeInterceptors.set(prototype, {
-    count: 1,
+  const formProperties = interceptFormProperties(view, owners)
+  registry.attribute = {
+    owners,
     setAttribute,
     removeAttribute,
     interceptedSetAttribute,
     interceptedRemoveAttribute,
     formProperties,
-  })
+  }
 
-  return () => releaseAttributeInterceptor(prototype)
+  return () => releaseAttributeInterceptor(view)
 }
 
-function releaseChildListInterceptor(prototype: typeof Node.prototype) {
-  const interceptor = childListInterceptors.get(prototype)
+function releaseChildListInterceptor(view: Window & typeof globalThis) {
+  const registry = interceptorRegistry(view)
+  const interceptor = registry.childList
   if (interceptor === undefined) {
     return
   }
 
-  interceptor.count -= 1
-  if (interceptor.count !== 0) {
+  if (!releaseInterceptorOwner(interceptor.owners)) {
     return
   }
 
+  const prototype = view.Node.prototype
   if (prototype.appendChild === interceptor.interceptedAppendChild) {
     prototype.appendChild = interceptor.appendChild
   }
@@ -588,7 +643,7 @@ function releaseChildListInterceptor(prototype: typeof Node.prototype) {
   if (prototype.replaceChild === interceptor.interceptedReplaceChild) {
     prototype.replaceChild = interceptor.replaceChild
   }
-  childListInterceptors.delete(prototype)
+  delete registry.childList
 }
 
 function interceptChildListInsertions(root: HTMLElement) {
@@ -597,74 +652,86 @@ function interceptChildListInsertions(root: HTMLElement) {
     return () => undefined
   }
 
+  const registry = interceptorRegistry(view)
   const prototype = view.Node.prototype
-  const existing = childListInterceptors.get(prototype)
+  const existing = registry.childList
   if (existing !== undefined) {
-    existing.count += 1
-    return () => releaseChildListInterceptor(prototype)
+    addInterceptorOwner(existing.owners)
+    return () => releaseChildListInterceptor(view)
   }
 
   const appendChild = prototype.appendChild
   const insertBefore = prototype.insertBefore
   const replaceChild = prototype.replaceChild
+  const owners = new Map([[interceptorOwner, 1]])
   const interceptedAppendChild: typeof prototype.appendChild = function <T extends Node>(
     child: T
   ): T {
-    const reactOwned = hasReactOwnership(
-      child,
-      this.nodeType === Node.ELEMENT_NODE ? (this as Element) : undefined
-    )
+    const parent = this.nodeType === Node.ELEMENT_NODE ? (this as Element) : undefined
+    const ownership = Array.from(owners.keys(), (owner) => [
+      owner,
+      owner.hasReactOwnership(child, parent),
+    ] as const)
     const inserted = appendChild.call(this, child) as T
-    reconcileInsertedChildren(this, reactOwned)
+    for (const [owner, reactOwned] of ownership) {
+      owner.reconcileInsertedChildren(this, reactOwned)
+    }
     return inserted
   }
   const interceptedInsertBefore: typeof prototype.insertBefore = function <T extends Node>(
     child: T,
     referenceChild: Node | null
   ): T {
-    const reactOwned = hasReactOwnership(
-      child,
-      this.nodeType === Node.ELEMENT_NODE ? (this as Element) : undefined
-    )
+    const parent = this.nodeType === Node.ELEMENT_NODE ? (this as Element) : undefined
+    const ownership = Array.from(owners.keys(), (owner) => [
+      owner,
+      owner.hasReactOwnership(child, parent),
+    ] as const)
     const inserted = insertBefore.call(this, child, referenceChild) as T
-    reconcileInsertedChildren(this, reactOwned)
+    for (const [owner, reactOwned] of ownership) {
+      owner.reconcileInsertedChildren(this, reactOwned)
+    }
     return inserted
   }
   const interceptedReplaceChild: typeof prototype.replaceChild = function <T extends Node>(
     child: Node,
     replacedChild: T
   ): T {
-    const reactOwned = hasReactOwnership(
-      child,
-      this.nodeType === Node.ELEMENT_NODE ? (this as Element) : undefined
-    )
+    const parent = this.nodeType === Node.ELEMENT_NODE ? (this as Element) : undefined
+    const ownership = Array.from(owners.keys(), (owner) => [
+      owner,
+      owner.hasReactOwnership(child, parent),
+    ] as const)
     const replaced = replaceChild.call(this, child, replacedChild) as T
-    reconcileInsertedChildren(this, reactOwned)
+    for (const [owner, reactOwned] of ownership) {
+      owner.reconcileInsertedChildren(this, reactOwned)
+    }
     return replaced
   }
   prototype.appendChild = interceptedAppendChild
   prototype.insertBefore = interceptedInsertBefore
   prototype.replaceChild = interceptedReplaceChild
-  childListInterceptors.set(prototype, {
-    count: 1,
+  registry.childList = {
+    owners,
     appendChild,
     insertBefore,
     replaceChild,
     interceptedAppendChild,
     interceptedInsertBefore,
     interceptedReplaceChild,
-  })
+  }
 
-  return () => releaseChildListInterceptor(prototype)
+  return () => releaseChildListInterceptor(view)
 }
 
-function releaseDirectTextInterceptor(prototype: typeof Node.prototype) {
-  const interceptor = directTextInterceptors.get(prototype)
+function releaseDirectTextInterceptor(view: Window & typeof globalThis) {
+  const registry = interceptorRegistry(view)
+  const interceptor = registry.directText
   if (interceptor === undefined) return
 
-  interceptor.count -= 1
-  if (interceptor.count !== 0) return
+  if (!releaseInterceptorOwner(interceptor.owners)) return
 
+  const prototype = view.Node.prototype
   for (const {
     prototype: propertyPrototype,
     name,
@@ -675,20 +742,22 @@ function releaseDirectTextInterceptor(prototype: typeof Node.prototype) {
       Object.defineProperty(propertyPrototype, name, descriptor)
     }
   }
-  directTextInterceptors.delete(prototype)
+  delete registry.directText
 }
 
 function interceptDirectTextWrites(root: HTMLElement) {
   const view = root.ownerDocument.defaultView
   if (view === null) return () => undefined
 
+  const registry = interceptorRegistry(view)
   const prototype = view.Node.prototype
-  const existing = directTextInterceptors.get(prototype)
+  const existing = registry.directText
   if (existing !== undefined) {
-    existing.count += 1
-    return () => releaseDirectTextInterceptor(prototype)
+    addInterceptorOwner(existing.owners)
+    return () => releaseDirectTextInterceptor(view)
   }
 
+  const owners = new Map([[interceptorOwner, 1]])
   const properties: DirectTextInterceptor['properties'] = []
   // React can update a direct text child without calling a child-list method.
   // Observe every DOM setter it uses before sibling layout effects can notify
@@ -703,7 +772,9 @@ function interceptDirectTextWrites(root: HTMLElement) {
     const set = descriptor.set
     const interceptedSet = function (this: Node, value: unknown) {
       set.call(this, value)
-      reconcileDirectTextWrite(this)
+      for (const owner of owners.keys()) {
+        owner.reconcileDirectTextWrite(this)
+      }
     }
     Object.defineProperty(propertyPrototype, name, {
       ...descriptor,
@@ -711,9 +782,9 @@ function interceptDirectTextWrites(root: HTMLElement) {
     })
     properties.push({ prototype: propertyPrototype, name, descriptor, interceptedSet })
   }
-  directTextInterceptors.set(prototype, { count: 1, properties })
+  registry.directText = { owners, properties }
 
-  return () => releaseDirectTextInterceptor(prototype)
+  return () => releaseDirectTextInterceptor(view)
 }
 
 function isKnockoutOwnedContentAddition(
