@@ -173,6 +173,22 @@ describe('semantic hosts', () => {
     }
   })
 
+  it.each(['frame', 'basefont', 'bgsound', 'keygen', 'menuitem'])(
+    'rejects the JavaScript childless <%s> host before React can discard its children',
+    (host) => {
+      for (const hostProp of ['as', 'boundaryAs'] as const) {
+        const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+        try {
+          expect(() => renderWithJavaScriptHost(hostProp, host)).toThrow(
+            `cannot use the void HTML element <${host}>`
+          )
+        } finally {
+          consoleError.mockRestore()
+        }
+      }
+    }
+  )
+
   it.each([
     ['as', 'svg'],
     ['boundaryAs', 'svg'],

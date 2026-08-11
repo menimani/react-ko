@@ -24,8 +24,14 @@ type FrameIsNotSemanticHost = AssertNot<'frame' extends SemanticHost ? true : fa
 type BasefontIsNotSemanticHost = AssertNot<
   'basefont' extends SemanticHost ? true : false
 >
+type BgsoundIsNotSemanticHost = AssertNot<
+  'bgsound' extends SemanticHost ? true : false
+>
 type KeygenIsNotSemanticHost = AssertNot<
   'keygen' extends SemanticHost ? true : false
+>
+type MenuitemIsNotSemanticHost = AssertNot<
+  'menuitem' extends SemanticHost ? true : false
 >
 
 void (true satisfies MarqueeIsSemanticHost)
@@ -36,4 +42,6 @@ void (true satisfies CustomElementIsSemanticHost)
 void (true satisfies DeclarationMergedHostIsSemanticHost)
 void (false satisfies FrameIsNotSemanticHost)
 void (false satisfies BasefontIsNotSemanticHost)
+void (false satisfies BgsoundIsNotSemanticHost)
 void (false satisfies KeygenIsNotSemanticHost)
+void (false satisfies MenuitemIsNotSemanticHost)
