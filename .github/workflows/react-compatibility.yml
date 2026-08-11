@@ -1,10 +1,19 @@
 name: React compatibility
 
+# Draft pull requests are filtered by the job guards rather than by the types below,
+# because `ready_for_review` must reach the workflow to start the run that promotion
+# deserves. The default set omits it, so a loop that opens its pull request as a draft
+# and later promotes it produced a check that never started.
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches:
       - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -13,6 +22,9 @@ jobs:
   test:
     name: React ${{ matrix.react }}
     runs-on: ubuntu-latest
+    # A draft pull request is not headed for merge yet, so it is not what CI is for.
+    # Absent on a push, the expression is null and the job runs.
+    if: github.event.pull_request.draft != true
     strategy:
       fail-fast: false
       matrix:
@@ -46,6 +58,7 @@ jobs:
   e2e:
     name: Browser smoke
     runs-on: ubuntu-latest
+    if: github.event.pull_request.draft != true
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
