@@ -4,6 +4,13 @@ const REACT_KO_BINDING_HANDLER = Symbol.for('react-ko.bindingHandler')
 
 type OwnedBindingHandler = ko.BindingHandler & Record<PropertyKey, unknown>
 
+export function hasReactKoBindingHandler(bindingName: string) {
+  const handler = ko.bindingHandlers[bindingName] as
+    | OwnedBindingHandler
+    | undefined
+  return handler?.[REACT_KO_BINDING_HANDLER] === bindingName
+}
+
 /** Registers a binding handler without mistaking a consumer's handler for ours. */
 export function registerReactKoBindingHandler<T extends ko.BindingHandler>(
   bindingName: string,

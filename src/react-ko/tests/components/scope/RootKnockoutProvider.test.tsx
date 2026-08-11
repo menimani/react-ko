@@ -370,6 +370,50 @@ describe('RootKnockoutProvider', () => {
     }
   )
 
+  it('rejects retirement when a built-in handler has an overridden implementation', async () => {
+    const registered = ko.bindingHandlers.visible
+    const viewModel = { shown: true }
+    const update = vi.fn((element: Element) => {
+      element.setAttribute('title', 'custom effect')
+    })
+    ko.bindingHandlers.visible = { update }
+
+    function Harness({ bound }: { bound: boolean }) {
+      return (
+        <ErrorMessageBoundary>
+          <RootKnockoutProvider viewModel={viewModel}>
+            <span
+              data-testid="overridden-visible"
+              data-bind={bound ? 'visible: shown' : undefined}
+            >
+              React child
+            </span>
+          </RootKnockoutProvider>
+        </ErrorMessageBoundary>
+      )
+    }
+
+    try {
+      const { rerender } = render(<Harness bound />)
+      expect(
+        screen.getByTestId('overridden-visible').getAttribute('title')
+      ).toBe('custom effect')
+
+      rerender(<Harness bound={false} />)
+
+      await waitFor(() =>
+        expect(
+          screen.getByText(
+            'react-ko cannot replace the Knockout "visible" binding because its DOM effects cannot be safely retired.'
+          )
+        ).toBeDefined()
+      )
+      expect(update).toHaveBeenCalled()
+    } finally {
+      ko.bindingHandlers.visible = registered
+    }
+  })
+
   it('removes DOM effects owned by retired bindings before applying replacements', () => {
     const vm = {
       first: ko.observable(true),
@@ -2252,6 +2296,46 @@ describe('RootKnockoutProvider', () => {
 
     expect([...select.options].map(({ value }) => value)).toEqual(['Retained'])
     expect([...select.selectedOptions].map(({ value }) => value)).toEqual(['Retained'])
+    expect(vm.selected()).toEqual(['Retained'])
+    expect(
+      vm.afterRender.mock.calls.filter(([, item]) => item === 'Retained')
+    ).toHaveLength(1)
+  })
+
+  it('does not rebind retained options after a same-batch Knockout add and removal', async () => {
+    const vm = {
+      choices: ko.observableArray(['Retained']),
+      selected: ko.observableArray(['Retained']),
+      afterRender: vi.fn(),
+    }
+
+    render(
+      <RootKnockoutProvider viewModel={vm}>
+        <select
+          multiple
+          data-testid="same-batch-knockout-options"
+          data-bind="options: choices, selectedOptions: selected, optionsAfterRender: afterRender"
+        />
+      </RootKnockoutProvider>
+    )
+    const select = screen.getByTestId(
+      'same-batch-knockout-options'
+    ) as HTMLSelectElement
+
+    expect(
+      vm.afterRender.mock.calls.filter(([, item]) => item === 'Retained')
+    ).toHaveLength(1)
+
+    await act(async () => {
+      vm.choices.push('Transient')
+      vm.choices.remove('Transient')
+      await Promise.resolve()
+    })
+
+    expect([...select.options].map(({ value }) => value)).toEqual(['Retained'])
+    expect([...select.selectedOptions].map(({ value }) => value)).toEqual([
+      'Retained',
+    ])
     expect(vm.selected()).toEqual(['Retained'])
     expect(
       vm.afterRender.mock.calls.filter(([, item]) => item === 'Retained')
