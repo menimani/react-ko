@@ -1645,6 +1645,31 @@ describe('RootKnockoutProvider', () => {
     expect(vm.choices()).toEqual(['knockout'])
   })
 
+  it('restores an initially focused input when hasFocus is retired', async () => {
+    const vm = { focused: ko.observable(true), label: 'Bound' }
+
+    render(
+      <RootKnockoutProvider viewModel={vm}>
+        <div data-testid="focus-host" />
+      </RootKnockoutProvider>
+    )
+
+    const input = document.createElement('input')
+    input.setAttribute('data-bind', 'hasFocus: focused, attr: { title: label }')
+    act(() => {
+      screen.getByTestId('focus-host').appendChild(input)
+      input.focus()
+    })
+    await waitFor(() => expect(input.title).toBe('Bound'))
+
+    act(() => vm.focused(false))
+    await waitFor(() => expect(document.activeElement).not.toBe(input))
+
+    act(() => input.removeAttribute('data-bind'))
+
+    await waitFor(() => expect(document.activeElement).toBe(input))
+  })
+
   it('keeps committed React style and attr props as the retirement baseline', async () => {
     const vm = {
       color: ko.observable('red'),
