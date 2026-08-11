@@ -12,6 +12,7 @@ import { DESCENDANT_BINDING_BOUNDARY } from './descendantBindingBoundary'
 type BindingObserverState = {
   observer: MutationObserver
   reconcile: (records: MutationRecord[], reactCommitInProgress?: boolean) => void
+  shouldDeferReconciliation?: () => boolean
   shouldDeferDataBindChange: (element: Element) => boolean
   shouldDeferInsertion: (parent: Node) => boolean
   shouldReconcileDirectTextWrite: (element: HTMLElement) => boolean
@@ -1888,7 +1889,8 @@ export function observeBindingDescendants(
   viewModel: unknown,
   root: HTMLElement,
   onError: (error: unknown) => void,
-  bindingStates: BindingStateStore = prepareBindingDescendants(root)
+  bindingStates: BindingStateStore = prepareBindingDescendants(root),
+  shouldDeferReconciliation?: () => boolean
 ) {
   const registry = bindingRootRegistry(root)
   registry.bindingRoots.set(root, viewModel)
@@ -1934,6 +1936,12 @@ export function observeBindingDescendants(
 
     registry.reconcilingRoots.add(root)
     try {
+      if (shouldDeferReconciliation?.() === true) {
+        // The replacement pass cleans and binds the current tree as a whole.
+        // Only detached nodes need immediate cleanup from this delivered batch.
+        cleanRemovedNodes(records, root)
+        return
+      }
       reconcile(records)
     } catch (error) {
       observer.disconnect()
@@ -1945,6 +1953,7 @@ export function observeBindingDescendants(
   registry.bindingObservers.set(root, {
     observer,
     reconcile,
+    shouldDeferReconciliation,
     onError,
     // React sets data-bind before clearing the host's previous text or HTML.
     // Let that host mutation finish so stale current props do not make the
@@ -2035,7 +2044,11 @@ export function observeBindingDescendants(
 export function reconcileBindingDescendants(root: HTMLElement) {
   const registry = bindingRootRegistry(root)
   const state = registry.bindingObservers.get(root)
-  if (state === undefined || registry.reconcilingRoots.has(root)) {
+  if (
+    state === undefined ||
+    state.shouldDeferReconciliation?.() === true ||
+    registry.reconcilingRoots.has(root)
+  ) {
     return
   }
 

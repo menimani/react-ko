@@ -35,10 +35,18 @@ export function useBindingRoot(
 ) {
   const container = useRef<HTMLElement | null>(null)
   const activeBinding = useRef<ActiveBinding | null>(null)
+  const pendingBindingReplacement = useRef(false)
   const replacedBinding = useRef(false)
   const bindingEstablishedIdentity = useRef<unknown>(UNBOUND_BINDING)
   const [, setBindingEstablishedVersion] = useState(0)
   const [generation, setGeneration] = useState(0)
+  const renderedActiveBinding = activeBinding.current
+  // Host mutations happen before insertion effects. Publish the pending handoff
+  // during render so the old observer cannot bind them with its ViewModel.
+  pendingBindingReplacement.current =
+    renderedActiveBinding !== null &&
+    (!Object.is(renderedActiveBinding.viewModel, viewModel) ||
+      renderedActiveBinding.parentGeneration !== parentGeneration)
   // React uses the server snapshot for SSR and the first hydration render.
   // Client-only mounts still wait for the binding-established update.
   const preserveServerChildren = useSyncExternalStore(
@@ -65,7 +73,8 @@ export function useBindingRoot(
       viewModel,
       node,
       onError,
-      bindingStates
+      bindingStates,
+      () => pendingBindingReplacement.current
     )
     activeBinding.current = { node, viewModel, parentGeneration, stopObserving }
     if (
@@ -92,19 +101,20 @@ export function useBindingRoot(
 
     const active = activeBinding.current
     if (active !== null) {
-      // React has already committed data-bind changes by this phase. Retire
-      // their old subscriptions before any descendant layout effect can run.
-      reconcileBindingDescendants(active.node)
-
       if (
         active.node === node &&
         Object.is(active.viewModel, viewModel) &&
         active.parentGeneration === parentGeneration
       ) {
+        pendingBindingReplacement.current = false
+        // React has already committed data-bind changes by this phase. Retire
+        // their old subscriptions before any descendant layout effect can run.
+        reconcileBindingDescendants(active.node)
         return
       }
 
       disposeBinding()
+      pendingBindingReplacement.current = false
       bind(node, true)
       return
     }
