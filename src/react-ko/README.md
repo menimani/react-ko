@@ -414,6 +414,24 @@ notification runs.
 
 ---
 
+## Migrating from v2
+
+v3 makes the declared return type for array sources match the existing runtime
+behavior. `useKoValue(ko.ObservableArray<T>)` now returns
+`T[] | null | undefined`, so code that immediately reads `.length`, calls
+`.map()`, or otherwise assumes an array no longer type-checks. Guard the value
+at the call site when an empty array is the desired fallback:
+
+```tsx
+const items = useKoValue(vm.items) ?? []
+```
+
+This change applies only to `ko.ObservableArray` sources. The non-array
+overloads are unchanged, and nullish array values continue to pass through
+unchanged at runtime.
+
+---
+
 ## Migrating from v1
 
 v2 contains breaking changes:

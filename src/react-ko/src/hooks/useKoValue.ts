@@ -13,6 +13,9 @@ import type * as ko from 'knockout'
  * an observableArray mutates its underlying array in place, so the reference
  * never changes and a value comparison would miss every update.
  */
+export function useKoValue<T>(
+  source: ko.ObservableArray<T>
+): T[] | null | undefined
 export function useKoValue<T>(source: ko.Observable<T> | ko.Computed<T> | T): T
 export function useKoValue<T>(
   source: ko.Observable<T> | ko.Computed<T> | T | undefined
