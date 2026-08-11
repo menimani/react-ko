@@ -3,7 +3,6 @@ import { useCallback, useContext, useState } from 'react'
 import { useAppViewModel } from '@/index'
 import { ScopeViewModelContext } from '@/context/ScopeViewModelContext'
 import { ScopeBindGenerationContext } from '@/context/ScopeBindGenerationContext'
-import { ScopeBindingRootContext } from '@/context/ScopeBindingRootContext'
 import { DESCENDANT_BINDING_BOUNDARY } from './descendantBindingBoundary'
 import { useBindingRoot } from './useBindingRoot'
 import { semanticHostComponent, type SemanticHostProps } from './semanticHost'
@@ -28,27 +27,30 @@ export const KnockoutScope = React.memo(function KnockoutScope<T>({
   const BoundaryHost = semanticHostComponent(boundaryAs)
   const BindingHost = semanticHostComponent(as)
   const hostIdentity = `${boundaryAs}\0${as}`
+  const requiresPostBindChildren = as === 'script' || as === 'template'
   const committedHostIdentity = React.useRef(hostIdentity)
   const replacingHost = committedHostIdentity.current !== hostIdentity
   useAppViewModel()
 
   const parentGeneration = useContext(ScopeBindGenerationContext)
-  const getParentBindingRoot = useContext(ScopeBindingRootContext)
-  const deferChildrenUntilBound = React.useRef<boolean | null>(null)
-  if (deferChildrenUntilBound.current === null) {
-    deferChildrenUntilBound.current = getParentBindingRoot() !== null
-  }
-  const shouldDeferChildren = deferChildrenUntilBound.current || replacingHost
   const [bindingFailure, setBindingFailure] = useState<{ error: unknown } | null>(null)
   const handleBindingError = useCallback((error: unknown) => {
     setBindingFailure({ error })
   }, [])
-  const { container, generation, bindingEstablished, getBindingRoot } = useBindingRoot(
+  const {
+    container,
+    bindingCommitMarker,
+    generation,
+    bindingEstablished,
+    preserveServerChildren,
+    preserveHydratedTemplate,
+  } = useBindingRoot(
     viewModel,
     parentGeneration,
     handleBindingError,
-    shouldDeferChildren,
-    hostIdentity
+    true,
+    hostIdentity,
+    as === 'template'
   )
 
   React.useLayoutEffect(() => {
@@ -61,15 +63,23 @@ export const KnockoutScope = React.memo(function KnockoutScope<T>({
 
   return (
     <ScopeViewModelContext.Provider value={viewModel}>
-      <ScopeBindingRootContext.Provider value={getBindingRoot}>
-        <ScopeBindGenerationContext.Provider value={generation}>
-          <BoundaryHost data-bind={`${DESCENDANT_BINDING_BOUNDARY}: true`} style={{ display: 'contents' }}>
-            <BindingHost ref={container} style={{ display: 'contents' }}>
-              {shouldDeferChildren && !bindingEstablished ? null : children}
-            </BindingHost>
-          </BoundaryHost>
-        </ScopeBindGenerationContext.Provider>
-      </ScopeBindingRootContext.Provider>
+      <ScopeBindGenerationContext.Provider value={generation}>
+        <BoundaryHost data-bind={`${DESCENDANT_BINDING_BOUNDARY}: true`} style={{ display: 'contents' }}>
+          {bindingCommitMarker}
+          <BindingHost
+            ref={container}
+            style={{ display: 'contents' }}
+            suppressHydrationWarning={as === 'template' ? true : undefined}
+          >
+            {!preserveHydratedTemplate &&
+            ((!replacingHost &&
+              (!requiresPostBindChildren || preserveServerChildren)) ||
+              bindingEstablished)
+              ? children
+              : null}
+          </BindingHost>
+        </BoundaryHost>
+      </ScopeBindGenerationContext.Provider>
     </ScopeViewModelContext.Provider>
   )
 })

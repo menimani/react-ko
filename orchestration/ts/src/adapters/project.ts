@@ -5,6 +5,9 @@
 // the orchestration to another repository means writing a project adapter and nothing
 // else, exactly as porting to another forge means writing a forge adapter.
 
+import { createHash } from 'node:crypto'
+import { readFile } from 'node:fs/promises'
+
 export interface MergeCheck {
   label: string
   /** Directory the command runs in, relative to the worktree root ('' = the root). */
@@ -53,10 +56,21 @@ export interface ProjectAdapter {
   scanWorktreeSetup?: WorktreeSetupStep[]
 }
 
-export async function loadProject(name: string): Promise<ProjectAdapter> {
+async function contentRevision(url: URL) {
+  return createHash('sha256').update(await readFile(url)).digest('hex')
+}
+
+export async function loadProject(name: string, fresh = false): Promise<ProjectAdapter> {
   switch (name) {
     case 'react-ko': {
-      const mod = await import('./project-reactko.ts')
+      // The daemon may merge changes to its adapter while it is still running.
+      // Key the reloaded module by its contents so unchanged scans reuse Node's
+      // module cache while a merged adapter revision is evaluated immediately.
+      const adapterUrl = new URL('./project-reactko.ts', import.meta.url)
+      const specifier = fresh
+        ? `${adapterUrl.href}?revision=${await contentRevision(adapterUrl)}`
+        : adapterUrl.href
+      const mod = await import(specifier) as typeof import('./project-reactko.ts')
       return mod.reactKoProject
     }
     default:

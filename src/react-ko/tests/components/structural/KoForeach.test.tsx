@@ -15,6 +15,11 @@ function StatefulIndex({ index }: { index: number }) {
   return <span>{`${index}:${initialIndex}`}</span>
 }
 
+function StatefulItem({ item, list }: { item: string; list: string }) {
+  const [initialItem] = React.useState(item)
+  return <span data-testid={`${list}-${item}`}>{`${item}:${initialItem}`}</span>
+}
+
 describe('KoForeach', () => {
   it('renders the render prop once per item (observable array)', () => {
     const vm = { items: ko.observableArray(['A', 'B', 'C']) }
@@ -165,6 +170,76 @@ describe('KoForeach', () => {
     expect(screen.getByText('C')).toBeDefined()
   })
 
+  it.each([null, undefined])(
+    'renders nothing when an observable array is updated to %s and recovers',
+    (emptyValue) => {
+      const items = ko.observable<string[] | null | undefined>(['A'])
+
+      render(
+        <RootKnockoutProvider viewModel={{}}>
+          <KoForeach items={items}>
+            {(item) => <span>{item}</span>}
+          </KoForeach>
+        </RootKnockoutProvider>
+      )
+
+      act(() => {
+        items(emptyValue)
+      })
+
+      expect(screen.queryByText('A')).toBeNull()
+
+      act(() => {
+        items(['B'])
+      })
+
+      expect(screen.getByText('B')).toBeDefined()
+    }
+  )
+
+  it.each([null, undefined])(
+    'renders nothing for an initially %s plain value',
+    (items) => {
+      render(
+        <RootKnockoutProvider viewModel={{}}>
+          <KoForeach items={items}>{() => <span>Unexpected row</span>}</KoForeach>
+        </RootKnockoutProvider>
+      )
+
+      expect(screen.queryByText('Unexpected row')).toBeNull()
+    }
+  )
+
+  it.each([null, undefined])(
+    'renders nothing when a computed array changes to %s and recovers',
+    (emptyValue) => {
+      const source = ko.observable<string[] | null | undefined>(['A'])
+      const items = ko.computed(() => source())
+
+      render(
+        <RootKnockoutProvider viewModel={{}}>
+          <KoForeach items={items}>
+            {(item) => <span>{item}</span>}
+          </KoForeach>
+        </RootKnockoutProvider>
+      )
+
+      expect(screen.getByText('A')).toBeDefined()
+
+      act(() => {
+        source(emptyValue)
+      })
+
+      expect(screen.queryByText('A')).toBeNull()
+
+      act(() => {
+        source(['B'])
+      })
+
+      expect(screen.getByText('B')).toBeDefined()
+    }
+  )
+
   it('renders plain arrays', () => {
     render(
       <RootKnockoutProvider viewModel={{}}>
@@ -176,6 +251,61 @@ describe('KoForeach', () => {
 
     expect(screen.getByText('A')).toBeDefined()
     expect(screen.getByText('B')).toBeDefined()
+  })
+
+  it('re-renders when the plain array prop changes', () => {
+    function Harness({ items }: { items: string[] }) {
+      return (
+        <RootKnockoutProvider viewModel={{}}>
+          <KoForeach items={items}>
+            {(item) => <span>{item}</span>}
+          </KoForeach>
+        </RootKnockoutProvider>
+      )
+    }
+
+    const { rerender } = render(<Harness items={['A']} />)
+
+    rerender(<Harness items={['B', 'C']} />)
+
+    expect(screen.queryByText('A')).toBeNull()
+    expect(screen.getByText('B')).toBeDefined()
+    expect(screen.getByText('C')).toBeDefined()
+  })
+
+  it('moves its subscription when the items source is replaced', () => {
+    const first = ko.observableArray(['A'])
+    const second = ko.observableArray(['B'])
+
+    function Harness({ items }: { items: ko.ObservableArray<string> }) {
+      return (
+        <RootKnockoutProvider viewModel={{}}>
+          <KoForeach items={items}>
+            {(item) => <span>{item}</span>}
+          </KoForeach>
+        </RootKnockoutProvider>
+      )
+    }
+
+    const { rerender } = render(<Harness items={first} />)
+    expect(first.getSubscriptionsCount()).toBe(1)
+
+    rerender(<Harness items={second} />)
+
+    expect(screen.queryByText('A')).toBeNull()
+    expect(screen.getByText('B')).toBeDefined()
+    expect(first.getSubscriptionsCount()).toBe(0)
+    expect(second.getSubscriptionsCount()).toBe(1)
+
+    act(() => {
+      first.push('Ignored')
+    })
+    expect(screen.queryByText('Ignored')).toBeNull()
+
+    act(() => {
+      second.push('C')
+    })
+    expect(screen.getByText('C')).toBeDefined()
   })
 
   it('keeps row DOM identity across reorders for object items', () => {
@@ -255,6 +385,41 @@ describe('KoForeach', () => {
     })
 
     expect(screen.getByText('A')).toBe(node)
+  })
+
+  it('reuses primitive row state by position unless itemKey is provided', () => {
+    const items = ko.observableArray(['A', 'B', 'C'])
+
+    render(
+      <RootKnockoutProvider viewModel={{}}>
+        <KoForeach items={items}>
+          {(item) => <StatefulItem item={item} list="default" />}
+        </KoForeach>
+        <KoForeach items={items} itemKey={(item) => item}>
+          {(item) => <StatefulItem item={item} list="keyed" />}
+        </KoForeach>
+      </RootKnockoutProvider>
+    )
+
+    act(() => {
+      items.reverse()
+    })
+
+    expect(screen.getByTestId('default-C').textContent).toBe('C:A')
+    expect(screen.getByTestId('default-B').textContent).toBe('B:B')
+    expect(screen.getByTestId('default-A').textContent).toBe('A:C')
+    expect(screen.getByTestId('keyed-C').textContent).toBe('C:C')
+    expect(screen.getByTestId('keyed-B').textContent).toBe('B:B')
+    expect(screen.getByTestId('keyed-A').textContent).toBe('A:A')
+
+    act(() => {
+      items.remove('C')
+    })
+
+    expect(screen.getByTestId('default-B').textContent).toBe('B:A')
+    expect(screen.getByTestId('default-A').textContent).toBe('A:B')
+    expect(screen.getByTestId('keyed-B').textContent).toBe('B:B')
+    expect(screen.getByTestId('keyed-A').textContent).toBe('A:A')
   })
 
   it('exposes outer items to nested loops through closures', () => {

@@ -3,8 +3,23 @@ import type * as ko from 'knockout'
 import { KnockoutScope, useKoValue } from '@/index'
 import type { SemanticHostProps } from '@/components/scope/semanticHost'
 
+type NullableItems<T> =
+  | ko.Observable<T[] | null | undefined>
+  | ko.Observable<readonly T[] | null | undefined>
+  | ko.Computed<T[] | null | undefined>
+  | ko.Computed<readonly T[] | null | undefined>
+  | readonly T[]
+  | null
+  | undefined
+
 type Props<T> = SemanticHostProps & {
-  items: ko.ObservableArray<T> | ko.Observable<T[]> | ko.Computed<T[]> | T[]
+  items:
+    | ko.ObservableArray<T>
+    | ko.Observable<T[]>
+    | ko.Observable<readonly T[]>
+    | ko.Computed<T[]>
+    | ko.Computed<readonly T[]>
+    | NullableItems<T>
   children: (item: T, index: number) => React.ReactNode
   itemKey?: (item: T, index: number) => React.Key
 }
@@ -43,7 +58,17 @@ function defaultItemKey(
  * replaced by the function arguments and closures.
  */
 export function KoForeach<T>({ items, children, itemKey, boundaryAs, as }: Props<T>) {
-  const array = useKoValue<T[]>(items)
+  // Knockout subscribables are invariant, so normalize the mutable and
+  // readonly source variants after Props has checked the public input.
+  const array =
+    useKoValue<readonly T[] | null | undefined>(
+      items as unknown as
+        | ko.Observable<readonly T[] | null | undefined>
+        | ko.Computed<readonly T[] | null | undefined>
+        | readonly T[]
+        | null
+        | undefined
+    ) ?? []
   const occurrences = new WeakMap<object, number>()
 
   return (

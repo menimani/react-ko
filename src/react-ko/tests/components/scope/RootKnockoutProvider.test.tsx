@@ -1,17 +1,16 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, act, fireEvent, waitFor } from '@testing-library/react'
-import { Component, StrictMode, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import {
+  Component,
+  StrictMode,
+  useLayoutEffect,
+  useRef,
+  useState,
+  version as reactVersion,
+  type ReactNode,
+} from 'react'
 import ko from 'knockout'
 import { KnockoutScope, RootKnockoutProvider, useAppViewModel } from '@/index'
-
-/**
- * Dummy consumer that uses the ViewModel context
- * Used to validate that useAppViewModel throws or not depending on Provider usage
- */
-function ViewModelConsumer() {
-  useAppViewModel<unknown>()
-  return null
-}
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
   state = { failed: false }
@@ -22,6 +21,25 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean
 
   render() {
     return this.state.failed ? <span>Binding failed</span> : this.props.children
+  }
+}
+
+class ErrorMessageBoundary extends Component<
+  { children: ReactNode },
+  { error: Error | null }
+> {
+  state: { error: Error | null } = { error: null }
+
+  static getDerivedStateFromError(error: Error) {
+    return { error }
+  }
+
+  render() {
+    return this.state.error === null ? (
+      this.props.children
+    ) : (
+      <span>{this.state.error.message}</span>
+    )
   }
 }
 
@@ -42,6 +60,61 @@ describe('RootKnockoutProvider', () => {
     })
 
     expect(screen.getByText('Updated')).toBeDefined()
+  })
+
+  describe.each([
+    ['text', 'text: label'],
+    ['html', 'html: markup'],
+    ['options', 'options: choices'],
+  ] as const)('%s binding with no-output React children', (kind, binding) => {
+    function NoOutput() {
+      return null
+    }
+
+    it.each([
+      ['an empty array', () => []],
+      ['an empty string', () => ''],
+      ['a null-rendering component', () => <NoOutput />],
+    ] as const)('keeps observable updates bound for %s', async (_, renderChildren) => {
+      const vm = {
+        label: ko.observable('Initial'),
+        markup: ko.observable('<strong>Initial</strong>'),
+        choices: ko.observable(['Initial']),
+      }
+      const value = kind === 'text' ? vm.label : kind === 'html' ? vm.markup : vm.choices
+      const children = renderChildren()
+
+      render(
+        <RootKnockoutProvider viewModel={vm}>
+          {kind === 'options' ? (
+            <select data-testid="no-output-owner" data-bind={binding}>
+              {children}
+            </select>
+          ) : (
+            <div data-testid="no-output-owner" data-bind={binding}>
+              {children}
+            </div>
+          )}
+        </RootKnockoutProvider>
+      )
+
+      const owner = screen.getByTestId('no-output-owner')
+      await waitFor(() => {
+        expect(owner.textContent).toBe('Initial')
+        expect(value.getSubscriptionsCount()).toBeGreaterThan(0)
+      })
+
+      act(() => {
+        if (kind === 'text') vm.label('Updated')
+        else if (kind === 'html') vm.markup('<em>Updated</em>')
+        else vm.choices(['Updated'])
+      })
+
+      await waitFor(() => {
+        expect(owner.textContent).toBe('Updated')
+        expect(value.getSubscriptionsCount()).toBeGreaterThan(0)
+      })
+    })
   })
 
   it('binds ordinary React descendants mounted after the initial pass', async () => {
@@ -69,6 +142,37 @@ describe('RootKnockoutProvider', () => {
       vm.label('Still bound')
     })
     expect(screen.getByText('Still bound')).toBeDefined()
+  })
+
+  it('preprocesses a custom alias once when its element mounts later', async () => {
+    const binding = 'lateVisibleAlias'
+    const shown = ko.observable(false)
+    const preprocess = vi.fn((expression, _name, addBinding) => {
+      addBinding('visible', expression)
+    })
+    ko.bindingHandlers[binding] = { preprocess }
+
+    function Harness({ show }: { show: boolean }) {
+      return (
+        <RootKnockoutProvider viewModel={{ shown }}>
+          {show ? (
+            <span data-testid="late-preprocessed" data-bind={`${binding}: shown`} />
+          ) : null}
+        </RootKnockoutProvider>
+      )
+    }
+
+    try {
+      const { rerender } = render(<Harness show={false} />)
+      rerender(<Harness show />)
+
+      await waitFor(() => {
+        expect(preprocess).toHaveBeenCalledOnce()
+        expect(screen.getByTestId('late-preprocessed').style.display).toBe('none')
+      })
+    } finally {
+      delete ko.bindingHandlers[binding]
+    }
   })
 
   it('binds a descendant inserted by local state before its layout effects run', () => {
@@ -103,6 +207,32 @@ describe('RootKnockoutProvider', () => {
     act(() => showInput())
 
     expect(vm.name()).toBe('Changed in layout')
+  })
+
+  it('binds initial descendants before their layout effects run', () => {
+    const vm = { name: ko.observable('Initial') }
+
+    function ChangeInLayout() {
+      const input = useRef<HTMLInputElement>(null)
+
+      useLayoutEffect(() => {
+        if (input.current !== null) {
+          input.current.value = 'Changed in layout'
+          input.current.dispatchEvent(new Event('change', { bubbles: true }))
+        }
+      }, [])
+
+      return <input ref={input} data-bind="value: name" />
+    }
+
+    render(
+      <RootKnockoutProvider viewModel={vm}>
+        <ChangeInLayout />
+      </RootKnockoutProvider>
+    )
+
+    expect(vm.name()).toBe('Changed in layout')
+    expect(screen.getByDisplayValue('Changed in layout')).toBeDefined()
   })
 
   it('preserves a let descendant context for children mounted later', async () => {
@@ -152,6 +282,39 @@ describe('RootKnockoutProvider', () => {
       current({ label: 'Replacement context' })
     })
     expect(screen.getByText('Replacement context')).toBeDefined()
+  })
+
+  it('preserves an aliased using context for children mounted later', async () => {
+    const binding = 'usingAlias'
+    const preprocess = vi.fn((expression, _name, addBinding) => {
+      addBinding('using', expression)
+    })
+    ko.bindingHandlers[binding] = { preprocess }
+    const vm = {
+      label: 'Root context',
+      scoped: { label: 'Aliased context' },
+    }
+
+    function Harness({ show }: { show: boolean }) {
+      return (
+        <RootKnockoutProvider viewModel={vm}>
+          <div data-bind={`${binding}: scoped`}>
+            {show ? <span data-bind="text: label" /> : null}
+          </div>
+        </RootKnockoutProvider>
+      )
+    }
+
+    try {
+      const { rerender } = render(<Harness show={false} />)
+      expect(preprocess).toHaveBeenCalledOnce()
+
+      rerender(<Harness show />)
+
+      await waitFor(() => expect(screen.getByText('Aliased context')).toBeDefined())
+    } finally {
+      delete ko.bindingHandlers[binding]
+    }
   })
 
   it('sends a late binding error to a React error boundary with a stable view model', async () => {
@@ -226,6 +389,158 @@ describe('RootKnockoutProvider', () => {
     rerender(<Harness binding="second" />)
     expect(vm.second.getSubscriptionsCount()).toBe(1)
   })
+
+  it.each([
+    ['removed', undefined],
+    ['replaced', 'text: label'],
+  ] as const)(
+    'rejects an unknown custom binding when data-bind is %s and cleans it up',
+    (_, nextBinding) => {
+      const binding = 'temporaryCustomBinding'
+      const dispose = vi.fn()
+      const vm = { label: 'Replacement' }
+      ko.bindingHandlers[binding] = {
+        init(element) {
+          ko.utils.domNodeDisposal.addDisposeCallback(element, dispose)
+        },
+      }
+
+      function Harness({ dataBind }: { dataBind: string | undefined }) {
+        return (
+          <ErrorMessageBoundary>
+            <RootKnockoutProvider viewModel={vm}>
+              <span data-bind={dataBind} />
+            </RootKnockoutProvider>
+          </ErrorMessageBoundary>
+        )
+      }
+
+      try {
+        const { rerender } = render(<Harness dataBind={`${binding}: true`} />)
+
+        rerender(<Harness dataBind={nextBinding} />)
+
+        expect(
+          screen.getByText(
+            `react-ko cannot replace the Knockout "${binding}" binding because its DOM effects cannot be safely retired.`
+          )
+        ).toBeDefined()
+        expect(dispose).toHaveBeenCalledTimes(1)
+      } finally {
+        delete ko.bindingHandlers[binding]
+      }
+
+      expect(ko.bindingHandlers[binding]).toBeUndefined()
+    }
+  )
+
+  it('rejects retirement when a built-in handler has a same-arity override', async () => {
+    const registered = ko.bindingHandlers.visible
+    const viewModel = { shown: true }
+    const update = vi.fn((element: Element, _valueAccessor: () => unknown) => {
+      element.setAttribute('title', 'custom effect')
+    })
+    ko.bindingHandlers.visible = { update }
+
+    function Harness({ bound }: { bound: boolean }) {
+      return (
+        <ErrorMessageBoundary>
+          <RootKnockoutProvider viewModel={viewModel}>
+            <span
+              data-testid="overridden-visible"
+              data-bind={bound ? 'visible: shown' : undefined}
+            >
+              React child
+            </span>
+          </RootKnockoutProvider>
+        </ErrorMessageBoundary>
+      )
+    }
+
+    try {
+      const { rerender } = render(<Harness bound />)
+      expect(
+        screen.getByTestId('overridden-visible').getAttribute('title')
+      ).toBe('custom effect')
+
+      rerender(<Harness bound={false} />)
+
+      await waitFor(() =>
+        expect(
+          screen.getByText(
+            'react-ko cannot replace the Knockout "visible" binding because its DOM effects cannot be safely retired.'
+          )
+        ).toBeDefined()
+      )
+      expect(update).toHaveBeenCalled()
+    } finally {
+      ko.bindingHandlers.visible = registered
+    }
+  })
+
+  it.each([
+    ['checked', 'uniqueName', 'checked: selected', 'init'],
+    ['click', 'event', 'click: handle', 'init'],
+    ['disable', 'enable', 'disable: disabled', 'update'],
+    ['hidden', 'visible', 'hidden: hidden', 'update'],
+    ['textinput', 'textInput', 'textinput: value', 'init'],
+  ] as const)(
+    'rejects retirement of %s when its delegated %s handler is overridden',
+    async (binding, delegate, source, method) => {
+      const registered = ko.bindingHandlers[delegate]
+      const customEffect = vi.fn((element: Element) => {
+        element.setAttribute('title', 'custom delegated effect')
+      })
+      ko.bindingHandlers[delegate] =
+        method === 'init' ? { init: customEffect } : { update: customEffect }
+      const viewModel = {
+        selected: ko.observable(true),
+        handle: vi.fn(),
+        disabled: ko.observable(true),
+        hidden: ko.observable(true),
+        value: ko.observable('Knockout value'),
+      }
+
+      function Harness({ bound }: { bound: boolean }) {
+        const dataBind = bound ? source : undefined
+        return (
+          <ErrorMessageBoundary>
+            <RootKnockoutProvider viewModel={viewModel}>
+              {binding === 'checked' ? (
+                <input type="radio" data-testid="delegated-binding" data-bind={dataBind} />
+              ) : binding === 'click' ? (
+                <button data-testid="delegated-binding" data-bind={dataBind} />
+              ) : binding === 'textinput' ? (
+                <input data-testid="delegated-binding" data-bind={dataBind} />
+              ) : (
+                <span data-testid="delegated-binding" data-bind={dataBind} />
+              )}
+            </RootKnockoutProvider>
+          </ErrorMessageBoundary>
+        )
+      }
+
+      try {
+        const { rerender } = render(<Harness bound />)
+        expect(screen.getByTestId('delegated-binding').getAttribute('title')).toBe(
+          'custom delegated effect'
+        )
+
+        rerender(<Harness bound={false} />)
+
+        await waitFor(() =>
+          expect(
+            screen.getByText(
+              `react-ko cannot replace the Knockout "${binding}" binding because its DOM effects cannot be safely retired.`
+            )
+          ).toBeDefined()
+        )
+        expect(customEffect).toHaveBeenCalled()
+      } finally {
+        ko.bindingHandlers[delegate] = registered
+      }
+    }
+  )
 
   it('removes DOM effects owned by retired bindings before applying replacements', () => {
     const vm = {
@@ -505,6 +820,290 @@ describe('RootKnockoutProvider', () => {
     }
   })
 
+  it.each([
+    ['text', (show: boolean) => (show ? 'React text' : null)],
+    [
+      'dangerouslySetInnerHTML',
+      (show: boolean) => ({
+        dangerouslySetInnerHTML: show ? { __html: '<strong>React markup</strong>' } : undefined,
+      }),
+    ],
+  ] as const)(
+    'rejects late React content from %s while a content binding remains active',
+    async (_, content) => {
+      const vm = { label: ko.observable('Knockout text') }
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+      function Harness({ show }: { show: boolean }) {
+        const nextContent = content(show)
+        return (
+          <ErrorBoundary>
+            <RootKnockoutProvider viewModel={vm}>
+              {typeof nextContent === 'object' && nextContent !== null ? (
+                <div data-bind="text: label" {...nextContent} />
+              ) : (
+                <div data-bind="text: label">{nextContent}</div>
+              )}
+            </RootKnockoutProvider>
+          </ErrorBoundary>
+        )
+      }
+
+      try {
+        const { rerender } = render(<Harness show={false} />)
+        rerender(<Harness show />)
+
+        await waitFor(() => expect(screen.getByText('Binding failed')).toBeDefined())
+        expect(vm.label.getSubscriptionsCount()).toBe(0)
+      } finally {
+        consoleError.mockRestore()
+      }
+    }
+  )
+
+  it('handles late React bigint content according to the React major', async () => {
+    const vm = { label: ko.observable('Knockout text') }
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    function Harness({ show }: { show: boolean }) {
+      return (
+        <ErrorBoundary>
+          <RootKnockoutProvider viewModel={vm}>
+            <div data-bind="text: label">
+              {show ? (123n as unknown as ReactNode) : null}
+            </div>
+          </RootKnockoutProvider>
+        </ErrorBoundary>
+      )
+    }
+
+    try {
+      const { rerender } = render(<Harness show={false} />)
+      rerender(<Harness show />)
+
+      if (Number.parseInt(reactVersion, 10) >= 19) {
+        await waitFor(() => expect(screen.getByText('Binding failed')).toBeDefined())
+        expect(vm.label.getSubscriptionsCount()).toBe(0)
+      } else {
+        expect(screen.getByText('Knockout text')).toBeDefined()
+        expect(vm.label.getSubscriptionsCount()).toBe(1)
+      }
+    } finally {
+      consoleError.mockRestore()
+    }
+  })
+
+  it.runIf(Number.parseInt(reactVersion, 10) === 18).each([
+    'html',
+    'options',
+    'component',
+  ] as const)(
+    'keeps a %s binding active after an observable update beside a bigint child in React 18',
+    async (kind) => {
+      const initialComponent = 'react-ko-bigint-initial'
+      const updatedComponent = 'react-ko-bigint-updated'
+      const initial =
+        kind === 'html'
+          ? '<strong>Initial</strong>'
+          : kind === 'options'
+            ? ['Initial']
+            : initialComponent
+      const updated =
+        kind === 'html'
+          ? '<em>Updated</em>'
+          : kind === 'options'
+            ? ['Updated']
+            : updatedComponent
+      const value = ko.observable<unknown>(initial)
+      const binding = `${kind}: value`
+      const bigint = 123n as unknown as ReactNode
+
+      if (kind === 'component') {
+        ko.components.register(initialComponent, { template: '<strong>Initial</strong>' })
+        ko.components.register(updatedComponent, { template: '<em>Updated</em>' })
+      }
+
+      function Harness() {
+        return (
+          <ErrorBoundary>
+            <RootKnockoutProvider viewModel={{ value }}>
+              {kind === 'options' ? (
+                <select data-testid="bigint-content-owner" data-bind={binding}>
+                  {bigint}
+                </select>
+              ) : (
+                <div data-testid="bigint-content-owner" data-bind={binding}>
+                  {bigint}
+                </div>
+              )}
+            </RootKnockoutProvider>
+          </ErrorBoundary>
+        )
+      }
+
+      try {
+        const { unmount } = render(<Harness />)
+        const owner = screen.getByTestId('bigint-content-owner')
+        await waitFor(() => expect(owner.textContent).toBe('Initial'))
+
+        expect(() => act(() => value(updated))).not.toThrow()
+
+        await waitFor(() => expect(owner.textContent).toBe('Updated'))
+        expect(screen.queryByText('Binding failed')).toBeNull()
+        unmount()
+      } finally {
+        if (kind === 'component') {
+          ko.components.unregister(initialComponent)
+          ko.components.unregister(updatedComponent)
+        }
+      }
+    }
+  )
+
+  it.each([
+    ['an empty text child', { children: '' }],
+    ['empty dangerouslySetInnerHTML', { dangerouslySetInnerHTML: { __html: '' } }],
+  ] as const)('rejects late React content from %s', async (_, content) => {
+    const vm = { label: ko.observable('Knockout text') }
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    function Harness({ addContent }: { addContent: boolean }) {
+      return (
+        <ErrorMessageBoundary>
+          <RootKnockoutProvider viewModel={vm}>
+            <div data-bind="text: label" {...(addContent ? content : {})} />
+          </RootKnockoutProvider>
+        </ErrorMessageBoundary>
+      )
+    }
+
+    try {
+      const { rerender } = render(<Harness addContent={false} />)
+      expect(screen.getByText('Knockout text')).toBeDefined()
+
+      rerender(<Harness addContent />)
+
+      await waitFor(() =>
+        expect(
+          screen.getByText(
+            'react-ko cannot apply the Knockout "text" binding because it controls React-owned child nodes. Leave the bound element empty so Knockout can own its contents.'
+          )
+        ).toBeDefined()
+      )
+      expect(vm.label.getSubscriptionsCount()).toBe(0)
+    } finally {
+      consoleError.mockRestore()
+    }
+  })
+
+  it.each([
+    ['an empty text child', { children: '' }],
+    ['empty dangerouslySetInnerHTML', { dangerouslySetInnerHTML: { __html: '' } }],
+  ] as const)('rejects removal of %s while a content binding remains active', async (_, content) => {
+    const vm = { label: ko.observable('Knockout text') }
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    function Harness({ removeContent }: { removeContent: boolean }) {
+      return (
+        <ErrorMessageBoundary>
+          <RootKnockoutProvider viewModel={vm}>
+            <div
+              data-testid="empty-content-removal"
+              data-bind="text: label"
+              {...(removeContent ? {} : content)}
+            />
+          </RootKnockoutProvider>
+        </ErrorMessageBoundary>
+      )
+    }
+
+    try {
+      const { rerender } = render(<Harness removeContent={false} />)
+      expect(screen.getByText('Knockout text')).toBeDefined()
+
+      rerender(<Harness removeContent />)
+
+      await waitFor(() =>
+        expect(
+          screen.getByText(
+            'react-ko cannot apply the Knockout "text" binding because it controls React-owned child nodes. Leave the bound element empty so Knockout can own its contents.'
+          )
+        ).toBeDefined()
+      )
+      expect(vm.label.getSubscriptionsCount()).toBe(0)
+    } finally {
+      consoleError.mockRestore()
+    }
+  })
+
+  it.each([
+    ['text', { children: 'React text' }],
+    [
+      'dangerouslySetInnerHTML',
+      { dangerouslySetInnerHTML: { __html: '<strong>React markup</strong>' } },
+    ],
+  ] as const)('hands %s content off to a newly added content binding', async (_, content) => {
+    const vm = { label: ko.observable('Knockout text') }
+
+    function Harness({ bound }: { bound: boolean }) {
+      return (
+        <RootKnockoutProvider viewModel={vm}>
+          <div
+            data-testid="react-content-handoff"
+            {...(bound ? { 'data-bind': 'text: label' } : content)}
+          />
+        </RootKnockoutProvider>
+      )
+    }
+
+    const { rerender } = render(<Harness bound={false} />)
+    rerender(<Harness bound />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('react-content-handoff').textContent).toBe('Knockout text')
+      expect(vm.label.getSubscriptionsCount()).toBe(1)
+    })
+    await act(async () => undefined)
+
+    act(() => {
+      vm.label('Updated Knockout text')
+    })
+
+    await waitFor(() => {
+      expect(screen.getByTestId('react-content-handoff').textContent).toBe(
+        'Updated Knockout text'
+      )
+      expect(vm.label.getSubscriptionsCount()).toBe(1)
+    })
+  })
+
+  it('hands React text off while replacing the root view model', async () => {
+    const first = { label: ko.observable('First Knockout text') }
+    const second = { label: ko.observable('Second Knockout text') }
+
+    function Harness({ bound, viewModel }: { bound: boolean; viewModel: typeof first }) {
+      return (
+        <RootKnockoutProvider viewModel={viewModel}>
+          <div
+            data-testid="react-text-view-model-handoff"
+            {...(bound ? { 'data-bind': 'text: label' } : { children: 'React text' })}
+          />
+        </RootKnockoutProvider>
+      )
+    }
+
+    const { rerender } = render(<Harness bound={false} viewModel={first} />)
+    rerender(<Harness bound viewModel={second} />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('react-text-view-model-handoff').textContent).toBe(
+        'Second Knockout text'
+      )
+      expect(first.label.getSubscriptionsCount()).toBe(0)
+      expect(second.label.getSubscriptionsCount()).toBe(1)
+    })
+  })
+
   it('rejects a late React child before its layout update can let Knockout detach it', () => {
     const vm = { label: ko.observable('Knockout text') }
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
@@ -541,6 +1140,107 @@ describe('RootKnockoutProvider', () => {
 
       expect(screen.getByText('Binding failed')).toBeDefined()
       expect(connectedAfterUpdate).toBe(true)
+      expect(vm.label()).toBe('Updated in layout')
+      expect(vm.label.getSubscriptionsCount()).toBe(0)
+    } finally {
+      consoleError.mockRestore()
+    }
+  })
+
+  it('rejects text returned by a late React child before Knockout can detach it', () => {
+    const vm = { label: ko.observable('Knockout text') }
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    let showChild = () => undefined
+    let childTextAfterUpdate: string | null | undefined
+    let connectedAfterUpdate = false
+
+    function UpdatingChild() {
+      useLayoutEffect(() => {
+        const childText = document.querySelector('[data-testid="component-text-owner"]')
+          ?.lastChild
+        vm.label('Updated in layout')
+        childTextAfterUpdate = childText?.textContent
+        connectedAfterUpdate = childText?.isConnected ?? false
+      }, [])
+
+      return 'React child text'
+    }
+
+    function BindingOwner() {
+      const [show, setShow] = useState(false)
+      showChild = () => setShow(true)
+
+      return (
+        <div data-testid="component-text-owner" data-bind="text: label">
+          {show ? <UpdatingChild /> : null}
+        </div>
+      )
+    }
+
+    try {
+      render(
+        <ErrorBoundary>
+          <RootKnockoutProvider viewModel={vm}>
+            <BindingOwner />
+          </RootKnockoutProvider>
+        </ErrorBoundary>
+      )
+      act(() => showChild())
+
+      expect(screen.getByText('Binding failed')).toBeDefined()
+      expect(childTextAfterUpdate).toBe('React child text')
+      expect(connectedAfterUpdate).toBe(true)
+      expect(vm.label()).toBe('Updated in layout')
+      expect(vm.label.getSubscriptionsCount()).toBe(0)
+    } finally {
+      consoleError.mockRestore()
+    }
+  })
+
+  it('rejects a direct React text write before a sibling layout effect can overwrite it', () => {
+    const vm = { label: ko.observable('Knockout text') }
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    let showText = () => undefined
+    let textAfterUpdate: string | null | undefined
+
+    function LayoutNotifier({ notify }: { notify: boolean }) {
+      useLayoutEffect(() => {
+        if (notify) {
+          vm.label('Updated in layout')
+          textAfterUpdate = document.querySelector('[data-testid="direct-text-owner"]')
+            ?.textContent
+        }
+      }, [notify])
+
+      return null
+    }
+
+    function BindingOwner() {
+      const [show, setShow] = useState(false)
+      showText = () => setShow(true)
+
+      return (
+        <>
+          <div data-testid="direct-text-owner" data-bind="text: label">
+            {show ? 'React text' : null}
+          </div>
+          <LayoutNotifier notify={show} />
+        </>
+      )
+    }
+
+    try {
+      render(
+        <ErrorBoundary>
+          <RootKnockoutProvider viewModel={vm}>
+            <BindingOwner />
+          </RootKnockoutProvider>
+        </ErrorBoundary>
+      )
+      act(() => showText())
+
+      expect(screen.getByText('Binding failed')).toBeDefined()
+      expect(textAfterUpdate).toBe('React text')
       expect(vm.label()).toBe('Updated in layout')
       expect(vm.label.getSubscriptionsCount()).toBe(0)
     } finally {
@@ -1011,18 +1711,22 @@ describe('RootKnockoutProvider', () => {
     expect(vm.label.getSubscriptionsCount()).toBe(0)
   })
 
-  it('does not throw when useAppViewModel is used inside RootKnockoutProvider', () => {
-    const vm = {}
-  
-    const renderSafeUsage = () => {
-      render(
-        <RootKnockoutProvider viewModel={vm}>
-          <ViewModelConsumer />
-        </RootKnockoutProvider>
-      )
+  it('returns the root view model from useAppViewModel', () => {
+    const viewModel = {}
+    let result: unknown
+
+    function ViewModelConsumer() {
+      result = useAppViewModel<unknown>()
+      return null
     }
-  
-    expect(renderSafeUsage).not.toThrow()
+
+    render(
+      <RootKnockoutProvider viewModel={viewModel}>
+        <ViewModelConsumer />
+      </RootKnockoutProvider>
+    )
+
+    expect(result).toBe(viewModel)
   })
 
   it('surfaces a binding error raised by a late non-React descendant', async () => {
@@ -1232,6 +1936,109 @@ describe('RootKnockoutProvider', () => {
     expect(input.value).toBe('React value')
   })
 
+  it('reapplies an attr binding after defaultChecked updates and restores the latest default', async () => {
+    function LocallyUpdatedInput() {
+      const [phase, setPhase] = useState(0)
+      return (
+        <>
+          <button onClick={() => setPhase((current) => current + 1)}>
+            advance default checked
+          </button>
+          <input
+            type="checkbox"
+            data-testid="default-checked-owner"
+            defaultChecked={phase > 0}
+            data-bind={phase < 2 ? 'attr: { checked: false }' : undefined}
+          />
+        </>
+      )
+    }
+
+    render(
+      <RootKnockoutProvider viewModel={{}}>
+        <LocallyUpdatedInput />
+      </RootKnockoutProvider>
+    )
+    const input = screen.getByTestId('default-checked-owner') as HTMLInputElement
+    expect(input.hasAttribute('checked')).toBe(false)
+
+    fireEvent.click(screen.getByText('advance default checked'))
+    await waitFor(() => expect(input.hasAttribute('checked')).toBe(false))
+
+    fireEvent.click(screen.getByText('advance default checked'))
+    expect(input.hasAttribute('checked')).toBe(true)
+  })
+
+  it('removes checked when an attr binding retires after defaultChecked becomes false', async () => {
+    function LocallyUpdatedInput() {
+      const [phase, setPhase] = useState(0)
+      return (
+        <>
+          <button onClick={() => setPhase((current) => current + 1)}>
+            retire checked default
+          </button>
+          <input
+            type="checkbox"
+            data-testid="retired-default-checked-owner"
+            defaultChecked={phase === 0}
+            data-bind={phase < 2 ? 'attr: { checked: true }' : undefined}
+          />
+        </>
+      )
+    }
+
+    render(
+      <RootKnockoutProvider viewModel={{}}>
+        <LocallyUpdatedInput />
+      </RootKnockoutProvider>
+    )
+    const input = screen.getByTestId(
+      'retired-default-checked-owner'
+    ) as HTMLInputElement
+    expect(input.hasAttribute('checked')).toBe(true)
+
+    fireEvent.click(screen.getByText('retire checked default'))
+    await waitFor(() => expect(input.hasAttribute('checked')).toBe(true))
+
+    fireEvent.click(screen.getByText('retire checked default'))
+    expect(input.hasAttribute('checked')).toBe(false)
+    expect(input.defaultChecked).toBe(false)
+  })
+
+  it('keeps a value binding after defaultValue updates and restores the latest default', async () => {
+    const vm = { name: ko.observable('Knockout value') }
+
+    function LocallyUpdatedInput() {
+      const [phase, setPhase] = useState(0)
+      return (
+        <>
+          <button onClick={() => setPhase((current) => current + 1)}>
+            advance default value
+          </button>
+          <input
+            data-testid="default-value-owner"
+            defaultValue={phase === 0 ? 'react-initial' : 'react-latest'}
+            data-bind={phase < 2 ? 'value: name' : undefined}
+          />
+        </>
+      )
+    }
+
+    render(
+      <RootKnockoutProvider viewModel={vm}>
+        <LocallyUpdatedInput />
+      </RootKnockoutProvider>
+    )
+    const input = screen.getByTestId('default-value-owner') as HTMLInputElement
+    expect(input.value).toBe('Knockout value')
+
+    fireEvent.click(screen.getByText('advance default value'))
+    await waitFor(() => expect(input.value).toBe('Knockout value'))
+
+    fireEvent.click(screen.getByText('advance default value'))
+    expect(input.value).toBe('react-latest')
+  })
+
   it('restores the options selected by React when selectedOptions is retired', () => {
     const vm = { choices: ko.observableArray(['knockout']) }
 
@@ -1260,6 +2067,31 @@ describe('RootKnockoutProvider', () => {
     expect([...select.selectedOptions].map(({ value }) => value)).toEqual(['react'])
     fireEvent.change(select)
     expect(vm.choices()).toEqual(['knockout'])
+  })
+
+  it('restores an initially focused input when hasFocus is retired', async () => {
+    const vm = { focused: ko.observable(true), label: 'Bound' }
+
+    render(
+      <RootKnockoutProvider viewModel={vm}>
+        <div data-testid="focus-host" />
+      </RootKnockoutProvider>
+    )
+
+    const input = document.createElement('input')
+    input.setAttribute('data-bind', 'hasFocus: focused, attr: { title: label }')
+    act(() => {
+      screen.getByTestId('focus-host').appendChild(input)
+      input.focus()
+    })
+    await waitFor(() => expect(input.title).toBe('Bound'))
+
+    act(() => vm.focused(false))
+    await waitFor(() => expect(document.activeElement).not.toBe(input))
+
+    act(() => input.removeAttribute('data-bind'))
+
+    await waitFor(() => expect(document.activeElement).toBe(input))
   })
 
   it('keeps committed React style and attr props as the retirement baseline', async () => {
@@ -1503,4 +2335,435 @@ describe('RootKnockoutProvider', () => {
     fireEvent.click(screen.getByText('select advance'))
     expect([...select.selectedOptions].map(({ value }) => value)).toEqual(['react-next'])
   })
+
+  it('reapplies selectedOptions when React inserts a late matching option', async () => {
+    const vm = { choices: ko.observableArray(['late']) }
+
+    function LateOptionSelect() {
+      const [showLateOption, setShowLateOption] = useState(false)
+      return (
+        <>
+          <button onClick={() => setShowLateOption(true)}>show late option</button>
+          <select multiple data-testid="late-selected-options" data-bind="selectedOptions: choices">
+            <option value="early">Early</option>
+            {showLateOption ? <option value="late">Late</option> : null}
+          </select>
+        </>
+      )
+    }
+
+    render(
+      <RootKnockoutProvider viewModel={vm}>
+        <LateOptionSelect />
+      </RootKnockoutProvider>
+    )
+    const select = screen.getByTestId('late-selected-options') as HTMLSelectElement
+
+    expect([...select.selectedOptions]).toEqual([])
+    fireEvent.click(screen.getByText('show late option'))
+
+    await waitFor(() => {
+      expect([...select.selectedOptions].map(({ value }) => value)).toEqual(['late'])
+    })
+    expect(vm.choices()).toEqual(['late'])
+  })
+
+  it('reapplies valueAllowUnset when a React option changes to the matching value', async () => {
+    const vm = { choice: ko.observable('late') }
+
+    function ChangingOptionSelect() {
+      const [matches, setMatches] = useState(false)
+      return (
+        <>
+          <button onClick={() => setMatches(true)}>match option value</button>
+          <select data-testid="late-value-option" data-bind="value: choice, valueAllowUnset: true">
+            <option value={matches ? 'late' : 'early'}>Choice</option>
+          </select>
+        </>
+      )
+    }
+
+    render(
+      <RootKnockoutProvider viewModel={vm}>
+        <ChangingOptionSelect />
+      </RootKnockoutProvider>
+    )
+    const select = screen.getByTestId('late-value-option') as HTMLSelectElement
+
+    expect(select.value).toBe('')
+    fireEvent.click(screen.getByText('match option value'))
+
+    await waitFor(() => expect(select.value).toBe('late'))
+    expect(vm.choice()).toBe('late')
+  })
+
+  it('reapplies valueAllowUnset when React removes the matching option', async () => {
+    const vm = { choice: ko.observable('selected') }
+
+    function RemovedOptionSelect() {
+      const [showSelected, setShowSelected] = useState(true)
+      return (
+        <>
+          <button onClick={() => setShowSelected(false)}>remove selected option</button>
+          <select
+            data-testid="removed-value-option"
+            data-bind="value: choice, valueAllowUnset: true"
+          >
+            <option value="fallback">Fallback</option>
+            {showSelected ? <option value="selected">Selected</option> : null}
+          </select>
+        </>
+      )
+    }
+
+    render(
+      <RootKnockoutProvider viewModel={vm}>
+        <RemovedOptionSelect />
+      </RootKnockoutProvider>
+    )
+    const select = screen.getByTestId('removed-value-option') as HTMLSelectElement
+
+    expect(select.value).toBe('selected')
+    fireEvent.click(screen.getByText('remove selected option'))
+
+    await waitFor(() => expect(select.selectedIndex).toBe(-1))
+    expect(vm.choice()).toBe('selected')
+  })
+
+  it('does not rebind retained options when the options binding removes a sibling', async () => {
+    const vm = {
+      choices: ko.observableArray(['Retained', 'Removed']),
+      selected: ko.observableArray(['Retained']),
+      afterRender: vi.fn(),
+    }
+
+    render(
+      <RootKnockoutProvider viewModel={vm}>
+        <select
+          multiple
+          data-testid="knockout-owned-options"
+          data-bind="options: choices, selectedOptions: selected, optionsAfterRender: afterRender"
+        />
+      </RootKnockoutProvider>
+    )
+    const select = screen.getByTestId('knockout-owned-options') as HTMLSelectElement
+
+    expect([...select.selectedOptions].map(({ value }) => value)).toEqual(['Retained'])
+    expect(
+      vm.afterRender.mock.calls.filter(([, item]) => item === 'Retained')
+    ).toHaveLength(1)
+
+    await act(async () => {
+      vm.choices.remove('Removed')
+      await Promise.resolve()
+    })
+
+    expect([...select.options].map(({ value }) => value)).toEqual(['Retained'])
+    expect([...select.selectedOptions].map(({ value }) => value)).toEqual(['Retained'])
+    expect(vm.selected()).toEqual(['Retained'])
+    expect(
+      vm.afterRender.mock.calls.filter(([, item]) => item === 'Retained')
+    ).toHaveLength(1)
+  })
+
+  it('does not rebind retained options after a same-batch Knockout add and removal', async () => {
+    const vm = {
+      choices: ko.observableArray(['Retained']),
+      selected: ko.observableArray(['Retained']),
+      afterRender: vi.fn(),
+    }
+
+    render(
+      <RootKnockoutProvider viewModel={vm}>
+        <select
+          multiple
+          data-testid="same-batch-knockout-options"
+          data-bind="options: choices, selectedOptions: selected, optionsAfterRender: afterRender"
+        />
+      </RootKnockoutProvider>
+    )
+    const select = screen.getByTestId(
+      'same-batch-knockout-options'
+    ) as HTMLSelectElement
+
+    expect(
+      vm.afterRender.mock.calls.filter(([, item]) => item === 'Retained')
+    ).toHaveLength(1)
+
+    await act(async () => {
+      vm.choices.push('Transient')
+      vm.choices.remove('Transient')
+      await Promise.resolve()
+    })
+
+    expect([...select.options].map(({ value }) => value)).toEqual(['Retained'])
+    expect([...select.selectedOptions].map(({ value }) => value)).toEqual([
+      'Retained',
+    ])
+    expect(vm.selected()).toEqual(['Retained'])
+    expect(
+      vm.afterRender.mock.calls.filter(([, item]) => item === 'Retained')
+    ).toHaveLength(1)
+  })
+
+  it('reapplies selectedOptions when React changes a value-less option text', async () => {
+    const vm = { choices: ko.observableArray(['late']) }
+
+    function ChangingOptionTextSelect() {
+      const [late, setLate] = useState(false)
+      return (
+        <>
+          <button onClick={() => setLate(true)}>change multiple option text</button>
+          <select
+            multiple
+            data-testid="text-selected-options"
+            data-bind="selectedOptions: choices"
+          >
+            <option>{late ? 'late' : 'early'}</option>
+          </select>
+        </>
+      )
+    }
+
+    render(
+      <RootKnockoutProvider viewModel={vm}>
+        <ChangingOptionTextSelect />
+      </RootKnockoutProvider>
+    )
+    const select = screen.getByTestId('text-selected-options') as HTMLSelectElement
+
+    expect([...select.selectedOptions]).toEqual([])
+    fireEvent.click(screen.getByText('change multiple option text'))
+
+    await waitFor(() => {
+      expect([...select.selectedOptions].map(({ value }) => value)).toEqual(['late'])
+    })
+    expect(vm.choices()).toEqual(['late'])
+  })
+
+  it('reapplies valueAllowUnset when React changes a value-less option text', async () => {
+    const vm = { choice: ko.observable('late') }
+
+    function ChangingOptionTextSelect() {
+      const [late, setLate] = useState(false)
+      return (
+        <>
+          <button onClick={() => setLate(true)}>change value option text</button>
+          <select
+            data-testid="text-value-option"
+            data-bind="value: choice, valueAllowUnset: true"
+          >
+            <option>{late ? 'late' : 'early'}</option>
+          </select>
+        </>
+      )
+    }
+
+    render(
+      <RootKnockoutProvider viewModel={vm}>
+        <ChangingOptionTextSelect />
+      </RootKnockoutProvider>
+    )
+    const select = screen.getByTestId('text-value-option') as HTMLSelectElement
+
+    expect(select.value).toBe('')
+    fireEvent.click(screen.getByText('change value option text'))
+
+    await waitFor(() => expect(select.value).toBe('late'))
+    expect(vm.choice()).toBe('late')
+  })
+
+  it('reapplies selectedOptions when React empties a value-less option text', async () => {
+    const vm = { choices: ko.observableArray(['']) }
+
+    function EmptyOptionTextSelect() {
+      const [empty, setEmpty] = useState(false)
+      return (
+        <>
+          <button onClick={() => setEmpty(true)}>empty multiple option text</button>
+          <select
+            multiple
+            data-testid="empty-text-selected-options"
+            data-bind="selectedOptions: choices"
+          >
+            <option>{empty ? '' : 'early'}</option>
+          </select>
+        </>
+      )
+    }
+
+    render(
+      <RootKnockoutProvider viewModel={vm}>
+        <EmptyOptionTextSelect />
+      </RootKnockoutProvider>
+    )
+    const select = screen.getByTestId(
+      'empty-text-selected-options'
+    ) as HTMLSelectElement
+
+    expect([...select.selectedOptions]).toEqual([])
+    fireEvent.click(screen.getByText('empty multiple option text'))
+
+    await waitFor(() => {
+      expect([...select.selectedOptions].map(({ value }) => value)).toEqual([''])
+    })
+    expect(vm.choices()).toEqual([''])
+  })
+
+  it('reapplies valueAllowUnset when React empties a value-less option text', async () => {
+    const vm = { choice: ko.observable('') }
+
+    function EmptyOptionTextSelect() {
+      const [empty, setEmpty] = useState(false)
+      return (
+        <>
+          <button onClick={() => setEmpty(true)}>empty value option text</button>
+          <select
+            data-testid="empty-text-value-option"
+            data-bind="value: choice, valueAllowUnset: true"
+          >
+            <option>{empty ? '' : 'early'}</option>
+          </select>
+        </>
+      )
+    }
+
+    render(
+      <RootKnockoutProvider viewModel={vm}>
+        <EmptyOptionTextSelect />
+      </RootKnockoutProvider>
+    )
+    const select = screen.getByTestId(
+      'empty-text-value-option'
+    ) as HTMLSelectElement
+
+    expect(select.selectedIndex).toBe(-1)
+    fireEvent.click(screen.getByText('empty value option text'))
+
+    await waitFor(() => expect(select.value).toBe(''))
+    expect(select.selectedIndex).toBe(0)
+    expect(vm.choice()).toBe('')
+  })
+
+  it('reapplies selectedOptions when React removes an array-rendered option label', async () => {
+    const vm = { choices: ko.observableArray(['early']) }
+
+    function RemovedArrayOptionTextSelect() {
+      const [empty, setEmpty] = useState(false)
+      return (
+        <>
+          <button onClick={() => setEmpty(true)}>remove multiple array label</button>
+          <select
+            multiple
+            data-testid="removed-array-selected-options"
+            data-bind="selectedOptions: choices"
+          >
+            <option>{empty ? [] : ['early']}</option>
+          </select>
+        </>
+      )
+    }
+
+    render(
+      <RootKnockoutProvider viewModel={vm}>
+        <RemovedArrayOptionTextSelect />
+      </RootKnockoutProvider>
+    )
+    const select = screen.getByTestId(
+      'removed-array-selected-options'
+    ) as HTMLSelectElement
+
+    expect([...select.selectedOptions].map(({ value }) => value)).toEqual(['early'])
+    fireEvent.click(screen.getByText('remove multiple array label'))
+
+    await waitFor(() => expect([...select.selectedOptions]).toEqual([]))
+    expect(vm.choices()).toEqual(['early'])
+  })
+
+  it('reapplies valueAllowUnset when React removes an array-rendered option label', async () => {
+    const vm = { choice: ko.observable('early') }
+
+    function RemovedArrayOptionTextSelect() {
+      const [empty, setEmpty] = useState(false)
+      return (
+        <>
+          <button onClick={() => setEmpty(true)}>remove value array label</button>
+          <select
+            data-testid="removed-array-value-option"
+            data-bind="value: choice, valueAllowUnset: true"
+          >
+            <option>{empty ? [] : ['early']}</option>
+          </select>
+        </>
+      )
+    }
+
+    render(
+      <RootKnockoutProvider viewModel={vm}>
+        <RemovedArrayOptionTextSelect />
+      </RootKnockoutProvider>
+    )
+    const select = screen.getByTestId(
+      'removed-array-value-option'
+    ) as HTMLSelectElement
+
+    expect(select.value).toBe('early')
+    fireEvent.click(screen.getByText('remove value array label'))
+
+    await waitFor(() => expect(select.selectedIndex).toBe(-1))
+    expect(vm.choice()).toBe('early')
+  })
+
+  it.each([
+    ['value', 'value', 'Knockout value', 'React initial', 'React latest'],
+    ['checked', 'checked', false, false, true],
+    ['disabled', 'disable', true, true, false],
+  ] as const)(
+    'restores the latest controlled React %s when its binding retires',
+    async (property, binding, knockoutValue, reactInitial, reactLatest) => {
+      const vm = { current: ko.observable(knockoutValue) }
+
+      function LocallyUpdatedInput() {
+        const [phase, setPhase] = useState(0)
+        const reactValue = phase === 0 ? reactInitial : reactLatest
+        const controlledProps =
+          property === 'value'
+            ? { readOnly: true, value: reactValue as string }
+            : property === 'checked'
+              ? { type: 'checkbox', readOnly: true, checked: reactValue as boolean }
+              : { disabled: reactValue as boolean }
+
+        return (
+          <>
+            <button onClick={() => setPhase((current) => current + 1)}>
+              advance {property}
+            </button>
+            <input
+              {...controlledProps}
+              data-testid={`controlled-${property}-retirement`}
+              data-bind={phase < 2 ? `${binding}: current` : undefined}
+            />
+          </>
+        )
+      }
+
+      render(
+        <RootKnockoutProvider viewModel={vm}>
+          <LocallyUpdatedInput />
+        </RootKnockoutProvider>
+      )
+      const input = screen.getByTestId(
+        `controlled-${property}-retirement`
+      ) as HTMLInputElement
+      const currentValue = () => input[property]
+
+      expect(currentValue()).toBe(knockoutValue)
+
+      fireEvent.click(screen.getByText(`advance ${property}`))
+      await waitFor(() => expect(currentValue()).toBe(knockoutValue))
+
+      fireEvent.click(screen.getByText(`advance ${property}`))
+      expect(currentValue()).toBe(reactLatest)
+    }
+  )
 })

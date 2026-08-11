@@ -20,7 +20,7 @@ permissions:
 
 jobs:
   test:
-    name: React ${{ matrix.react }}
+    name: React ${{ matrix.react }} / types ${{ matrix.types }}
     runs-on: ubuntu-latest
     # A draft pull request is not headed for merge yet, so it is not what CI is for.
     # Absent on a push, the expression is null and the job runs.
@@ -28,9 +28,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        react:
-          - "18"
-          - "19"
+        include:
+          - react: "18"
+            types: "18"
+          - react: "19"
+            types: "19"
 
     steps:
       - uses: actions/checkout@v4
@@ -44,14 +46,37 @@ jobs:
           npm pkg set --workspace=src/react-ko
           "devDependencies.react=${{ matrix.react }}"
           "devDependencies.react-dom=${{ matrix.react }}"
-          "devDependencies.@types/react=${{ matrix.react }}"
-          "devDependencies.@types/react-dom=${{ matrix.react }}"
+          "devDependencies.@types/react=${{ matrix.types }}"
+          "devDependencies.@types/react-dom=${{ matrix.types }}"
           "devDependencies.knockout=3.5.1"
       - run: npm install --package-lock=false
       - name: Verify selected peers
-        run: >-
-          npm ls --workspace=src/react-ko --depth=0
-          react react-dom @types/react @types/react-dom knockout
+        working-directory: src/react-ko
+        env:
+          EXPECTED_REACT_MAJOR: ${{ matrix.react }}
+          EXPECTED_TYPES_MAJOR: ${{ matrix.types }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { createRequire } from 'node:module'
+
+          const require = createRequire(import.meta.url)
+          const expected = {
+            react: process.env.EXPECTED_REACT_MAJOR,
+            'react-dom': process.env.EXPECTED_REACT_MAJOR,
+            '@types/react': process.env.EXPECTED_TYPES_MAJOR,
+            '@types/react-dom': process.env.EXPECTED_TYPES_MAJOR,
+          }
+
+          for (const [name, expectedMajor] of Object.entries(expected)) {
+            const version = require(`${name}/package.json`).version
+            const actualMajor = version.split('.')[0]
+            if (actualMajor !== expectedMajor) {
+              throw new Error(`${name} resolved to ${version}; expected major ${expectedMajor}`)
+            }
+            console.log(`${name}@${version}`)
+          }
+          NODE
+          npm ls --depth=0 knockout
       - run: npm test
       - run: npm run build
 

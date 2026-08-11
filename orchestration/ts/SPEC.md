@@ -19,14 +19,13 @@ from or equivalent to `orchestration/tests/*.sh`.
   it protected — values read from status files compare clean — still holds and is tested).
 - The command surface is the `scripts` block of `orchestration/ts/package.json` —
   `orchestrate.sh` is not kept (decided 2026-08-08; supersedes the frozen-wrapper plan).
-  Each current command maps to a script of the same name (`npm run -C orchestration/ts
-  loop`, `... delegate -- "<description>"`, `... loop-status`, `queue`, `stop`, `start`,
-  `status`, `logs`, `merge`, `cleanup`, `prune`, `new`, `enqueue`), all dispatching into
-  `src/cli.ts`. The skills (`loop-start`, `loop-stop`, `loop-delegate`) are updated to
-  the npm form as part of the cutover. What stays frozen: the environment variable
-  names (they pass through npm unchanged, so launch commands keep their shape) and the
-  output lines the skills and tests key on (`Enqueued:`, `Created:`, `CYCLE_COMPLETE:`,
-  `LOOP_DONE:`, `FAILED:`, `[loop]` prefixes).
+  Each operational command dispatches into `src/cli.ts`; `test` runs vitest and
+  `typecheck` runs TypeScript directly. The skills (`loop-start`, `loop-stop`,
+  `loop-delegate`) are updated to the npm form as part of the cutover. What stays
+  frozen: the environment variable names (they pass through npm unchanged, so launch
+  commands keep their shape) and the output lines the skills and tests key on
+  (`Enqueued:`, `Created:`, `CYCLE_COMPLETE:`, `LOOP_DONE:`, `FAILED:`, `[loop]`
+  prefixes).
 
 ## Task lifecycle
 
@@ -143,7 +142,9 @@ from or equivalent to `orchestration/tests/*.sh`.
 25. The stop file (`queue/stop`) is checked at the top of every poll; stopping does not
     kill running runner processes — they finish in their worktrees with nobody left to
     merge them, and `loop-status` says so.
-26. The daemon holds the code it started with; the wrapper prints where the log lives
+26. The daemon holds the core modules it started with, so edits there require a restart.
+    The project adapter is the exception: it is reloaded before each scan so changes to
+    its scan-worktree setup apply to the next scan. The wrapper prints where the log lives
     and how to stop.
 27. `prune --days N` deletes logs/status/generated specs/queue markers of tasks finished
     more than N days ago; it never touches an unmerged or failed task, a worktree still
@@ -162,9 +163,7 @@ from or equivalent to `orchestration/tests/*.sh`.
 29. All forge access goes through `adapters/forge.ts` (`FORGE=github` selects
     `forge-github.ts`; gitea/gitlab implementations can be added without touching the
     core). The interface returns normalized values only: PR state plus `name:conclusion`
-    check lines; draft-vs-ready is a forge-neutral flag. Planned issue-queue operations
-    (create/list-ready/claim/close, fingerprint dedup, files-touched metadata,
-    stale-lease reaping) belong to this interface but ship after the parity cutover.
+    check lines; draft-vs-ready is a forge-neutral flag.
 30. The runner is invoked only through `adapters/runner.ts` (`RUNNER=codex` selects
     `runner-codex.ts`). The runner contract is the output markers — `TASK_COMPLETE`,
     `NEXT_TASK:`, `DECISION_REQUIRED:` in the final-message file — plus effort/model
@@ -247,13 +246,3 @@ from or equivalent to `orchestration/tests/*.sh`.
     The shared-work label state machine is `loop:ready` → `loop:in-progress` →
     `loop:merge-ready` → closed or `loop:merge-failed`; inspections take the intentional
     `loop:in-progress` → closed shortcut.
-
-## Test parity
-
-Each bash test file maps to a vitest suite: `test-lib` → id/slug/status helpers,
-`test-loop-gate` → gate state machine (cycle flags, CI outcomes, review rounds, final
-promotion, stop conditions), `test-loop-branch-state` → run-branch bookkeeping,
-`test-pr-body` → commit classification and section building, `test-task-delegate` /
-`test-task-enqueue` / `test-task-status` / `test-task-prune` / `test-checks` → their
-namesakes. The gate suite is the load-bearing one; port it first and keep its cases
-1:1 so the state machine is proven equivalent before anything else moves.
