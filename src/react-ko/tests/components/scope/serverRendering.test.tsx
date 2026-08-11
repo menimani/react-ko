@@ -159,6 +159,47 @@ describe.each(scopes)('%s server rendering', (_, createScope) => {
     }
   )
 
+  it('preserves and binds observable element children in a hydrated <template>', async () => {
+    const viewModel = { label: ko.observable('Hydrated') }
+    const tree = createScope(viewModel, childTree(), 'template')
+    const container = serverContainer(tree)
+    document.body.appendChild(container)
+    const serverHost = container.querySelector(
+      'template[style]'
+    ) as HTMLTemplateElement
+    const serverChild = serverHost.content.querySelector(
+      '[data-testid="server-child"]'
+    )
+    const recoverableErrors: unknown[] = []
+    let root: Root | undefined
+
+    try {
+      await act(async () => {
+        root = hydrateRoot(container, tree, {
+          onRecoverableError: (error) => recoverableErrors.push(error),
+        })
+      })
+
+      expect(container.querySelector('template[style]')).toBe(serverHost)
+      expect(serverHost.content.querySelector('[data-testid="server-child"]')).toBe(
+        serverChild
+      )
+      expect(
+        serverHost.content.querySelector('[data-testid="bound-input"]')
+      ).toHaveProperty('value', 'Hydrated')
+      expect(recoverableErrors).toEqual([])
+
+      act(() => viewModel.label('Observable update'))
+
+      expect(
+        serverHost.content.querySelector('[data-testid="bound-input"]')
+      ).toHaveProperty('value', 'Observable update')
+    } finally {
+      if (root !== undefined) act(() => root?.unmount())
+      container.remove()
+    }
+  })
+
   it('defers bindings inside a dehydrated Suspense boundary', async () => {
     const viewModel = { label: ko.observable('Knockout value') }
     let hydrating = false

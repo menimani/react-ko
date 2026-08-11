@@ -674,6 +674,27 @@ function deferredElements(bindings: readonly DeferredSuspenseBinding[]) {
 function rejectDescendantControllingCustomHandlers(root: HTMLElement) {
   const getBindingHandler = ko.getBindingHandler
 
+  function virtualRangeSnapshot(start: Comment) {
+    const parent = start.parentNode
+    if (parent?.nodeType !== Node.ELEMENT_NODE) return undefined
+
+    const rangeChildren = ko.virtualElements.childNodes(start)
+    if (
+      rangeChildren.length === 0 ||
+      !hasReactOwnedChildren(parent as Element)
+    ) {
+      return undefined
+    }
+
+    // The custom init can remove the closing marker as well as its children.
+    // Preserve the parent's exact node list so the whole virtual range can be
+    // restored by identity before the rejected binding is cleaned.
+    return {
+      parent,
+      children: [...parent.childNodes],
+    }
+  }
+
   ko.getBindingHandler = (name) => {
     const handler = getBindingHandler(name)
     const init = handler?.init
@@ -691,11 +712,18 @@ function rejectDescendantControllingCustomHandlers(root: HTMLElement) {
       if (element !== root && !root.contains(element)) {
         return init(...args)
       }
+      const virtualSnapshot =
+        element.nodeType === Node.COMMENT_NODE
+          ? virtualRangeSnapshot(element as Comment)
+          : undefined
       const controlsReactOwnedChildren =
-        element.nodeType === 1 && hasReactOwnedChildren(element as Element)
-      const originalChildren = controlsReactOwnedChildren
-        ? [...element.childNodes]
-        : []
+        virtualSnapshot !== undefined ||
+        (element.nodeType === Node.ELEMENT_NODE &&
+          hasReactOwnedChildren(element as Element))
+      const originalChildren =
+        element.nodeType === Node.ELEMENT_NODE && controlsReactOwnedChildren
+          ? [...element.childNodes]
+          : []
       const result = init(...args)
       if (result?.controlsDescendantBindings) {
         if (element.nodeType === 1) {
@@ -708,9 +736,14 @@ function rejectDescendantControllingCustomHandlers(root: HTMLElement) {
         // Restore the direct React nodes if the rejected init moved or removed
         // them before reporting that it controls descendants.
         const childrenChanged =
-          element.childNodes.length !== originalChildren.length ||
-          originalChildren.some((child, index) => element.childNodes[index] !== child)
-        if (childrenChanged) {
+          element.nodeType === Node.ELEMENT_NODE &&
+          (element.childNodes.length !== originalChildren.length ||
+            originalChildren.some(
+              (child, index) => element.childNodes[index] !== child
+            ))
+        if (virtualSnapshot !== undefined) {
+          virtualSnapshot.parent.replaceChildren(...virtualSnapshot.children)
+        } else if (childrenChanged) {
           element.replaceChildren(...originalChildren)
         }
         throw new Error(
