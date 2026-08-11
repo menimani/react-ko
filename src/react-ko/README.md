@@ -96,15 +96,17 @@ The host elements remain structural: they receive only the binding boundary or
 binding-root ref and `display: contents`, not styling or ARIA props. Because both
 hosts always contain children, `boundaryAs` and `as` accept non-void HTML elements.
 Additional non-void names added through `HTMLElementTagNameMap` declaration merging
-are supported at both the type and runtime boundaries and do not need a hyphen.
-Known void tags such as `input`, `img`, and `br`, legacy childless tags such as
-`frame`, `basefont`, `bgsound`, `keygen`, and `menuitem`, parser-special tags
-`frameset`, `iframe`, `noembed`, `noframes`, `noscript`, `plaintext`, `script`,
-`style`, `template`, `textarea`, `title`, and `xmp`, and foreign-content roots
-such as `svg` are rejected at runtime. These names remain accepted by the
-`SemanticHost` type to preserve its v2 public contract, but using them throws during
-rendering so server markup cannot lose or reinterpret scope children before
-hydration.
+are supported at both the type and runtime boundaries and do not need a hyphen,
+unless the name is one of the unsafe cases below. The `SemanticHost` type rejects
+known void tags such as `input`, `img`, and `br`, and foreign-content roots such as
+`svg`; the runtime check also rejects them if JavaScript or a type assertion bypasses
+that boundary. Parser-special tags `frameset`, `iframe`, `noembed`, `noframes`,
+`noscript`, `plaintext`, `script`, `style`, `template`, `textarea`, `title`, and
+`xmp` remain type-accepted to preserve the v2 public contract, as do legacy
+childless names such as `frame`, `basefont`, `bgsound`, `keygen`, and `menuitem`
+when declaration merging adds them to `HTMLElementTagNameMap`. Using any of these
+type-accepted unsafe names throws during rendering so server markup cannot lose or
+reinterpret scope children before hydration.
 
 Replacing a `RootKnockoutProvider` or `KnockoutScope` `viewModel` reapplies its
 Knockout bindings. Both components dispose their bindings when replaced or

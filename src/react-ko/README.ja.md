@@ -95,13 +95,15 @@ const viewModel = {
 `display: contents` 以外のスタイルや ARIA prop は受け取りません。どちらのホストも
 常に子要素を持つため、`boundaryAs` と `as` に指定できるのは非 void HTML 要素だけです。
 `HTMLElementTagNameMap` の宣言マージで追加した非 void HTML 名にも対応し、その名前に
-ハイフンは不要です。型境界とランタイム境界の両方で利用できます。一方、`input`、`img`、
-`br` などの既知の void 要素、`frame`、`basefont`、`bgsound`、`keygen`、`menuitem` などの
-子要素を持てない旧式の要素、パーサーが特別に扱う `frameset`、`iframe`、`noembed`、
-`noframes`、`noscript`、`plaintext`、`script`、`style`、`template`、`textarea`、`title`、
-`xmp`、および `svg` などの外来コンテンツのルートはランタイムで拒否されます。
-v2 の公開契約を維持するため、これらの名前は `SemanticHost` 型では引き続き許可されますが、
-使用するとレンダー中に例外が発生します。これにより、hydration の前に
+ハイフンは不要です。以下の安全でない名前を除き、型境界とランタイム境界の両方で
+利用できます。`SemanticHost` 型は、`input`、`img`、`br` などの既知の void 要素と、
+`svg` などの外来コンテンツのルートを拒否します。JavaScript や型アサーションでこの型境界を
+回避した場合も、ランタイムチェックが拒否します。一方、パーサーが特別に扱う `frameset`、
+`iframe`、`noembed`、`noframes`、`noscript`、`plaintext`、`script`、`style`、
+`template`、`textarea`、`title`、`xmp` は、v2 の公開契約を維持するため型では引き続き
+許可されます。`frame`、`basefont`、`bgsound`、`keygen`、`menuitem` などの子要素を
+持てない旧式の名前も、宣言マージで `HTMLElementTagNameMap` に追加された場合は型で許可されます。
+これら型で許可される安全でない名前を使用するとレンダー中に例外が発生し、hydration の前に
 サーバーマークアップがスコープの子要素を失ったりテキストとして解釈したりすることを防ぎます。
 
 `RootKnockoutProvider` または `KnockoutScope` の `viewModel` を置き換えると、
