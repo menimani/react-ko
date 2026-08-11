@@ -753,6 +753,75 @@ function changedBindingElements(
   return changedElements
 }
 
+function selectBindingDependsOnOptions(state: BindingState | undefined) {
+  if (state === undefined) return false
+  const names = bindingNames(state.source)
+  return (
+    names.has('selectedOptions') ||
+    (names.has('value') && names.has('valueAllowUnset'))
+  )
+}
+
+function changedOptionSelects(
+  records: MutationRecord[],
+  root: HTMLElement,
+  bindingStates: BindingStateStore
+) {
+  const changed = new Set<HTMLElement>()
+
+  const addOwningSelect = (element: Element) => {
+    const select = element.closest('select') as HTMLElement | null
+    if (
+      select !== null &&
+      belongsToBindingRoot(select, root) &&
+      selectBindingDependsOnOptions(bindingStates.get(select))
+    ) {
+      changed.add(select)
+    }
+  }
+
+  for (const record of records) {
+    if (record.type !== 'childList' || record.target.nodeType !== Node.ELEMENT_NODE) {
+      continue
+    }
+
+    const parent = record.target as Element
+    for (const node of record.addedNodes) {
+      if (
+        node.nodeType !== Node.ELEMENT_NODE ||
+        !hasReactOwnership(node, parent)
+      ) {
+        continue
+      }
+
+      const element = node as Element
+      if (element.tagName === 'OPTION' || element.querySelector('option') !== null) {
+        addOwningSelect(element)
+      }
+    }
+  }
+
+  // React normally reflects an option value prop through the value attribute,
+  // but the property interceptor can also schedule a record-free pass. Compare
+  // host props so both paths reapply the binding without reacting to Knockout's
+  // own DOM writes.
+  for (const select of root.querySelectorAll('select')) {
+    if (!selectBindingDependsOnOptions(bindingStates.get(select))) continue
+    for (const option of select.querySelectorAll('option')) {
+      const state = bindingStates.get(option)
+      if (
+        state !== undefined &&
+        reactPropChanged(state.reactProps, snapshotReactProps(option), 'value')
+      ) {
+        changed.add(select)
+        break
+      }
+    }
+  }
+
+  return changed
+}
+
 function recordOwnedAttributeChanges(
   records: MutationRecord[],
   bindingStates: BindingStateStore
@@ -1547,6 +1616,9 @@ export function observeBindingDescendants(
     cleanRemovedNodes(records, root)
     const addedRoots = addedBindingRoots(records, root, bindingStates)
     const changedElements = changedBindingElements(records, root, addedRoots)
+    for (const select of changedOptionSelects(records, root, bindingStates)) {
+      changedElements.add(select)
+    }
     recordOwnedAttributeChanges(records, bindingStates)
     for (const element of refreshReactOwnedDom(
       records,

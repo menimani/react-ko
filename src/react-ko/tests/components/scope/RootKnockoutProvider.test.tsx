@@ -1959,6 +1959,67 @@ describe('RootKnockoutProvider', () => {
     expect([...select.selectedOptions].map(({ value }) => value)).toEqual(['react-next'])
   })
 
+  it('reapplies selectedOptions when React inserts a late matching option', async () => {
+    const vm = { choices: ko.observableArray(['late']) }
+
+    function LateOptionSelect() {
+      const [showLateOption, setShowLateOption] = useState(false)
+      return (
+        <>
+          <button onClick={() => setShowLateOption(true)}>show late option</button>
+          <select multiple data-testid="late-selected-options" data-bind="selectedOptions: choices">
+            <option value="early">Early</option>
+            {showLateOption ? <option value="late">Late</option> : null}
+          </select>
+        </>
+      )
+    }
+
+    render(
+      <RootKnockoutProvider viewModel={vm}>
+        <LateOptionSelect />
+      </RootKnockoutProvider>
+    )
+    const select = screen.getByTestId('late-selected-options') as HTMLSelectElement
+
+    expect([...select.selectedOptions]).toEqual([])
+    fireEvent.click(screen.getByText('show late option'))
+
+    await waitFor(() => {
+      expect([...select.selectedOptions].map(({ value }) => value)).toEqual(['late'])
+    })
+    expect(vm.choices()).toEqual(['late'])
+  })
+
+  it('reapplies valueAllowUnset when a React option changes to the matching value', async () => {
+    const vm = { choice: ko.observable('late') }
+
+    function ChangingOptionSelect() {
+      const [matches, setMatches] = useState(false)
+      return (
+        <>
+          <button onClick={() => setMatches(true)}>match option value</button>
+          <select data-testid="late-value-option" data-bind="value: choice, valueAllowUnset: true">
+            <option value={matches ? 'late' : 'early'}>Choice</option>
+          </select>
+        </>
+      )
+    }
+
+    render(
+      <RootKnockoutProvider viewModel={vm}>
+        <ChangingOptionSelect />
+      </RootKnockoutProvider>
+    )
+    const select = screen.getByTestId('late-value-option') as HTMLSelectElement
+
+    expect(select.value).toBe('')
+    fireEvent.click(screen.getByText('match option value'))
+
+    await waitFor(() => expect(select.value).toBe('late'))
+    expect(vm.choice()).toBe('late')
+  })
+
   it.each([
     ['value', 'value', 'Knockout value', 'React initial', 'React latest'],
     ['checked', 'checked', false, false, true],

@@ -135,6 +135,9 @@ there too.
 React prop updates and active Knockout bindings can also share an element: React's
 latest classes, inline styles, attributes, and form-property defaults are retained,
 while the active Knockout binding continues to own the DOM effects it declares.
+When React later inserts an `option` or changes its `value`, `selectedOptions` and
+`value` with `valueAllowUnset` are reapplied so a late matching option is synchronized
+without another observable notification.
 When an `attr` binding is removed, React attribute props are restored with React DOM
 serialization, including aliased props such as `acceptCharset`/`httpEquiv`, absent false
 boolean props such as `inert` and media disabling props, and empty presence values for
