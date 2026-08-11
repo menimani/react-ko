@@ -12,6 +12,7 @@
   "files": [
     "../../dist/index.d.ts",
     "app-view-model-context.ts",
+    "ko-foreach.ts",
     "semantic-host.ts"
   ]
 }
