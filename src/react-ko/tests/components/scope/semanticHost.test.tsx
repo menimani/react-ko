@@ -15,6 +15,7 @@ import { semanticHostComponent } from '@/components/scope/semanticHost'
 declare global {
   interface HTMLElementTagNameMap {
     'custom-host': HTMLElement
+    customhost: HTMLElement
   }
 }
 
@@ -75,22 +76,26 @@ describe('semantic hosts', () => {
     expect(container.querySelector('button div')).toBeNull()
   })
 
-  it('renders declaration-merged custom elements as semantic hosts', () => {
-    const vm = { label: ko.observable('Custom host') }
-    const { container } = render(
-      <RootKnockoutProvider
-        viewModel={vm}
-        boundaryAs="custom-host"
-        as="custom-host"
-      >
-        <span data-bind="text: label" />
-      </RootKnockoutProvider>
-    )
+  it.each(['custom-host', 'customhost'] as const)(
+    'renders the declaration-merged <%s> element as a semantic host',
+    (host) => {
+      const vm = { label: ko.observable('Custom host') }
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+      try {
+        const { container } = render(
+          <RootKnockoutProvider viewModel={vm} boundaryAs={host} as={host}>
+            <span data-bind="text: label" />
+          </RootKnockoutProvider>
+        )
 
-    expect(container.querySelector('custom-host > custom-host')?.textContent).toBe(
-      'Custom host'
-    )
-  })
+        expect(container.querySelector(`${host} > ${host}`)?.textContent).toBe(
+          'Custom host'
+        )
+      } finally {
+        consoleError.mockRestore()
+      }
+    }
+  )
 
   it.each(['marquee', 'dir', 'font', 'frameset'])(
     'accepts the mapped non-void <%s> host at runtime',
@@ -171,8 +176,6 @@ describe('semantic hosts', () => {
   it.each([
     ['as', 'svg'],
     ['boundaryAs', 'svg'],
-    ['as', 'customhost'],
-    ['boundaryAs', 'customhost'],
   ] as const)(
     'rejects the JavaScript %s value <%s> when it is not a non-void HTML or custom-element tag',
     (hostProp, host) => {

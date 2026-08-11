@@ -854,7 +854,8 @@ function selectBindingDependsOnOptions(state: BindingState | undefined) {
 function changedOptionSelects(
   records: MutationRecord[],
   root: HTMLElement,
-  bindingStates: BindingStateStore
+  bindingStates: BindingStateStore,
+  reactCommitInProgress: boolean
 ) {
   const changed = new Set<HTMLElement>()
 
@@ -869,10 +870,29 @@ function changedOptionSelects(
     }
   }
 
-  const addTextChangedOptionSelect = (node: Node, parent: Element) => {
-    if (node.nodeType !== Node.TEXT_NODE || !hasReactOwnership(node, parent)) {
+  const addTextChangedOptionSelect = (
+    node: Node,
+    parent: Element,
+    removed = false
+  ) => {
+    if (node.nodeType !== Node.TEXT_NODE) {
       return
     }
+
+    const state = bindingStates.get(parent as HTMLElement)
+    const previousContent =
+      state === undefined ? null : directReactContent(state.reactProps)
+    const removedReactText =
+      removed &&
+      state !== undefined &&
+      previousContent?.kind === 'text' &&
+      previousContent.value === node.nodeValue &&
+      hasDirectReactContentTransition(
+        parent as HTMLElement,
+        state.reactProps,
+        reactCommitInProgress
+      )
+    if (!hasReactOwnership(node, parent) && !removedReactText) return
 
     const option = parent.closest('option')
     if (option !== null && !option.hasAttribute('value')) {
@@ -896,8 +916,11 @@ function changedOptionSelects(
     }
 
     const parent = record.target as Element
-    for (const node of [...record.addedNodes, ...record.removedNodes]) {
+    for (const node of record.addedNodes) {
       addTextChangedOptionSelect(node, parent)
+    }
+    for (const node of record.removedNodes) {
+      addTextChangedOptionSelect(node, parent, true)
     }
 
     for (const node of record.addedNodes) {
@@ -1161,6 +1184,7 @@ const REACT_PROP_ATTRIBUTE_ALIASES = new Map([
   ['overlinePosition', 'overline-position'],
   ['overlineThickness', 'overline-thickness'],
   ['paintOrder', 'paint-order'],
+  ['panose1', 'panose-1'],
   ['pointerEvents', 'pointer-events'],
   ['renderingIntent', 'rendering-intent'],
   ['shapeRendering', 'shape-rendering'],
@@ -1739,7 +1763,12 @@ export function observeBindingDescendants(
     cleanRemovedNodes(records, root)
     const addedRoots = addedBindingRoots(records, root, bindingStates)
     const changedElements = changedBindingElements(records, root, addedRoots)
-    for (const select of changedOptionSelects(records, root, bindingStates)) {
+    for (const select of changedOptionSelects(
+      records,
+      root,
+      bindingStates,
+      reactCommitInProgress
+    )) {
       changedElements.add(select)
     }
     recordOwnedAttributeChanges(records, bindingStates)
