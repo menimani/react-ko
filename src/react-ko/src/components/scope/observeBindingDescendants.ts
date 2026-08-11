@@ -1432,7 +1432,11 @@ function updateAttributeBaselineFromReactProp(
   propName: string,
   value: unknown
 ) {
-  const baseline = reactAttributeValue(propName, value)
+  const serializationName =
+    propName === 'defaultChecked' || propName === 'defaultValue'
+      ? attributeName
+      : propName
+  const baseline = reactAttributeValue(serializationName, value)
   if (baseline === null) state.beforeBinding.attributes.delete(attributeName)
   else state.beforeBinding.attributes.set(attributeName, baseline)
 }
@@ -1674,7 +1678,11 @@ function refreshOwnedContent(
               (child) => !owned.has(child) && hasReactOwnership(child, element)
             )))
       if (contested) {
-        assertNoReactUnsafeBindings(element, directReactContentTransition)
+        assertNoReactUnsafeBindings(
+          element,
+          directReactContentTransition,
+          false
+        )
       }
 
       // A single DOM operation can enqueue several records for one element.
@@ -1919,7 +1927,11 @@ function bindAddedNodes(
       belongsToBindingRoot(record.target, root) &&
       hasReactOwnership(record.target, record.target.parentNode as Element)
     ) {
-      assertNoReactUnsafeBindings(record.target.parentNode as HTMLElement)
+      assertNoReactUnsafeBindings(
+        record.target.parentNode as HTMLElement,
+        false,
+        false
+      )
     }
 
     for (const node of record.addedNodes) {
@@ -1935,7 +1947,7 @@ function bindAddedNodes(
       // Binding the highest added element covers its subtree and respects any
       // descendant scope boundary encountered during that pass.
       if (record.target.nodeType === Node.ELEMENT_NODE) {
-        assertNoReactUnsafeBindings(record.target as HTMLElement)
+        assertNoReactUnsafeBindings(record.target as HTMLElement, false, false)
       }
       if (node.nodeType === Node.TEXT_NODE) {
         continue

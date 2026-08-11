@@ -144,6 +144,37 @@ describe('RootKnockoutProvider', () => {
     expect(screen.getByText('Still bound')).toBeDefined()
   })
 
+  it('preprocesses a custom alias once when its element mounts later', async () => {
+    const binding = 'lateVisibleAlias'
+    const shown = ko.observable(false)
+    const preprocess = vi.fn((expression, _name, addBinding) => {
+      addBinding('visible', expression)
+    })
+    ko.bindingHandlers[binding] = { preprocess }
+
+    function Harness({ show }: { show: boolean }) {
+      return (
+        <RootKnockoutProvider viewModel={{ shown }}>
+          {show ? (
+            <span data-testid="late-preprocessed" data-bind={`${binding}: shown`} />
+          ) : null}
+        </RootKnockoutProvider>
+      )
+    }
+
+    try {
+      const { rerender } = render(<Harness show={false} />)
+      rerender(<Harness show />)
+
+      await waitFor(() => {
+        expect(preprocess).toHaveBeenCalledOnce()
+        expect(screen.getByTestId('late-preprocessed').style.display).toBe('none')
+      })
+    } finally {
+      delete ko.bindingHandlers[binding]
+    }
+  })
+
   it('binds a descendant inserted by local state before its layout effects run', () => {
     const vm = { name: ko.observable('Initial') }
     let showInput = () => undefined
@@ -1903,6 +1934,42 @@ describe('RootKnockoutProvider', () => {
 
     fireEvent.click(screen.getByText('advance default checked'))
     expect(input.hasAttribute('checked')).toBe(true)
+  })
+
+  it('removes checked when an attr binding retires after defaultChecked becomes false', async () => {
+    function LocallyUpdatedInput() {
+      const [phase, setPhase] = useState(0)
+      return (
+        <>
+          <button onClick={() => setPhase((current) => current + 1)}>
+            retire checked default
+          </button>
+          <input
+            type="checkbox"
+            data-testid="retired-default-checked-owner"
+            defaultChecked={phase === 0}
+            data-bind={phase < 2 ? 'attr: { checked: true }' : undefined}
+          />
+        </>
+      )
+    }
+
+    render(
+      <RootKnockoutProvider viewModel={{}}>
+        <LocallyUpdatedInput />
+      </RootKnockoutProvider>
+    )
+    const input = screen.getByTestId(
+      'retired-default-checked-owner'
+    ) as HTMLInputElement
+    expect(input.hasAttribute('checked')).toBe(true)
+
+    fireEvent.click(screen.getByText('retire checked default'))
+    await waitFor(() => expect(input.hasAttribute('checked')).toBe(true))
+
+    fireEvent.click(screen.getByText('retire checked default'))
+    expect(input.hasAttribute('checked')).toBe(false)
+    expect(input.defaultChecked).toBe(false)
   })
 
   it('keeps a value binding after defaultValue updates and restores the latest default', async () => {
