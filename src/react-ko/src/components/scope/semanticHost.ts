@@ -52,6 +52,16 @@ export type SemanticHost =
 
 const FOREIGN_CONTENT_HOSTS: ReadonlySet<string> = new Set(['math', 'svg'])
 
+// These obsolete elements remain in HTMLElementTagNameMap, but cannot safely
+// contain a scope subtree in React or parsed server markup.
+const LEGACY_CHILDLESS_HOSTS: ReadonlySet<string> = new Set([
+  'frame',
+  'basefont',
+  'bgsound',
+  'keygen',
+  'menuitem',
+])
+
 export type SemanticHostProps = {
   /** Element that prevents an enclosing Knockout root from binding this scope. */
   boundaryAs?: SemanticHost
@@ -70,6 +80,12 @@ export function semanticHostComponent(host: SemanticHost) {
   if (VOID_SEMANTIC_HOSTS.has(host as VoidSemanticHost)) {
     throw new Error(
       `react-ko cannot use the void HTML element <${host}> as a semantic host because scope hosts always contain children.`
+    )
+  }
+
+  if (LEGACY_CHILDLESS_HOSTS.has(host)) {
+    throw new Error(
+      `react-ko cannot use the legacy childless HTML element <${String(host)}> as a semantic host because scope hosts always contain children.`
     )
   }
 

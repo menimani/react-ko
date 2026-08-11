@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { render } from '@testing-library/react'
 import { createElement, type ComponentType, useLayoutEffect, useRef } from 'react'
+import { renderToString } from 'react-dom/server'
 import ko from 'knockout'
 import {
   KnockoutScope,
@@ -10,7 +11,6 @@ import {
   KoWith,
   RootKnockoutProvider,
 } from '@/index'
-import { semanticHostComponent } from '@/components/scope/semanticHost'
 
 declare global {
   interface HTMLElementTagNameMap {
@@ -23,6 +23,22 @@ describe('semantic hosts', () => {
   function renderWithJavaScriptHost(hostProp: 'as' | 'boundaryAs', host: string) {
     const Provider = RootKnockoutProvider as unknown as ComponentType<Record<string, unknown>>
     return render(
+      createElement(Provider, {
+        viewModel: {},
+        children: createElement('span'),
+        [hostProp]: host,
+      })
+    )
+  }
+
+  function serverRenderWithJavaScriptHost(
+    hostProp: 'as' | 'boundaryAs',
+    host: string
+  ) {
+    const Provider = RootKnockoutProvider as unknown as ComponentType<
+      Record<string, unknown>
+    >
+    return renderToString(
       createElement(Provider, {
         viewModel: {},
         children: createElement('span'),
@@ -102,15 +118,47 @@ describe('semantic hosts', () => {
     'dir',
     'font',
     'frameset',
+  ])(
+    'renders the compatible mapped <%s> host through the public provider',
+    (host) => {
+      const consoleError = vi
+        .spyOn(console, 'error')
+        .mockImplementation(() => undefined)
+      try {
+        const { container } = renderWithJavaScriptHost('as', host)
+
+        expect(container.querySelector(host)).not.toBeNull()
+        expect(serverRenderWithJavaScriptHost('as', host)).toContain(`<${host}`)
+      } finally {
+        consoleError.mockRestore()
+      }
+    }
+  )
+
+  it.each([
     'frame',
     'basefont',
     'bgsound',
     'keygen',
     'menuitem',
   ])(
-    'accepts the compatible mapped <%s> host at runtime',
+    'rejects the legacy childless <%s> host for both public provider props in client and server rendering',
     (host) => {
-      expect(() => semanticHostComponent(host as never)).not.toThrow()
+      const consoleError = vi
+        .spyOn(console, 'error')
+        .mockImplementation(() => undefined)
+      try {
+        for (const hostProp of ['as', 'boundaryAs'] as const) {
+          expect(() => renderWithJavaScriptHost(hostProp, host)).toThrow(
+            `cannot use the legacy childless HTML element <${host}>`
+          )
+          expect(() => serverRenderWithJavaScriptHost(hostProp, host)).toThrow(
+            `cannot use the legacy childless HTML element <${host}>`
+          )
+        }
+      } finally {
+        consoleError.mockRestore()
+      }
     }
   )
 
