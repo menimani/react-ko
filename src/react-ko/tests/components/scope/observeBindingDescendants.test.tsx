@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, act, waitFor } from '@testing-library/react'
+import { render, screen, act, fireEvent, waitFor } from '@testing-library/react'
 import { Component, type ReactNode, useLayoutEffect, useRef, useState } from 'react'
 import ko from 'knockout'
 import { RootKnockoutProvider, KnockoutScope } from '@/index'
@@ -141,6 +141,65 @@ function LocalPanoseSvgAttributeBinding({ vm }: { vm: unknown }) {
 }
 
 describe('observeBindingDescendants', () => {
+  it('retires a click binding with its handlerless Bubble option when data-bind is removed', () => {
+    const handle = vi.fn()
+
+    function Harness({ bound }: { bound: boolean }) {
+      return (
+        <ErrorBoundary>
+          <RootKnockoutProvider viewModel={{ handle }}>
+            <button
+              data-testid="click-owner"
+              data-bind={bound ? 'click: handle, clickBubble: false' : undefined}
+            />
+          </RootKnockoutProvider>
+        </ErrorBoundary>
+      )
+    }
+
+    const { rerender } = render(<Harness bound />)
+    const owner = screen.getByTestId('click-owner')
+    fireEvent.click(owner)
+    expect(handle).toHaveBeenCalledOnce()
+
+    rerender(<Harness bound={false} />)
+    expect(screen.queryByText('Binding failed')).toBeNull()
+    fireEvent.click(owner)
+    expect(handle).toHaveBeenCalledOnce()
+  })
+
+  it('retires an event binding with its handlerless Bubble option when data-bind is replaced', () => {
+    const handle = vi.fn()
+
+    function Harness({ replaced }: { replaced: boolean }) {
+      return (
+        <ErrorBoundary>
+          <RootKnockoutProvider viewModel={{ handle, label: 'Replacement' }}>
+            <button
+              data-testid="event-owner"
+              data-bind={
+                replaced
+                  ? 'text: label'
+                  : 'event: { mouseover: handle }, mouseoverBubble: false'
+              }
+            />
+          </RootKnockoutProvider>
+        </ErrorBoundary>
+      )
+    }
+
+    const { rerender } = render(<Harness replaced={false} />)
+    const owner = screen.getByTestId('event-owner')
+    fireEvent.mouseOver(owner)
+    expect(handle).toHaveBeenCalledOnce()
+
+    rerender(<Harness replaced />)
+    expect(screen.queryByText('Binding failed')).toBeNull()
+    expect(owner.textContent).toBe('Replacement')
+    fireEvent.mouseOver(owner)
+    expect(handle).toHaveBeenCalledOnce()
+  })
+
   it('reapplies a class binding after a local React className update and retires it safely', async () => {
     render(<LocalClassBinding vm={{ activeClass: ko.observable('ko-active') }} />)
     const owner = screen.getByTestId('class-owner')

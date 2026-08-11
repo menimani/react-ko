@@ -1614,8 +1614,15 @@ function restoreStyle(element: HTMLElement, snapshot: DomSnapshot) {
 }
 
 function assertBindingsCanBeRetired(state: BindingState) {
-  const unsafe = [...bindingNames(state.source)].find(
-    (name) => !SAFELY_RETIRABLE_BINDINGS.has(name)
+  const names = bindingNames(state.source)
+  const unsafe = [...names].find(
+    (name) =>
+      !SAFELY_RETIRABLE_BINDINGS.has(name) &&
+      !(
+        name.endsWith('Bubble') &&
+        ko.bindingHandlers[name] === undefined &&
+        (names.has('event') || (name === 'clickBubble' && names.has('click')))
+      )
   )
   if (unsafe !== undefined) {
     throw new Error(
