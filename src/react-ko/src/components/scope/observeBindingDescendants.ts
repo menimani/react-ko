@@ -336,18 +336,18 @@ function reconcileChangedDataBind(element: Element, name: string) {
 function hasReactOwnership(node: Node, parent?: Element) {
   // React 18 and 19 tag host nodes before inserting them. Knockout-created
   // template nodes have no such tag and must remain on the asynchronous path.
-  // Direct text has no tag, so its host's committed or pending props decide.
-  if (node.nodeType === Node.TEXT_NODE && parent !== undefined) {
-    return hasReactOwnedChildren(parent)
-  }
-
+  // Fiber-backed text keeps its tag after removal; optimized direct text has
+  // no tag, so its host's committed or pending props decide.
   if (
-    node.nodeType === Node.ELEMENT_NODE &&
     Object.getOwnPropertyNames(node).some(
       (name) => name.startsWith('__reactFiber$') || name.startsWith('__reactProps$')
     )
   ) {
     return true
+  }
+
+  if (node.nodeType === Node.TEXT_NODE && parent !== undefined) {
+    return hasReactOwnedChildren(parent)
   }
 
   return [...node.childNodes].some((child) => hasReactOwnership(child))

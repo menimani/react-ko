@@ -2266,6 +2266,75 @@ describe('RootKnockoutProvider', () => {
     expect(vm.choice()).toBe('')
   })
 
+  it('reapplies selectedOptions when React removes an array-rendered option label', async () => {
+    const vm = { choices: ko.observableArray(['early']) }
+
+    function RemovedArrayOptionTextSelect() {
+      const [empty, setEmpty] = useState(false)
+      return (
+        <>
+          <button onClick={() => setEmpty(true)}>remove multiple array label</button>
+          <select
+            multiple
+            data-testid="removed-array-selected-options"
+            data-bind="selectedOptions: choices"
+          >
+            <option>{empty ? [] : ['early']}</option>
+          </select>
+        </>
+      )
+    }
+
+    render(
+      <RootKnockoutProvider viewModel={vm}>
+        <RemovedArrayOptionTextSelect />
+      </RootKnockoutProvider>
+    )
+    const select = screen.getByTestId(
+      'removed-array-selected-options'
+    ) as HTMLSelectElement
+
+    expect([...select.selectedOptions].map(({ value }) => value)).toEqual(['early'])
+    fireEvent.click(screen.getByText('remove multiple array label'))
+
+    await waitFor(() => expect([...select.selectedOptions]).toEqual([]))
+    expect(vm.choices()).toEqual(['early'])
+  })
+
+  it('reapplies valueAllowUnset when React removes an array-rendered option label', async () => {
+    const vm = { choice: ko.observable('early') }
+
+    function RemovedArrayOptionTextSelect() {
+      const [empty, setEmpty] = useState(false)
+      return (
+        <>
+          <button onClick={() => setEmpty(true)}>remove value array label</button>
+          <select
+            data-testid="removed-array-value-option"
+            data-bind="value: choice, valueAllowUnset: true"
+          >
+            <option>{empty ? [] : ['early']}</option>
+          </select>
+        </>
+      )
+    }
+
+    render(
+      <RootKnockoutProvider viewModel={vm}>
+        <RemovedArrayOptionTextSelect />
+      </RootKnockoutProvider>
+    )
+    const select = screen.getByTestId(
+      'removed-array-value-option'
+    ) as HTMLSelectElement
+
+    expect(select.value).toBe('early')
+    fireEvent.click(screen.getByText('remove value array label'))
+
+    await waitFor(() => expect(select.selectedIndex).toBe(-1))
+    expect(vm.choice()).toBe('early')
+  })
+
   it.each([
     ['value', 'value', 'Knockout value', 'React initial', 'React latest'],
     ['checked', 'checked', false, false, true],
