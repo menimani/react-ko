@@ -9,23 +9,21 @@ import {
 import { descendantBindingContextFor } from './descendantBindingContexts'
 import { DESCENDANT_BINDING_BOUNDARY } from './descendantBindingBoundary'
 
-// Observers on enclosing roots also see mutations inside nested scopes. Keep
-// track of each binding root so only the nearest one handles a changed subtree.
-// The view model registry also lets an ancestor attribute rebind restore any
-// descendant roots that ko.cleanNode necessarily cleaned along with it.
-const bindingRoots = new Map<HTMLElement, unknown>()
-const bindingObservers = new Map<
-  HTMLElement,
-  {
-    observer: MutationObserver
-    reconcile: (records: MutationRecord[], reactCommitInProgress?: boolean) => void
-    shouldDeferDataBindChange: (element: Element) => boolean
-    shouldDeferInsertion: (parent: Node) => boolean
-    shouldReconcileDirectTextWrite: (element: HTMLElement) => boolean
-    onError: (error: unknown) => void
-  }
->()
-const reconcilingRoots = new Set<HTMLElement>()
+type BindingObserverState = {
+  observer: MutationObserver
+  reconcile: (records: MutationRecord[], reactCommitInProgress?: boolean) => void
+  shouldDeferDataBindChange: (element: Element) => boolean
+  shouldDeferInsertion: (parent: Node) => boolean
+  shouldReconcileDirectTextWrite: (element: HTMLElement) => boolean
+  onError: (error: unknown) => void
+}
+
+type BindingRootRegistry = {
+  bindingRoots: Map<HTMLElement, unknown>
+  bindingObservers: Map<HTMLElement, BindingObserverState>
+  reconcilingRoots: Set<HTMLElement>
+  scheduledPropertyRoots: Set<HTMLElement>
+}
 type AttributeInterceptor = {
   owners: Map<InterceptorOwner, number>
   setAttribute: typeof Element.prototype.setAttribute
@@ -39,7 +37,6 @@ type AttributeInterceptor = {
     interceptedSet: (this: Element, value: unknown) => void
   }>
 }
-const scheduledPropertyRoots = new Set<HTMLElement>()
 type TrackedCheckedInterceptor = {
   descriptor: PropertyDescriptor
   interceptedSet: (value: unknown) => void
@@ -77,6 +74,7 @@ type PrototypeInterceptorRegistry = {
   attribute?: AttributeInterceptor
   childList?: ChildListInterceptor
   directText?: DirectTextInterceptor
+  bindingRoots?: BindingRootRegistry
 }
 const INTERCEPTOR_REGISTRY = Symbol.for(
   'react-ko.observeBindingDescendants.prototypeInterceptors'
@@ -87,6 +85,28 @@ function interceptorRegistry(view: Window & typeof globalThis) {
     [key: symbol]: PrototypeInterceptorRegistry | undefined
   }
   return (registries[INTERCEPTOR_REGISTRY] ??= {})
+}
+
+const detachedBindingRoots = createBindingRootRegistry()
+
+function createBindingRootRegistry(): BindingRootRegistry {
+  return {
+    bindingRoots: new Map(),
+    bindingObservers: new Map(),
+    reconcilingRoots: new Set(),
+    scheduledPropertyRoots: new Set(),
+  }
+}
+
+// Observers on enclosing roots also see mutations inside nested scopes. Keep
+// ownership on the DOM window so independently loaded copies still dispatch a
+// changed subtree to the globally nearest root. The view model registry also
+// lets an ancestor rebind restore descendant roots cleaned along with it.
+function bindingRootRegistry(node: Node) {
+  const view = node.ownerDocument.defaultView
+  if (view === null) return detachedBindingRoots
+  const registry = interceptorRegistry(view)
+  return (registry.bindingRoots ??= createBindingRootRegistry())
 }
 const CONTENT_BINDINGS = new Set(['text', 'html', 'component', 'options'])
 const SAFELY_RETIRABLE_BINDINGS = new Set([
@@ -274,7 +294,10 @@ function prepareBindingTree(
   root: HTMLElement,
   bindingStates: BindingStateStore
 ) {
-  if (element !== root && bindingRoots.has(element)) {
+  if (
+    element !== root &&
+    bindingRootRegistry(root).bindingRoots.has(element)
+  ) {
     return
   }
 
@@ -314,7 +337,7 @@ function belongsToBindingRoot(node: Node, root: Node) {
 
   let ancestor = node.parentNode
   while (ancestor !== null && ancestor !== root) {
-    if (bindingRoots.has(ancestor as HTMLElement)) {
+    if (bindingRootRegistry(root).bindingRoots.has(ancestor as HTMLElement)) {
       return false
     }
     ancestor = ancestor.parentNode
@@ -326,7 +349,7 @@ function belongsToBindingRoot(node: Node, root: Node) {
 function nearestBindingRoot(element: Element) {
   let nearest: HTMLElement | undefined
 
-  for (const root of bindingObservers.keys()) {
+  for (const root of bindingRootRegistry(element).bindingObservers.keys()) {
     if (
       (root === element || root.contains(element)) &&
       (nearest === undefined || nearest.contains(root))
@@ -345,7 +368,11 @@ function reconcileChangedDataBind(element: Element, name: string) {
 
   const root = nearestBindingRoot(element)
   if (root !== undefined) {
-    if (bindingObservers.get(root)?.shouldDeferDataBindChange(element)) {
+    if (
+      bindingRootRegistry(root).bindingObservers
+        .get(root)
+        ?.shouldDeferDataBindChange(element)
+    ) {
       return
     }
     reconcileBindingDescendants(root)
@@ -381,12 +408,13 @@ function reconcileInsertedChildren(parent: Node, reactOwned: boolean) {
   if (!reactOwned && !hasReactOwnedChildren(element)) return
 
   const root = nearestBindingRoot(element)
-  const state = root === undefined ? undefined : bindingObservers.get(root)
+  const registry = bindingRootRegistry(element)
+  const state = root === undefined ? undefined : registry.bindingObservers.get(root)
   if (
     root !== undefined &&
     state !== undefined &&
     !state.shouldDeferInsertion(parent) &&
-    !reconcilingRoots.has(root)
+    !registry.reconcilingRoots.has(root)
   ) {
     reconcileBindingDescendants(root)
   }
@@ -400,12 +428,13 @@ function reconcileDirectTextWrite(node: Node) {
   if (element === null) return
 
   const root = nearestBindingRoot(element)
-  const state = root === undefined ? undefined : bindingObservers.get(root)
+  const registry = bindingRootRegistry(element)
+  const state = root === undefined ? undefined : registry.bindingObservers.get(root)
   if (
     root !== undefined &&
     state !== undefined &&
     state.shouldReconcileDirectTextWrite(element) &&
-    !reconcilingRoots.has(root)
+    !registry.reconcilingRoots.has(root)
   ) {
     reconcileBindingDescendants(root)
   }
@@ -467,20 +496,22 @@ function releaseAttributeInterceptor(view: Window & typeof globalThis) {
 
 function reconcileChangedProperty(element: Element) {
   const root = nearestBindingRoot(element)
-  if (root === undefined || scheduledPropertyRoots.has(root)) return
-  scheduledPropertyRoots.add(root)
+  if (root === undefined) return
+  const registry = bindingRootRegistry(root)
+  if (registry.scheduledPropertyRoots.has(root)) return
+  registry.scheduledPropertyRoots.add(root)
   queueMicrotask(() => {
-    scheduledPropertyRoots.delete(root)
-    const state = bindingObservers.get(root)
-    if (state === undefined || reconcilingRoots.has(root)) return
-    reconcilingRoots.add(root)
+    registry.scheduledPropertyRoots.delete(root)
+    const state = registry.bindingObservers.get(root)
+    if (state === undefined || registry.reconcilingRoots.has(root)) return
+    registry.reconcilingRoots.add(root)
     try {
       state.reconcile([])
     } catch (error) {
       state.observer.disconnect()
       state.onError(error)
     } finally {
-      reconcilingRoots.delete(root)
+      registry.reconcilingRoots.delete(root)
     }
   })
 }
@@ -520,7 +551,7 @@ function releaseReactTrackedChecked(
   if (
     ownerRoot !== undefined &&
     element !== ownerRoot &&
-    bindingRoots.has(element)
+    bindingRootRegistry(ownerRoot).bindingRoots.has(element)
   ) {
     return
   }
@@ -831,7 +862,7 @@ function addedBindingRoots(
 }
 
 export function restoreDescendantBindingRoots(element: HTMLElement, ownerRoot: HTMLElement) {
-  const descendantRoots = [...bindingRoots].filter(
+  const descendantRoots = [...bindingRootRegistry(ownerRoot).bindingRoots].filter(
     ([bindingRoot]) => bindingRoot !== ownerRoot && element.contains(bindingRoot)
   )
 
@@ -853,7 +884,10 @@ function trackBindingTree(
   ownerRoot: HTMLElement,
   bindingStates: BindingStateStore
 ) {
-  if (element !== ownerRoot && bindingRoots.has(element)) {
+  if (
+    element !== ownerRoot &&
+    bindingRootRegistry(ownerRoot).bindingRoots.has(element)
+  ) {
     return
   }
 
@@ -1467,7 +1501,10 @@ function refreshReactOwnedDom(
   }
 
   function visit(element: HTMLElement) {
-    if (element !== root && bindingRoots.has(element)) return
+    if (
+      element !== root &&
+      bindingRootRegistry(root).bindingRoots.has(element)
+    ) return
     const state = bindingStates.get(element)
     if (state !== undefined) {
       const names = bindingNames(state.source)
@@ -1707,7 +1744,10 @@ function restoreBindingTree(
   root: HTMLElement,
   bindingStates: BindingStateStore
 ) {
-  if (element !== root && bindingRoots.has(element)) {
+  if (
+    element !== root &&
+    bindingRootRegistry(root).bindingRoots.has(element)
+  ) {
     return
   }
 
@@ -1850,7 +1890,8 @@ export function observeBindingDescendants(
   onError: (error: unknown) => void,
   bindingStates: BindingStateStore = prepareBindingDescendants(root)
 ) {
-  bindingRoots.set(root, viewModel)
+  const registry = bindingRootRegistry(root)
+  registry.bindingRoots.set(root, viewModel)
   trackBindingTree(root, root, bindingStates)
 
   const reconcile = (records: MutationRecord[], reactCommitInProgress = false) => {
@@ -1887,21 +1928,21 @@ export function observeBindingDescendants(
     observer.takeRecords()
   }
   const observer = new MutationObserver((records) => {
-    if (reconcilingRoots.has(root)) {
+    if (registry.reconcilingRoots.has(root)) {
       return
     }
 
-    reconcilingRoots.add(root)
+    registry.reconcilingRoots.add(root)
     try {
       reconcile(records)
     } catch (error) {
       observer.disconnect()
       onError(error)
     } finally {
-      reconcilingRoots.delete(root)
+      registry.reconcilingRoots.delete(root)
     }
   })
-  bindingObservers.set(root, {
+  registry.bindingObservers.set(root, {
     observer,
     reconcile,
     onError,
@@ -1978,8 +2019,10 @@ export function observeBindingDescendants(
     // pending removals before disconnecting so subscriptions are not orphaned.
     const pendingRecords = observer.takeRecords()
     observer.disconnect()
-    bindingRoots.delete(root)
-    bindingObservers.delete(root)
+    registry.bindingRoots.delete(root)
+    registry.bindingObservers.delete(root)
+    registry.reconcilingRoots.delete(root)
+    registry.scheduledPropertyRoots.delete(root)
     stopIntercepting()
     stopInterceptingInsertions()
     stopInterceptingDirectText()
@@ -1990,13 +2033,14 @@ export function observeBindingDescendants(
 
 /** Reconciles queued React DOM mutations before descendant layout effects run. */
 export function reconcileBindingDescendants(root: HTMLElement) {
-  const state = bindingObservers.get(root)
-  if (state === undefined || reconcilingRoots.has(root)) {
+  const registry = bindingRootRegistry(root)
+  const state = registry.bindingObservers.get(root)
+  if (state === undefined || registry.reconcilingRoots.has(root)) {
     return
   }
 
   const records = state.observer.takeRecords()
-  reconcilingRoots.add(root)
+  registry.reconcilingRoots.add(root)
   try {
     state.reconcile(records, true)
   } catch (error) {
@@ -2007,6 +2051,6 @@ export function reconcileBindingDescendants(root: HTMLElement) {
     ko.cleanNode(root)
     throw error
   } finally {
-    reconcilingRoots.delete(root)
+    registry.reconcilingRoots.delete(root)
   }
 }
