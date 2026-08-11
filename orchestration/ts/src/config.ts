@@ -78,7 +78,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): LoopConfig {
     throw new Error(`TASK_GATE must be 'full' or 'light', got '${taskGate}'`)
   }
   // SCAN_PARALLEL: checklist groups are defined up to 4, so higher values clamp.
-  const scanParallel = Math.min(num(env, 'SCAN_PARALLEL', 2), 4)
+  const configuredScanParallel = num(env, 'SCAN_PARALLEL', 2)
+  if (configuredScanParallel < 1) {
+    throw new Error('SCAN_PARALLEL must be at least 1')
+  }
+  const scanParallel = Math.min(configuredScanParallel, 4)
   const issueQueueEnabled = bool(env, 'ISSUE_QUEUE_ENABLED', false)
   const workerMode = bool(env, 'WORKER_MODE', false)
   if (workerMode && !issueQueueEnabled) {
