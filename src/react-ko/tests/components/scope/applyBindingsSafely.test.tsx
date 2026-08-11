@@ -192,6 +192,28 @@ describe('applyBindingsSafely', () => {
     }
   })
 
+  it('does not validate an unrelated subtree bound by a custom binding', () => {
+    const binding = 'bindDetachedTree'
+    const detached = document.createElement('div')
+    detached.innerHTML =
+      '<section data-bind="if: visible"><span>Detached child</span></section>'
+    ko.bindingHandlers[binding] = {
+      init() {
+        ko.applyBindings({ visible: true }, detached)
+      },
+    }
+
+    try {
+      const { container } = render(<div data-bind={`${binding}: true`} />)
+
+      expect(() => applyBindingsSafely({}, container)).not.toThrow()
+      expect(detached.querySelector('span')?.textContent).toBe('Detached child')
+    } finally {
+      ko.cleanNode(detached)
+      delete ko.bindingHandlers[binding]
+    }
+  })
+
   it.each(['if', 'ifnot', 'foreach', 'template', 'with', 'text', 'html'])(
     'rejects an unsafe %s binding injected by a custom preprocessor',
     (injectedBinding) => {
