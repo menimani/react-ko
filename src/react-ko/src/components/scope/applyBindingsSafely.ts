@@ -10,45 +10,66 @@ const REACT_UNSAFE_BINDINGS = new Set(['if', 'ifnot', 'foreach', 'template', 'wi
 const REACT_CHILD_UNSAFE_BINDINGS = new Set(['text', 'html', 'component', 'options'])
 export const REACT_RENDERS_BIGINT = Number.parseInt(reactVersion, 10) >= 19
 
-type BindingHandlerMethodSignature = {
-  init?: number
-  update?: number
-  preprocess?: number
+type BindingHandlerMethodFingerprints = {
+  init?: readonly string[]
+  update?: readonly string[]
+  preprocess?: readonly string[]
 }
 
-// Function arity is preserved by bundlers because it is observable through
-// Function.length. Use it to reject a handler replaced before react-ko loads,
-// then retain the original method identities to detect later replacements.
-const KNOCKOUT_351_BINDING_HANDLER_SIGNATURES = new Map<
+// Audit the published minified and debug handler shapes without tying them to
+// one exact compatible Knockout version. The selected tokens survive ordinary
+// bundler renaming, while arbitrary same-arity replacements do not match.
+const CANONICAL_KNOCKOUT_BINDING_HANDLER_FINGERPRINTS = new Map<
   string,
-  BindingHandlerMethodSignature
+  BindingHandlerMethodFingerprints
 >([
-  ['attr', { update: 2 }],
-  ['checked', { init: 3 }],
-  ['checkedValue', { update: 2 }],
-  ['class', { update: 2 }],
-  ['click', { init: 5 }],
-  ['component', { init: 5 }],
-  ['css', { update: 2 }],
-  ['disable', { update: 2 }],
-  ['enable', { update: 2 }],
-  ['event', { init: 5 }],
-  ['hasFocus', { init: 3, update: 2 }],
-  ['hasfocus', { init: 3, update: 2 }],
-  ['hidden', { update: 2 }],
-  ['html', { init: 0, update: 2 }],
-  ['let', { init: 5 }],
-  ['options', { init: 1, update: 3 }],
-  ['selectedOptions', { init: 3, update: 0 }],
-  ['style', { update: 2 }],
-  ['submit', { init: 5 }],
-  ['text', { init: 0, update: 2 }],
-  ['textInput', { init: 3 }],
-  ['textinput', { preprocess: 3 }],
-  ['uniqueName', { init: 2 }],
-  ['using', { init: 5 }],
-  ['value', { init: 3, update: 0 }],
-  ['visible', { update: 2 }],
+  ['attr', { update: ['2:14:9edaed42:cf30946e', '3:33:66f53797:81d8baab'] }],
+  ['checked', { init: ['3:31:600f6b7a:324f7536', '3:67:a44820a9:e4056c0d'] }],
+  ['checkedValue', { update: ['2:1:425ed3ca:bf5bee46', '2:3:73f7bfab:940dc887'] }],
+  ['class', { update: ['2:5:2c4ad2b9:92515665', '2:8:d4c5a246:7a23171a'] }],
+  ['click', { init: ['5:3:45e2c1e5:30675a19', '5:4:259ff851:f2654795'] }],
+  ['component', { init: ['5:23:31734843:a6d62b97', '5:47:651a11fe:9000aefa'] }],
+  ['css', { update: ['2:4:39e743ee:1c189fea', '2:12:058ba121:ec1524cd'] }],
+  ['disable', { update: ['2:2:9340bf83:b90d7faf', '2:5:888e1afc:89ca67a8'] }],
+  ['enable', { update: ['2:5:58e8c137:ec162fd3', '2:7:ed6f5726:6f5b1b72'] }],
+  ['event', { init: ['5:13:6a71616f:5456b77b', '5:20:24a830af:4fc3204b'] }],
+  ['hasFocus', {
+    init: ['3:16:6f84dfc4:2cae98d8', '3:25:0c9b3501:5570a995'],
+    update: ['2:11:925674a0:5611e23c', '2:16:8a46c2eb:ea0189c7'],
+  }],
+  ['hasfocus', {
+    init: ['3:16:6f84dfc4:2cae98d8', '3:25:0c9b3501:5570a995'],
+    update: ['2:11:925674a0:5611e23c', '2:16:8a46c2eb:ea0189c7'],
+  }],
+  ['hidden', { update: ['2:2:f0b6dd5e:dc53986a', '2:5:f376217b:ca069547'] }],
+  ['html', {
+    init: ['0:0:811c9dc5:9e3779b9', '0:1:e8a0cdde:d8392512'],
+    update: ['2:1:6622ee8e:c393db2a', '2:2:37da6727:de0d05c3'],
+  }],
+  ['let', { init: ['5:2:81aa6587:f4cd58f3', '5:3:0c682be1:74d9be2d'] }],
+  ['options', {
+    init: ['1:4:2fd75a18:531299cc', '1:8:908b39cd:d9f21559'],
+    update: ['3:74:2ffbccc7:d54b0e03', '3:129:e6d559bc:f22a15b0'],
+  }],
+  ['selectedOptions', {
+    init: ['3:18:9f14d811:1d01b205', '3:41:c5717a44:f789cd00'],
+    update: ['0:0:811c9dc5:9e3779b9'],
+  }],
+  ['style', { update: ['2:12:5307bda9:e0ae6c65', '2:18:83ac6093:9164bc07'] }],
+  ['submit', { init: ['5:8:b30ea210:3d5cbb2c', '5:12:73f85f17:951e9e63'] }],
+  ['text', {
+    init: ['0:0:811c9dc5:9e3779b9', '0:2:b3d55b14:c0e919c0'],
+    update: ['2:1:3edd8ca5:acd8db79', '2:2:b9f8fc9c:3663cd90'],
+  }],
+  ['textInput', { init: ['3:32:592e613b:66f7c257', '3:99:325082c9:38fc00ed'] }],
+  ['textinput', { preprocess: ['3:1:f91bd5c2:f96a400e'] }],
+  ['uniqueName', { init: ['2:4:bf118810:8cedc4c4', '2:6:2443d96b:18d3dea7'] }],
+  ['using', { init: ['5:8:eaee5158:5ca6c27c', '5:11:a1086b64:0e881800'] }],
+  ['value', {
+    init: ['3:47:b72ee4fb:892fa38f', '3:112:79dce598:927dd57c'],
+    update: ['0:0:811c9dc5:9e3779b9'],
+  }],
+  ['visible', { update: ['2:9:0889f096:e17a6fc2', '2:11:62f5a449:003d57e5'] }],
 ])
 
 const CANONICAL_HANDLERLESS_BINDINGS = new Set([
@@ -61,6 +82,37 @@ const CANONICAL_HANDLERLESS_BINDINGS = new Set([
   'valueUpdate',
 ])
 
+function hashFunctionSource(source: string, seed: number) {
+  let hash = seed >>> 0
+  for (let index = 0; index < source.length; index += 1) {
+    hash = Math.imul(hash ^ source.charCodeAt(index), 16777619) >>> 0
+  }
+  return hash.toString(16).padStart(8, '0')
+}
+
+function methodFingerprint(method: unknown) {
+  if (typeof method !== 'function') return undefined
+  const source = Function.prototype.toString.call(method)
+  const tokens = [...source.matchAll(/(["'])(?:\\.|(?!\1).)*\1/g)]
+    .map((match) => match[0].slice(1, -1).replace(/\\(["'\\])/g, '$1'))
+    // Bundlers may shorten their internal undefined sentinel to `u`.
+    .filter((token) => token !== 'undefined' && token !== 'u')
+  tokens.push(
+    ...[...source.matchAll(/\.\s*([A-Za-z_$][\w$]*)/g)]
+      .map((match) => match[1])
+      // Single-letter properties are Knockout's private minified aliases and
+      // can be renamed when Knockout is bundled with a consumer.
+      .filter((token) => token.length > 1)
+  )
+  const shape = tokens.sort().join('\0')
+  return [
+    method.length,
+    tokens.length,
+    hashFunctionSource(shape, 0x811c9dc5),
+    hashFunctionSource(shape, 0x9e3779b9),
+  ].join(':')
+}
+
 function bindingHandlerMethods(name: string) {
   const handler = ko.bindingHandlers[name]
   return handler === undefined
@@ -72,24 +124,24 @@ function bindingHandlerMethods(name: string) {
       }
 }
 
-function matchesMethodSignature(
+function matchesMethodFingerprints(
   methods: ReturnType<typeof bindingHandlerMethods>,
-  signature: BindingHandlerMethodSignature
+  fingerprints: BindingHandlerMethodFingerprints
 ) {
   return methods !== undefined &&
     (['init', 'update', 'preprocess'] as const).every((name) => {
-      const expectedArity = signature[name]
+      const expected = fingerprints[name]
       const method = methods[name]
-      return expectedArity === undefined
+      return expected === undefined
         ? method === undefined
-        : typeof method === 'function' && method.length === expectedArity
+        : expected.includes(methodFingerprint(method) ?? '')
     })
 }
 
 const CANONICAL_KNOCKOUT_BINDING_HANDLER_METHODS = new Map(
-  [...KNOCKOUT_351_BINDING_HANDLER_SIGNATURES].flatMap(([name, signature]) => {
+  [...CANONICAL_KNOCKOUT_BINDING_HANDLER_FINGERPRINTS].flatMap(([name, fingerprints]) => {
     const methods = bindingHandlerMethods(name)
-    return ko.version === '3.5.1' && matchesMethodSignature(methods, signature)
+    return matchesMethodFingerprints(methods, fingerprints)
       ? [[name, methods] as const]
       : []
   })

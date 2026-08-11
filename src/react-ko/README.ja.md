@@ -99,12 +99,13 @@ const viewModel = {
 利用できます。`SemanticHost` 型は、`input`、`img`、`br` などの既知の void 要素と、
 `svg` などの外来コンテンツのルートを拒否します。JavaScript や型アサーションでこの型境界を
 回避した場合も、ランタイムチェックが拒否します。一方、パーサーが特別に扱う `frameset`、
-`iframe`、`noembed`、`noframes`、`noscript`、`plaintext`、`script`、`style`、
-`template`、`textarea`、`title`、`xmp` は、v2 の公開契約を維持するため型では引き続き
+`noembed`、`noframes`、`noscript`、`plaintext`、`script`、`style`、`title`、`xmp` は、
+v2 の公開契約を維持するため型では引き続き
 許可されます。`frame`、`basefont`、`bgsound`、`keygen`、`menuitem` などの子要素を
 持てない旧式の名前も、宣言マージで `HTMLElementTagNameMap` に追加された場合は型で許可されます。
 これら型で許可される安全でない名前を使用するとレンダー中に例外が発生し、hydration の前に
 サーバーマークアップがスコープの子要素を失ったりテキストとして解釈したりすることを防ぎます。
+`iframe`、`template`、`textarea` の各ホストは、v2 との互換性のためランタイムでも引き続き許可されます。
 
 `RootKnockoutProvider` または `KnockoutScope` の `viewModel` を置き換えると、
 Knockout バインディングが再適用されます。どちらのコンポーネントも、置き換え時と

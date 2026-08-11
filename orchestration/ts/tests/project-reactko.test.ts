@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { loadProject } from '../src/adapters/project.ts'
 import { reactKoProject } from '../src/adapters/project-reactko.ts'
 
@@ -14,9 +14,33 @@ function check(label: string, taskGate: 'full' | 'light' = 'full') {
 describe('gate commands', () => {
   it('can reload adapter declarations for a running daemon', async () => {
     const reloaded = await loadProject('react-ko', true)
+    const unchanged = await loadProject('react-ko', true)
 
     expect(reloaded).not.toBe(reactKoProject)
+    expect(unchanged).toBe(reloaded)
     expect(reloaded.scanWorktreeSetup).toEqual(reactKoProject.scanWorktreeSetup)
+  })
+
+  it('invalidates the reloaded adapter when its contents change', async () => {
+    const readFile = vi.fn()
+      .mockResolvedValueOnce('first adapter revision')
+      .mockResolvedValueOnce('second adapter revision')
+
+    try {
+      vi.resetModules()
+      vi.doMock('node:fs/promises', () => ({ readFile }))
+      const { loadProject: loadProjectWithChangedContents } = await import(
+        '../src/adapters/project.ts'
+      )
+
+      const first = await loadProjectWithChangedContents('react-ko', true)
+      const changed = await loadProjectWithChangedContents('react-ko', true)
+
+      expect(changed).not.toBe(first)
+    } finally {
+      vi.doUnmock('node:fs/promises')
+      vi.resetModules()
+    }
   })
 
   it('prepares runtime dependencies before a scan starts', () => {
