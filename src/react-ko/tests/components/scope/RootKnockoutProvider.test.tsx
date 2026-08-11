@@ -284,6 +284,39 @@ describe('RootKnockoutProvider', () => {
     expect(screen.getByText('Replacement context')).toBeDefined()
   })
 
+  it('preserves an aliased using context for children mounted later', async () => {
+    const binding = 'usingAlias'
+    const preprocess = vi.fn((expression, _name, addBinding) => {
+      addBinding('using', expression)
+    })
+    ko.bindingHandlers[binding] = { preprocess }
+    const vm = {
+      label: 'Root context',
+      scoped: { label: 'Aliased context' },
+    }
+
+    function Harness({ show }: { show: boolean }) {
+      return (
+        <RootKnockoutProvider viewModel={vm}>
+          <div data-bind={`${binding}: scoped`}>
+            {show ? <span data-bind="text: label" /> : null}
+          </div>
+        </RootKnockoutProvider>
+      )
+    }
+
+    try {
+      const { rerender } = render(<Harness show={false} />)
+      expect(preprocess).toHaveBeenCalledOnce()
+
+      rerender(<Harness show />)
+
+      await waitFor(() => expect(screen.getByText('Aliased context')).toBeDefined())
+    } finally {
+      delete ko.bindingHandlers[binding]
+    }
+  })
+
   it('sends a late binding error to a React error boundary with a stable view model', async () => {
     const vm = {}
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)

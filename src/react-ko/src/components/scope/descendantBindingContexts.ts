@@ -46,8 +46,12 @@ function descendantBindingContexts() {
   return registeredHandler[DESCENDANT_BINDING_CONTEXTS]
 }
 
-function establishesDescendantContext(element: Element) {
-  const source = element.getAttribute('data-bind')
+function establishesDescendantContext(
+  element: Element,
+  validatedSources?: ReadonlyMap<Node, string>
+) {
+  const source =
+    validatedSources?.get(element) ?? element.getAttribute('data-bind')
   if (source === null) {
     return false
   }
@@ -61,13 +65,16 @@ function establishesDescendantContext(element: Element) {
  * Adds short-lived binding markers that retain the exact context Knockout
  * creates for descendants of `using` and `let`, including empty elements.
  */
-export function prepareDescendantBindingContextCapture(root: HTMLElement) {
+export function prepareDescendantBindingContextCapture(
+  root: HTMLElement,
+  validatedSources?: ReadonlyMap<Node, string>
+) {
   descendantBindingContexts()
   const candidates = [root, ...root.querySelectorAll<HTMLElement>('[data-bind]')]
   const markers: HTMLElement[] = []
 
   for (const element of candidates) {
-    if (!establishesDescendantContext(element)) {
+    if (!establishesDescendantContext(element, validatedSources)) {
       continue
     }
 

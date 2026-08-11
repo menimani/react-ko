@@ -636,7 +636,10 @@ export function applyBindingsSafely(viewModel: unknown, node: HTMLElement) {
     provider.getBindingsString === ko.bindingProvider.prototype.getBindingsString
   const { validatedSources, assertSafeProviderBindings } =
     validateNoReactUnsafeBindings(node, false, true, usesDefaultBindingSource)
-  const removeContextMarkers = prepareDescendantBindingContextCapture(node)
+  const removeContextMarkers = prepareDescendantBindingContextCapture(
+    node,
+    validatedSources
+  )
   const restoreBindingHandlerLookup = rejectDescendantControllingCustomHandlers()
   const view = node.ownerDocument.defaultView
   const eventTargetPrototype = view?.EventTarget.prototype
