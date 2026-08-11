@@ -129,7 +129,9 @@ the previous expression before applying the next one; a custom binding is reject
 if its DOM effects cannot be safely retired.
 Custom bindings that do not control descendants, such as tooltip bindings, remain
 supported on elements with React-rendered children and are responsible for leaving those
-children in place. A custom binding may use an empty element only when it creates all
+children in place. A custom handler that returns `controlsDescendantBindings` is rejected
+on an element with React-rendered children so their nested bindings cannot be skipped
+silently. A custom binding may use an empty element only when it creates all
 owned content during initial binding. Content inserted by a later custom-binding update
 is not tracked as owned and may be rebound or rejected as a late descendant, so that
 pattern is not supported.

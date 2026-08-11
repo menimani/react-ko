@@ -195,6 +195,42 @@ describe('applyBindingsSafely', () => {
       }
     }
   )
+  it('rejects and cleans a custom handler that controls React-owned descendants', () => {
+    const binding = 'customDescendantController'
+    const label = ko.observable('Bound before failure')
+    const dispose = vi.fn()
+    const getBindingHandler = ko.getBindingHandler
+    ko.bindingHandlers[binding] = {
+      init(element) {
+        ko.utils.domNodeDisposal.addDisposeCallback(element, dispose)
+        return { controlsDescendantBindings: true }
+      },
+    }
+
+    try {
+      const { container } = render(
+        <>
+          <span data-bind="text: label" />
+          <section data-bind={`${binding}: true`}>
+            <span data-bind="attr: { title: nested }">React child</span>
+          </section>
+        </>
+      )
+
+      expect(() =>
+        applyBindingsSafely({ label, nested: 'Knockout child' }, container)
+      ).toThrow(
+        `react-ko cannot apply the Knockout "${binding}" binding because its custom handler controls React-owned child nodes.`
+      )
+      expect(container.querySelector('section span')?.textContent).toBe('React child')
+      expect(container.querySelector('section span')?.getAttribute('title')).toBeNull()
+      expect(label.getSubscriptionsCount()).toBe(0)
+      expect(dispose).toHaveBeenCalledOnce()
+      expect(ko.getBindingHandler).toBe(getBindingHandler)
+    } finally {
+      delete ko.bindingHandlers[binding]
+    }
+  })
 
   it('leaves the React tree attached for later rerenders after rejecting a descendant-mutating binding', () => {
     const label = ko.observable('Knockout label')
