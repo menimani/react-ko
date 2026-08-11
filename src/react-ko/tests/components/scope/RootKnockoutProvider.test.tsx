@@ -891,6 +891,18 @@ describe('RootKnockoutProvider', () => {
       expect(screen.getByTestId('react-content-handoff').textContent).toBe('Knockout text')
       expect(vm.label.getSubscriptionsCount()).toBe(1)
     })
+    await act(async () => undefined)
+
+    act(() => {
+      vm.label('Updated Knockout text')
+    })
+
+    await waitFor(() => {
+      expect(screen.getByTestId('react-content-handoff').textContent).toBe(
+        'Updated Knockout text'
+      )
+      expect(vm.label.getSubscriptionsCount()).toBe(1)
+    })
   })
 
   it('hands React text off while replacing the root view model', async () => {

@@ -290,6 +290,25 @@ function hasDirectReactContentTransition(
   )
 }
 
+function hasActiveDirectReactTextWrite(
+  element: HTMLElement,
+  previousProps: ReadonlyMap<string, unknown>
+) {
+  const currentProps = currentReactHostProps(element, true)
+  const current = directReactContent(currentProps)
+
+  // After a commit, the alternate describes the previous render but remains
+  // reachable. A later Knockout text notification must not be mistaken for
+  // that stale render: an active React write produces the pending text and
+  // keeps the binding source currently reflected in the DOM.
+  return (
+    current?.kind === 'text' &&
+    current.value === element.textContent &&
+    (currentProps?.['data-bind'] ?? null) === element.getAttribute('data-bind') &&
+    hasDirectReactContentTransition(element, previousProps, true)
+  )
+}
+
 function prepareBindingTree(
   element: HTMLElement,
   root: HTMLElement,
@@ -1614,8 +1633,11 @@ function refreshOwnedContent(
           record.target === element &&
           [...record.removedNodes].some((node) => owned.has(node))
       )
+      // Direct text setters enter the synchronous path only when their write
+      // matches an active React commit. An asynchronously delivered text
+      // record can instead be a Knockout notification after that commit.
       const directReactContentTransition =
-        (removedOwnedContent || textChanged) &&
+        (removedOwnedContent || (textChanged && reactCommitInProgress)) &&
         hasDirectReactContentTransition(
           element,
           state.reactProps,
@@ -2009,7 +2031,7 @@ export function observeBindingDescendants(
       return (
         state !== undefined &&
         state.ownedContent !== null &&
-        hasDirectReactContentTransition(element, state.reactProps, true)
+        hasActiveDirectReactTextWrite(element, state.reactProps)
       )
     },
   })
