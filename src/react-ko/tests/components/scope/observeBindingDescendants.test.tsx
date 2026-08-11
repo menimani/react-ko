@@ -642,6 +642,54 @@ describe('observeBindingDescendants', () => {
     })
   })
 
+  it('removes the implicit radio name when a checked binding is removed', async () => {
+    const vm = { choice: ko.observable('selected') }
+    render(<Host vm={vm} />)
+    const host = screen.getByTestId('host')
+
+    const el = document.createElement('input')
+    el.type = 'radio'
+    el.value = 'selected'
+    el.setAttribute('data-bind', 'checked: choice')
+    act(() => {
+      host.appendChild(el)
+    })
+    await waitFor(() => expect(el.getAttribute('name')).toMatch(/^ko_unique_/))
+
+    act(() => {
+      el.removeAttribute('data-bind')
+    })
+
+    await waitFor(() => expect(el.getAttribute('name')).toBeNull())
+  })
+
+  it('removes the implicit radio name when a checked binding is replaced', async () => {
+    const vm = {
+      choice: ko.observable('selected'),
+      title: ko.observable('after'),
+    }
+    render(<Host vm={vm} />)
+    const host = screen.getByTestId('host')
+
+    const el = document.createElement('input')
+    el.type = 'radio'
+    el.value = 'selected'
+    el.setAttribute('data-bind', 'checked: choice')
+    act(() => {
+      host.appendChild(el)
+    })
+    await waitFor(() => expect(el.getAttribute('name')).toMatch(/^ko_unique_/))
+
+    act(() => {
+      el.setAttribute('data-bind', 'attr: { title: title }')
+    })
+
+    await waitFor(() => {
+      expect(el.getAttribute('name')).toBeNull()
+      expect(el.getAttribute('title')).toBe('after')
+    })
+  })
+
   it('removes attributes owned by a replaced attr binding', async () => {
     const vm = { title: ko.observable('owned'), label: ko.observable('Plain') }
     render(<Host vm={vm} />)
