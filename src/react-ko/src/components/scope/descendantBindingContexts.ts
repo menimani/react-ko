@@ -67,13 +67,17 @@ function establishesDescendantContext(
  */
 export function prepareDescendantBindingContextCapture(
   root: HTMLElement,
-  validatedSources?: ReadonlyMap<Node, string>
+  validatedSources?: ReadonlyMap<Node, string>,
+  excludedElements?: ReadonlySet<Element>
 ) {
   descendantBindingContexts()
   const candidates = [root, ...root.querySelectorAll<HTMLElement>('[data-bind]')]
   const markers: HTMLElement[] = []
 
   for (const element of candidates) {
+    if (excludedElements?.has(element)) {
+      continue
+    }
     if (!establishesDescendantContext(element, validatedSources)) {
       continue
     }

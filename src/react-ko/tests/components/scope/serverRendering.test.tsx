@@ -1,5 +1,5 @@
-import { act } from '@testing-library/react'
-import type { ReactElement, ReactNode } from 'react'
+import { act, waitFor } from '@testing-library/react'
+import { Suspense, type ReactElement, type ReactNode } from 'react'
 import { hydrateRoot, type Root } from 'react-dom/client'
 import { renderToString } from 'react-dom/server'
 import ko from 'knockout'
@@ -111,6 +111,71 @@ describe.each(scopes)('%s server rendering', (_, createScope) => {
       if (root !== undefined) {
         act(() => root?.unmount())
       }
+      container.remove()
+    }
+  })
+
+  it('defers bindings inside a dehydrated Suspense boundary', async () => {
+    const viewModel = { label: ko.observable('Knockout value') }
+    let hydrating = false
+    let ready = false
+    let resolve = () => undefined
+    const suspended = new Promise<void>((done) => {
+      resolve = done
+    })
+
+    function DelayedChild() {
+      if (hydrating && !ready) throw suspended
+      return (
+        <span
+          data-testid="suspended-bound"
+          data-bind="attr: { title: label }"
+          title="Server value"
+        />
+      )
+    }
+
+    const tree = createScope(
+      viewModel,
+      <Suspense fallback={<span>Fallback</span>}>
+        <DelayedChild />
+      </Suspense>
+    )
+    const container = serverContainer(tree)
+    const serverChild = container.querySelector('[data-testid="suspended-bound"]')
+    const recoverableErrors: unknown[] = []
+    document.body.appendChild(container)
+    hydrating = true
+    let root: Root | undefined
+
+    try {
+      await act(async () => {
+        root = hydrateRoot(container, tree, {
+          onRecoverableError: (error) => recoverableErrors.push(error),
+        })
+      })
+
+      expect(container.querySelector('[data-testid="suspended-bound"]')).toBe(
+        serverChild
+      )
+      expect(serverChild).toHaveProperty('title', 'Server value')
+      expect(viewModel.label.getSubscriptionsCount()).toBe(0)
+
+      await act(async () => {
+        ready = true
+        resolve()
+        await suspended
+      })
+
+      await waitFor(() => {
+        expect(serverChild).toHaveProperty('title', 'Knockout value')
+      })
+      expect(container.querySelector('[data-testid="suspended-bound"]')).toBe(
+        serverChild
+      )
+      expect(recoverableErrors).toEqual([])
+    } finally {
+      if (root !== undefined) act(() => root?.unmount())
       container.remove()
     }
   })

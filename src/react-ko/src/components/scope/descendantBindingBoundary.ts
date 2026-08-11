@@ -1,3 +1,4 @@
+import ko from 'knockout'
 import { registerReactKoBindingHandler } from './bindingHandlerOwnership'
 
 // Every independently bound tree carries this binding on its outer element so
@@ -6,7 +7,12 @@ import { registerReactKoBindingHandler } from './bindingHandlerOwnership'
 export const DESCENDANT_BINDING_BOUNDARY = 'reactKoScopeBoundary'
 
 export function ensureDescendantBindingBoundary() {
-  registerReactKoBindingHandler(DESCENDANT_BINDING_BOUNDARY, () => ({
-    init: () => ({ controlsDescendantBindings: true }),
-  }))
+  const handler = registerReactKoBindingHandler(
+    DESCENDANT_BINDING_BOUNDARY,
+    () => ({
+      init: () => ({ controlsDescendantBindings: true }),
+    })
+  )
+  ko.virtualElements.allowedBindings[DESCENDANT_BINDING_BOUNDARY] = true
+  return handler
 }

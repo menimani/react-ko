@@ -4,9 +4,12 @@ import {
   assertNoReactUnsafeBindings,
   customDescendantControllerFor,
   currentReactHostProps,
+  findDehydratedSuspenseBindings,
   hasCanonicalKnockoutBindingHandler,
   hasReactOwnedChildren,
   REACT_RENDERS_BIGINT,
+  suspenseRangeElements,
+  type DeferredSuspenseBinding,
 } from './applyBindingsSafely'
 import { hasReactKoBindingHandler } from './bindingHandlerOwnership'
 import { descendantBindingContextFor } from './descendantBindingContexts'
@@ -19,6 +22,7 @@ type BindingObserverState = {
   shouldDeferDataBindChange: (element: Element) => boolean
   shouldDeferInsertion: (parent: Node) => boolean
   shouldReconcileDirectTextWrite: (element: HTMLElement) => boolean
+  refreshAfterLayout: () => void
   onError: (error: unknown) => void
 }
 
@@ -147,6 +151,27 @@ const SAFELY_RETIRABLE_BINDINGS = new Set([
   'valueUpdate',
   'visible',
   DESCENDANT_BINDING_BOUNDARY,
+])
+const POST_LAYOUT_REFRESH_BINDINGS = new Set([
+  'attr',
+  'checked',
+  'checkedValue',
+  'class',
+  'click',
+  'css',
+  'disable',
+  'enable',
+  'event',
+  'hasFocus',
+  'hasfocus',
+  'hidden',
+  'style',
+  'submit',
+  'textInput',
+  'textinput',
+  'uniqueName',
+  'value',
+  'visible',
 ])
 const DELEGATED_BINDING_HANDLERS = new Map<string, readonly string[]>([
   ['checked', ['uniqueName']],
@@ -921,8 +946,10 @@ export function restoreDescendantBindingRoots(element: HTMLElement, ownerRoot: H
 function trackBindingTree(
   element: HTMLElement,
   ownerRoot: HTMLElement,
-  bindingStates: BindingStateStore
+  bindingStates: BindingStateStore,
+  excludedElements?: ReadonlySet<Element>
 ) {
+  if (excludedElements?.has(element)) return
   if (
     element !== ownerRoot &&
     bindingRootRegistry(ownerRoot).bindingRoots.has(element)
@@ -964,7 +991,12 @@ function trackBindingTree(
   })
 
   for (const child of element.children) {
-    trackBindingTree(child as HTMLElement, ownerRoot, bindingStates)
+    trackBindingTree(
+      child as HTMLElement,
+      ownerRoot,
+      bindingStates,
+      excludedElements
+    )
   }
 }
 
@@ -1983,11 +2015,17 @@ export function observeBindingDescendants(
   root: HTMLElement,
   onError: (error: unknown) => void,
   bindingStates: BindingStateStore = prepareBindingDescendants(root),
-  shouldDeferReconciliation?: () => boolean
+  shouldDeferReconciliation?: () => boolean,
+  deferredSuspenseBindings: readonly DeferredSuspenseBinding[] = []
 ) {
   const registry = bindingRootRegistry(root)
   registry.bindingRoots.set(root, viewModel)
-  trackBindingTree(root, root, bindingStates)
+  const deferredSuspenseElements = new Set(
+    deferredSuspenseBindings.flatMap(({ start, end }) =>
+      suspenseRangeElements(start, end)
+    )
+  )
+  trackBindingTree(root, root, bindingStates, deferredSuspenseElements)
 
   const reconcile = (records: MutationRecord[], reactCommitInProgress = false) => {
     cleanRemovedNodes(records, root)
@@ -2081,21 +2119,7 @@ export function observeBindingDescendants(
         return false
       }
 
-      const reactFiberKey = Object.getOwnPropertyNames(element).find((name) =>
-        name.startsWith('__reactFiber$')
-      )
-      if (reactFiberKey === undefined) {
-        return false
-      }
-      const fiber = (element as unknown as Record<string, unknown>)[reactFiberKey] as {
-        alternate?: { pendingProps: Record<string, unknown> } | null
-      }
-
-      // During the mutation phase the DOM marker still points at the current
-      // fiber, while its alternate contains the props being committed.
-      return fiber.alternate !== undefined &&
-        fiber.alternate !== null &&
-        fiber.alternate.pendingProps['data-bind'] !== state.source
+      return currentReactHostProps(element, true)?.['data-bind'] !== state.source
     },
     shouldReconcileDirectTextWrite: (element) => {
       const state = bindingStates.get(element)
@@ -2104,6 +2128,51 @@ export function observeBindingDescendants(
         state.ownedContent !== null &&
         hasActiveDirectReactTextWrite(element, state.reactProps)
       )
+    },
+    refreshAfterLayout: () => {
+      const records = observer.takeRecords()
+      reconcile(records, true)
+      const layoutTargets = new Set(
+        records.flatMap((record) => {
+          if (record.target.nodeType === Node.ELEMENT_NODE) {
+            return [record.target as HTMLElement]
+          }
+          return record.target.parentElement === null
+            ? []
+            : [record.target.parentElement]
+        })
+      )
+      const changedElements = new Set<HTMLElement>()
+      function visit(element: HTMLElement) {
+        if (
+          element !== root &&
+          bindingRootRegistry(root).bindingRoots.has(element)
+        ) return
+        const state = bindingStates.get(element)
+        const names = bindingNames(state?.source ?? null)
+        if (
+          layoutTargets.has(element) &&
+          names.size > 0 &&
+          [...names].every((name) => POST_LAYOUT_REFRESH_BINDINGS.has(name))
+        ) {
+          try {
+            if (state !== undefined) assertBindingsCanBeRetired(state)
+            changedElements.add(element)
+          } catch {
+            // A consumer override cannot be safely initialized a second time.
+          }
+        }
+        for (const child of element.children) visit(child as HTMLElement)
+      }
+      visit(root)
+      rebindChangedAttributes(
+        changedElements,
+        root,
+        viewModel,
+        bindingStates,
+        []
+      )
+      observer.takeRecords()
     },
   })
   observer.observe(root, {
@@ -2115,11 +2184,101 @@ export function observeBindingDescendants(
   const stopIntercepting = interceptDataBindChanges(root)
   const stopInterceptingInsertions = interceptChildListInsertions(root)
   const stopInterceptingDirectText = interceptDirectTextWrites(root)
+  const pendingSuspenseBindings = new Map(
+    deferredSuspenseBindings.map((binding) => [binding.start, binding])
+  )
+  let hydrationFrame: number | null = null
+  let stopped = false
+
+  const scheduleHydrationCheck = () => {
+    if (stopped || hydrationFrame !== null || pendingSuspenseBindings.size === 0) {
+      return
+    }
+    hydrationFrame = root.ownerDocument.defaultView?.requestAnimationFrame(() => {
+      hydrationFrame = null
+      checkHydratedSuspenseBindings()
+    }) ?? null
+  }
+
+  const queueDeferredBindings = (
+    bindings: readonly DeferredSuspenseBinding[]
+  ) => {
+    for (const binding of bindings) {
+      pendingSuspenseBindings.set(binding.start, binding)
+    }
+    scheduleHydrationCheck()
+  }
+
+  const checkHydratedSuspenseBindings = () => {
+    if (stopped) return
+
+    registry.reconcilingRoots.add(root)
+    try {
+      for (const [start, binding] of pendingSuspenseBindings) {
+        if (!root.contains(start) || !root.contains(binding.end)) {
+          pendingSuspenseBindings.delete(start)
+          continue
+        }
+
+        const elements = suspenseRangeElements(start, binding.end)
+        if (!elements.some(hasReactOwnership)) continue
+
+        pendingSuspenseBindings.delete(start)
+        const topLevelElements = elements.filter(
+          (element) =>
+            !elements.some(
+              (candidate) => candidate !== element && candidate.contains(element)
+            ) && hasReactOwnership(element)
+        ) as HTMLElement[]
+        for (const element of topLevelElements) {
+          const bindingContext =
+            descendantBindingContextFor(element, root) ?? viewModel
+          prepareBindingTree(element, root, bindingStates)
+          for (const descendant of [element, ...element.querySelectorAll('*')]) {
+            deferredSuspenseElements.delete(descendant)
+          }
+          const nestedBindings = applyBindingsSafely(bindingContext, element)
+          for (const nested of nestedBindings) {
+            for (const descendant of suspenseRangeElements(
+              nested.start,
+              nested.end
+            )) {
+              deferredSuspenseElements.add(descendant)
+            }
+          }
+          queueDeferredBindings(nestedBindings)
+          trackBindingTree(
+            element,
+            root,
+            bindingStates,
+            deferredSuspenseElements
+          )
+        }
+      }
+      observer.takeRecords()
+    } catch (error) {
+      observer.disconnect()
+      pendingSuspenseBindings.clear()
+      onError(error)
+    } finally {
+      registry.reconcilingRoots.delete(root)
+    }
+
+    // Hydrating an outer boundary can reveal a still-dehydrated nested one.
+    queueDeferredBindings(findDehydratedSuspenseBindings(root))
+    scheduleHydrationCheck()
+  }
+
+  queueDeferredBindings(findDehydratedSuspenseBindings(root))
 
   return () => {
     // A removal and root unmount can happen before the observer callback. Drain
     // pending removals before disconnecting so subscriptions are not orphaned.
     const pendingRecords = observer.takeRecords()
+    stopped = true
+    if (hydrationFrame !== null) {
+      root.ownerDocument.defaultView?.cancelAnimationFrame(hydrationFrame)
+    }
     observer.disconnect()
     registry.bindingRoots.delete(root)
     registry.bindingObservers.delete(root)
@@ -2156,6 +2315,23 @@ export function reconcileBindingDescendants(root: HTMLElement) {
     // detach the child whose insertion just failed validation.
     ko.cleanNode(root)
     throw error
+  } finally {
+    registry.reconcilingRoots.delete(root)
+  }
+}
+
+/** Reapplies safely repeatable bindings after enclosing layout effects. */
+export function refreshBindingDescendantsAfterLayout(root: HTMLElement) {
+  const registry = bindingRootRegistry(root)
+  const state = registry.bindingObservers.get(root)
+  if (state === undefined || registry.reconcilingRoots.has(root)) return
+
+  registry.reconcilingRoots.add(root)
+  try {
+    state.refreshAfterLayout()
+  } catch (error) {
+    state.observer.disconnect()
+    state.onError(error)
   } finally {
     registry.reconcilingRoots.delete(root)
   }

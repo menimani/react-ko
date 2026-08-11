@@ -363,6 +363,40 @@ describe('applyBindingsSafely', () => {
     }
   })
 
+  it.each(['getBindingAccessors', 'getBindings'] as const)(
+    'validates through a provider with a read-only %s descriptor',
+    (method) => {
+      const originalProvider = ko.bindingProvider.instance
+      const provider = Object.create(originalProvider) as ko.IBindingProvider
+      if (method === 'getBindings') {
+        Object.defineProperty(provider, 'getBindingAccessors', {
+          configurable: true,
+          value: undefined,
+        })
+      }
+      Object.defineProperty(provider, method, {
+        configurable: false,
+        value: originalProvider[method],
+        writable: false,
+      })
+      const descriptor = Object.getOwnPropertyDescriptor(provider, method)
+      ko.bindingProvider.instance = provider
+
+      try {
+        const container = document.createElement('div')
+        container.innerHTML = '<button data-bind="attr: { title: label }"></button>'
+
+        expect(() =>
+          applyBindingsSafely({ label: 'Read-only provider' }, container)
+        ).not.toThrow()
+        expect(container.querySelector('button')?.title).toBe('Read-only provider')
+        expect(Object.getOwnPropertyDescriptor(provider, method)).toEqual(descriptor)
+      } finally {
+        ko.bindingProvider.instance = originalProvider
+      }
+    }
+  )
+
   it('restores custom binding provider method descriptors when a binding throws', () => {
     const binding = 'throwingBinding'
     const originalProvider = ko.bindingProvider.instance
