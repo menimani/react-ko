@@ -76,6 +76,34 @@ describe('useBindingRoot', () => {
   const bindingRoots = ['RootKnockoutProvider', 'KnockoutScope'] as const
   const childUpdates = ['mounts', 'rebinds'] as const
 
+  it.each(bindingRoots)(
+    '%s mounts descendant refs in the initial commit seen by an ancestor layout effect',
+    (bindingRoot) => {
+      const viewModel = { label: ko.observable('Bound') }
+      let observed: HTMLSpanElement | null = null
+
+      function Ancestor() {
+        const descendant = useRef<HTMLSpanElement>(null)
+        useLayoutEffect(() => {
+          observed = descendant.current
+        }, [])
+        const child = <span ref={descendant} data-bind="text: label" />
+        return bindingRoot === 'RootKnockoutProvider' ? (
+          <RootKnockoutProvider viewModel={viewModel}>{child}</RootKnockoutProvider>
+        ) : (
+          <RootKnockoutProvider viewModel={{}}>
+            <KnockoutScope viewModel={viewModel}>{child}</KnockoutScope>
+          </RootKnockoutProvider>
+        )
+      }
+
+      render(<Ancestor />)
+
+      expect(observed).not.toBeNull()
+      expect(observed).toHaveProperty('textContent', 'Bound')
+    }
+  )
+
   it.each(
     bindingRoots.flatMap((bindingRoot) =>
       childUpdates.map((childUpdate) => [bindingRoot, childUpdate] as const)

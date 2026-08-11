@@ -11,6 +11,11 @@ const REACT_CHILD_UNSAFE_BINDINGS = new Set(['text', 'html', 'component', 'optio
 export const REACT_RENDERS_BIGINT = Number.parseInt(reactVersion, 10) >= 19
 const customDescendantControllers = new WeakMap<Element, string>()
 
+export type DeferredSuspenseBinding = {
+  start: Comment
+  end: Comment
+}
+
 export function customDescendantControllerFor(element: Element) {
   return customDescendantControllers.get(element)
 }
@@ -404,7 +409,8 @@ function validateNoReactUnsafeBindings(
   root: HTMLElement,
   rootHadReactContentMutation = false,
   includeDescendants = true,
-  useDefaultBindingSource = true
+  useDefaultBindingSource = true,
+  excludedElements?: ReadonlySet<Element>
 ) {
   const validatedSources: ValidatedBindingSources = new Map()
 
@@ -438,6 +444,8 @@ function validateNoReactUnsafeBindings(
   }
 
   function visit(element: Element) {
+    if (excludedElements?.has(element)) return
+
     const names = useDefaultBindingSource
       ? bindingNames(element, validatedSources)
       : new Set<string>()
@@ -473,22 +481,21 @@ function applyValidatedBindings(
   viewModel: unknown,
   node: HTMLElement,
   validatedSources: ValidatedBindingSources,
-  assertSafeProviderBindings: (element: Element, names: Set<string>) => void
+  assertSafeProviderBindings: (element: Element, names: Set<string>) => void,
+  deferredBindings: readonly DeferredSuspenseBinding[]
 ) {
   const provider = ko.bindingProvider.instance
   const getBindingAccessors = provider.getBindingAccessors
   const getBindings = provider.getBindings
-  const ownGetBindingAccessors = Object.getOwnPropertyDescriptor(
-    provider,
-    'getBindingAccessors'
-  )
-  const ownGetBindings = Object.getOwnPropertyDescriptor(provider, 'getBindings')
   const providerWithBindingSource = provider as ko.IBindingProvider & {
     getBindingsString?: ko.bindingProvider['getBindingsString']
   }
+  const validatingProvider = Object.create(provider) as ko.IBindingProvider & {
+    getBindingsString?: ko.bindingProvider['getBindingsString']
+  }
+  const getBindingsString = providerWithBindingSource.getBindingsString
   const usesDefaultBindingSource =
-    providerWithBindingSource.getBindingsString ===
-    ko.bindingProvider.prototype.getBindingsString
+    getBindingsString === ko.bindingProvider.prototype.getBindingsString
 
   function validateProviderBindings(
     bindingNode: Node,
@@ -507,76 +514,157 @@ function applyValidatedBindings(
   }
 
   if (getBindingAccessors !== undefined) {
-    provider.getBindingAccessors = (bindingNode, bindingContext) => {
-      const validatedSource = validatedSources.get(bindingNode)
-      if (!usesDefaultBindingSource || validatedSource === undefined) {
-        return validateProviderBindings(
-          bindingNode,
-          getBindingAccessors.call(provider, bindingNode, bindingContext)
-        ) as ko.BindingAccessors
-      }
-
-      const getBindingHandler = ko.getBindingHandler
-      const getBindingsString = providerWithBindingSource.getBindingsString!
-      const ownGetBindingsString = Object.getOwnPropertyDescriptor(
-        providerWithBindingSource,
-        'getBindingsString'
-      )
-      providerWithBindingSource.getBindingsString = (candidate, candidateContext) =>
-        candidate === bindingNode
-          ? validatedSource
-          : getBindingsString.call(provider, candidate, candidateContext)
-      ko.getBindingHandler = (name) => {
-        const handler = getBindingHandler(name)
-        return handler?.preprocess === undefined
-          ? handler
-          : (Object.assign(Object.create(handler), {
-              preprocess: undefined,
-            }) as ko.BindingHandler)
-      }
-      try {
-        return validateProviderBindings(
-          bindingNode,
-          getBindingAccessors.call(provider, bindingNode, bindingContext)
-        ) as ko.BindingAccessors
-      } finally {
-        if (ownGetBindingsString === undefined) {
-          delete providerWithBindingSource.getBindingsString
-        } else {
-          Object.defineProperty(
-            providerWithBindingSource,
-            'getBindingsString',
-            ownGetBindingsString
-          )
-        }
-        ko.getBindingHandler = getBindingHandler
-      }
+    if (getBindingsString !== undefined) {
+      Object.defineProperty(validatingProvider, 'getBindingsString', {
+        configurable: true,
+        value: (bindingNode: Node, bindingContext: ko.BindingContext) =>
+          validatedSources.get(bindingNode) ??
+          getBindingsString.call(provider, bindingNode, bindingContext),
+        writable: true,
+      })
     }
+    Object.defineProperty(validatingProvider, 'getBindingAccessors', {
+      configurable: true,
+      value: (bindingNode: Node, bindingContext: ko.BindingContext) => {
+        const validatedSource = validatedSources.get(bindingNode)
+        if (!usesDefaultBindingSource || validatedSource === undefined) {
+          return validateProviderBindings(
+            bindingNode,
+            getBindingAccessors.call(provider, bindingNode, bindingContext)
+          ) as ko.BindingAccessors
+        }
+
+        const getBindingHandler = ko.getBindingHandler
+        ko.getBindingHandler = (name) => {
+          const handler = getBindingHandler(name)
+          return handler?.preprocess === undefined
+            ? handler
+            : (Object.assign(Object.create(handler), {
+                preprocess: undefined,
+              }) as ko.BindingHandler)
+        }
+        try {
+          return validateProviderBindings(
+            bindingNode,
+            getBindingAccessors.call(
+              validatingProvider,
+              bindingNode,
+              bindingContext
+            )
+          ) as ko.BindingAccessors
+        } finally {
+          ko.getBindingHandler = getBindingHandler
+        }
+      },
+      writable: true,
+    })
   } else if (getBindings !== undefined) {
-    provider.getBindings = (bindingNode, bindingContext) =>
-      validateProviderBindings(
-        bindingNode,
-        getBindings.call(provider, bindingNode, bindingContext)
-      ) as object
+    Object.defineProperty(validatingProvider, 'getBindings', {
+      configurable: true,
+      value: (bindingNode: Node, bindingContext: ko.BindingContext) =>
+        validateProviderBindings(
+          bindingNode,
+          getBindings.call(provider, bindingNode, bindingContext)
+        ) as object,
+      writable: true,
+    })
   }
 
+  const suspenseMarkers = deferredBindings.flatMap(({ start, end }) => [
+    [start, start.nodeValue] as const,
+    [end, end.nodeValue] as const,
+  ])
+  // Knockout already understands virtual binding ranges. Temporarily present
+  // React's dehydrated markers as our descendant boundary so its synchronous
+  // traversal skips the untouched server nodes, then restore React's exact
+  // marker data before either runtime can observe another turn.
+  for (const [marker] of suspenseMarkers) {
+    marker.nodeValue =
+      deferredBindings.some(({ start }) => start === marker)
+        ? `ko ${DESCENDANT_BINDING_BOUNDARY}: true`
+        : '/ko'
+  }
+  ko.bindingProvider.instance = validatingProvider
   try {
     ko.applyBindings(viewModel, node)
   } finally {
-    if (getBindingAccessors !== undefined) {
-      if (ownGetBindingAccessors === undefined) {
-        delete (provider as Partial<ko.IBindingProvider>).getBindingAccessors
-      } else {
-        Object.defineProperty(provider, 'getBindingAccessors', ownGetBindingAccessors)
-      }
-    } else if (getBindings !== undefined) {
-      if (ownGetBindings === undefined) {
-        delete provider.getBindings
-      } else {
-        Object.defineProperty(provider, 'getBindings', ownGetBindings)
-      }
+    ko.bindingProvider.instance = provider
+    for (const [marker, value] of suspenseMarkers) marker.nodeValue = value
+  }
+}
+
+const SUSPENSE_START_MARKERS = new Set(['$', '$?', '$!'])
+
+function matchingSuspenseEnd(start: Comment) {
+  let depth = 0
+  for (let node = start.nextSibling; node !== null; node = node.nextSibling) {
+    if (node.nodeType !== Node.COMMENT_NODE) continue
+    const marker = node.nodeValue
+    if (marker !== null && SUSPENSE_START_MARKERS.has(marker)) {
+      depth += 1
+    } else if (marker === '/$') {
+      if (depth === 0) return node as Comment
+      depth -= 1
     }
   }
+  return null
+}
+
+export function suspenseRangeElements(start: Comment, end: Comment) {
+  const elements: Element[] = []
+
+  function visit(node: Node) {
+    if (node.nodeType === Node.ELEMENT_NODE) {
+      elements.push(node as Element)
+    }
+    for (const child of node.childNodes) visit(child)
+  }
+
+  for (let node = start.nextSibling; node !== null && node !== end; node = node.nextSibling) {
+    visit(node)
+  }
+  return elements
+}
+
+export function findDehydratedSuspenseBindings(root: HTMLElement) {
+  const deferred: DeferredSuspenseBinding[] = []
+
+  function visit(parent: Node) {
+    for (let node = parent.firstChild; node !== null; node = node.nextSibling) {
+      if (
+        node.nodeType === Node.COMMENT_NODE &&
+        SUSPENSE_START_MARKERS.has(node.nodeValue ?? '')
+      ) {
+        const start = node as Comment
+        const end = matchingSuspenseEnd(start)
+        if (end !== null) {
+          const elements = suspenseRangeElements(start, end)
+          if (
+            // React tags the Suspense marker before trying its client render,
+            // but does not tag the server elements until hydration succeeds.
+            hasReactTag(start) &&
+            elements.length > 0 &&
+            !elements.some(hasReactTag)
+          ) {
+            deferred.push({ start, end })
+            node = end
+            continue
+          }
+        }
+      }
+
+      visit(node)
+    }
+  }
+
+  visit(root)
+  return deferred
+}
+
+function deferredElements(bindings: readonly DeferredSuspenseBinding[]) {
+  return new Set(
+    bindings.flatMap(({ start, end }) => suspenseRangeElements(start, end))
+  )
 }
 
 function rejectDescendantControllingCustomHandlers() {
@@ -650,11 +738,20 @@ export function applyBindingsSafely(viewModel: unknown, node: HTMLElement) {
   }
   const usesDefaultBindingSource =
     provider.getBindingsString === ko.bindingProvider.prototype.getBindingsString
+  const deferredBindings = findDehydratedSuspenseBindings(node)
+  const excludedElements = deferredElements(deferredBindings)
   const { validatedSources, assertSafeProviderBindings } =
-    validateNoReactUnsafeBindings(node, false, true, usesDefaultBindingSource)
+    validateNoReactUnsafeBindings(
+      node,
+      false,
+      true,
+      usesDefaultBindingSource,
+      excludedElements
+    )
   const removeContextMarkers = prepareDescendantBindingContextCapture(
     node,
-    validatedSources
+    validatedSources,
+    excludedElements
   )
   const restoreBindingHandlerLookup = rejectDescendantControllingCustomHandlers()
   const view = node.ownerDocument.defaultView
@@ -681,7 +778,8 @@ export function applyBindingsSafely(viewModel: unknown, node: HTMLElement) {
       viewModel,
       node,
       validatedSources,
-      assertSafeProviderBindings
+      assertSafeProviderBindings,
+      deferredBindings
     )
   } catch (error) {
     try {
@@ -697,4 +795,6 @@ export function applyBindingsSafely(viewModel: unknown, node: HTMLElement) {
     restoreBindingHandlerLookup()
     removeContextMarkers()
   }
+
+  return deferredBindings
 }
