@@ -181,9 +181,11 @@ export function KoInput({ value }: Props) {
 `KnockoutScope` は内部で `useAppViewModel` を呼び出すため、
 `RootKnockoutProvider` または `AppViewModelContext.Provider` の配下でレンダーする
 必要があります。ルートプロバイダーは、ネストしたスコープの外側にある
-`data-bind` 属性にもバインディングを適用します。どちらのコンポーネントも children を
-マウントする前にバインディングホストを確立するため、子孫の layout effect はすでに
-バインドされた DOM を操作できます。
+`data-bind` 属性にもバインディングを適用します。クライアントのみでマウントする場合、
+どちらのコンポーネントも children をマウントする前にバインディングホストを確立するため、
+子孫の layout effect はすでにバインドされた DOM を操作できます。サーバーレンダリングと
+ハイドレーションでは、React がその場でハイドレートできるよう、サーバーでレンダーされた
+子サブツリーを保持します。
 
 ```tsx
 import ko from 'knockout'

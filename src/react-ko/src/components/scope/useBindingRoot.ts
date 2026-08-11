@@ -1,4 +1,10 @@
-import { useInsertionEffect, useLayoutEffect, useRef, useState } from 'react'
+import {
+  useInsertionEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react'
 import ko from 'knockout'
 import { applyBindingsSafely } from './applyBindingsSafely'
 import {
@@ -16,6 +22,9 @@ type ActiveBinding = {
 }
 
 const UNBOUND_BINDING = Symbol('unbound')
+const subscribeToNothing = () => () => undefined
+const getClientSnapshot = () => false
+const getServerSnapshot = () => true
 
 export function useBindingRoot(
   viewModel: unknown,
@@ -30,6 +39,13 @@ export function useBindingRoot(
   const bindingEstablishedIdentity = useRef<unknown>(UNBOUND_BINDING)
   const [, setBindingEstablishedVersion] = useState(0)
   const [generation, setGeneration] = useState(0)
+  // React uses the server snapshot for SSR and the first hydration render.
+  // Client-only mounts still wait for the binding-established update.
+  const preserveServerChildren = useSyncExternalStore(
+    subscribeToNothing,
+    getClientSnapshot,
+    getServerSnapshot
+  )
 
   function disposeBinding() {
     const active = activeBinding.current
@@ -124,5 +140,6 @@ export function useBindingRoot(
       bindingEstablishedIdentity.current,
       bindingIdentity
     ),
+    preserveServerChildren,
   }
 }
