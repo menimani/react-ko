@@ -1,4 +1,4 @@
-import { useCallback, useInsertionEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useInsertionEffect, useLayoutEffect, useRef, useState } from 'react'
 import ko from 'knockout'
 import { applyBindingsSafely } from './applyBindingsSafely'
 import {
@@ -30,10 +30,6 @@ export function useBindingRoot(
   const bindingEstablishedIdentity = useRef<unknown>(UNBOUND_BINDING)
   const [, setBindingEstablishedVersion] = useState(0)
   const [generation, setGeneration] = useState(0)
-  const getBindingRoot = useCallback(
-    () => activeBinding.current?.node ?? container.current,
-    []
-  )
 
   function disposeBinding() {
     const active = activeBinding.current
@@ -128,6 +124,5 @@ export function useBindingRoot(
       bindingEstablishedIdentity.current,
       bindingIdentity
     ),
-    getBindingRoot,
   }
 }

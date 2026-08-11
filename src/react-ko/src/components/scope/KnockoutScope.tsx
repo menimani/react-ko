@@ -3,7 +3,6 @@ import { useCallback, useContext, useState } from 'react'
 import { useAppViewModel } from '@/index'
 import { ScopeViewModelContext } from '@/context/ScopeViewModelContext'
 import { ScopeBindGenerationContext } from '@/context/ScopeBindGenerationContext'
-import { ScopeBindingRootContext } from '@/context/ScopeBindingRootContext'
 import { DESCENDANT_BINDING_BOUNDARY } from './descendantBindingBoundary'
 import { useBindingRoot } from './useBindingRoot'
 import { semanticHostComponent, type SemanticHostProps } from './semanticHost'
@@ -33,21 +32,15 @@ export const KnockoutScope = React.memo(function KnockoutScope<T>({
   useAppViewModel()
 
   const parentGeneration = useContext(ScopeBindGenerationContext)
-  const getParentBindingRoot = useContext(ScopeBindingRootContext)
-  const deferChildrenUntilBound = React.useRef<boolean | null>(null)
-  if (deferChildrenUntilBound.current === null) {
-    deferChildrenUntilBound.current = getParentBindingRoot() !== null
-  }
-  const shouldDeferChildren = deferChildrenUntilBound.current || replacingHost
   const [bindingFailure, setBindingFailure] = useState<{ error: unknown } | null>(null)
   const handleBindingError = useCallback((error: unknown) => {
     setBindingFailure({ error })
   }, [])
-  const { container, generation, bindingEstablished, getBindingRoot } = useBindingRoot(
+  const { container, generation, bindingEstablished } = useBindingRoot(
     viewModel,
     parentGeneration,
     handleBindingError,
-    shouldDeferChildren,
+    true,
     hostIdentity
   )
 
@@ -61,15 +54,13 @@ export const KnockoutScope = React.memo(function KnockoutScope<T>({
 
   return (
     <ScopeViewModelContext.Provider value={viewModel}>
-      <ScopeBindingRootContext.Provider value={getBindingRoot}>
-        <ScopeBindGenerationContext.Provider value={generation}>
-          <BoundaryHost data-bind={`${DESCENDANT_BINDING_BOUNDARY}: true`} style={{ display: 'contents' }}>
-            <BindingHost ref={container} style={{ display: 'contents' }}>
-              {shouldDeferChildren && !bindingEstablished ? null : children}
-            </BindingHost>
-          </BoundaryHost>
-        </ScopeBindGenerationContext.Provider>
-      </ScopeBindingRootContext.Provider>
+      <ScopeBindGenerationContext.Provider value={generation}>
+        <BoundaryHost data-bind={`${DESCENDANT_BINDING_BOUNDARY}: true`} style={{ display: 'contents' }}>
+          <BindingHost ref={container} style={{ display: 'contents' }}>
+            {bindingEstablished && !replacingHost ? children : null}
+          </BindingHost>
+        </BoundaryHost>
+      </ScopeBindGenerationContext.Provider>
     </ScopeViewModelContext.Provider>
   )
 })
