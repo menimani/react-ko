@@ -44,6 +44,10 @@ expectType<ViewModel>(ReactKo.useAppViewModel<ViewModel>())
 React.createElement(ReactKo.RootKnockoutProvider, { viewModel, children: child })
 React.createElement(ReactKo.RootKnockoutProvider, { viewModel, children: child, boundaryAs: 'main', as: 'section' })
 React.createElement(ReactKo.RootKnockoutProvider, { viewModel, children: child, as: 'custom-host' })
+React.createElement(ReactKo.RootKnockoutProvider, { viewModel, children: child, as: 'marquee' })
+React.createElement(ReactKo.RootKnockoutProvider, { viewModel, children: child, as: 'dir' })
+React.createElement(ReactKo.RootKnockoutProvider, { viewModel, children: child, as: 'font' })
+React.createElement(ReactKo.RootKnockoutProvider, { viewModel, children: child, as: 'frameset' })
 // @ts-expect-error Scope hosts always contain children, so void elements are invalid.
 React.createElement(ReactKo.RootKnockoutProvider, { viewModel, children: child, boundaryAs: 'input' })
 // @ts-expect-error A root requires a view model.
