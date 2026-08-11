@@ -166,6 +166,32 @@ describe('applyBindingsSafely', () => {
     }
   })
 
+  it('runs a non-descendant custom init once on the live element', () => {
+    const binding = 'initializedTooltip'
+    const init = vi.fn((element: HTMLElement) => {
+      element.title = 'Initialized tooltip'
+    })
+    ko.bindingHandlers[binding] = { init }
+
+    try {
+      const { container } = render(
+        <button data-bind={`${binding}: true`}>
+          <span>React child</span>
+        </button>
+      )
+      const button = container.querySelector('button')!
+
+      applyBindingsSafely({}, container)
+
+      expect(init).toHaveBeenCalledOnce()
+      expect(init.mock.calls[0][0]).toBe(button)
+      expect(button.title).toBe('Initialized tooltip')
+      expect(button.querySelector('span')?.textContent).toBe('React child')
+    } finally {
+      delete ko.bindingHandlers[binding]
+    }
+  })
+
   it.each(['if', 'ifnot', 'foreach', 'template', 'with', 'text', 'html'])(
     'rejects an unsafe %s binding injected by a custom preprocessor',
     (injectedBinding) => {
@@ -428,7 +454,7 @@ describe('applyBindingsSafely', () => {
     }
   })
 
-  it('rejects a controlling custom handler before its live init removes children', () => {
+  it('restores React children removed by a rejected controlling custom init', () => {
     const binding = 'destructiveDescendantController'
     const init = vi.fn((element: Node) => {
       const auditTarget = element as Element
@@ -453,7 +479,7 @@ describe('applyBindingsSafely', () => {
       expect(container.querySelector('span')).toBe(child)
       expect(container.querySelector('span')?.textContent).toBe('React child')
       expect(init).toHaveBeenCalledOnce()
-      expect(init.mock.calls[0][0]).not.toBe(container.querySelector('section'))
+      expect(init.mock.calls[0][0]).toBe(container.querySelector('section'))
     } finally {
       delete ko.bindingHandlers[binding]
     }
