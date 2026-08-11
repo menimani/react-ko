@@ -98,9 +98,10 @@ hosts always contain children, `boundaryAs` and `as` accept non-void HTML elemen
 Additional non-void names added through `HTMLElementTagNameMap` declaration merging
 are supported at both the type and runtime boundaries and do not need a hyphen.
 Known void tags such as `input`, `img`, and `br`, and foreign-content roots such as
-`svg`, are rejected at runtime. All other `SemanticHost` values, including the text-only
-`textarea` and `title` elements, remain accepted at runtime for v2 compatibility;
-tighter host restrictions are deferred to a future major release.
+`svg`, are rejected at runtime. The text-only `textarea` and `title` elements are also
+rejected because they cannot preserve the binding subtree. This rejection is an
+intentional bug fix. All other `SemanticHost` values remain accepted at runtime for v2
+compatibility; tighter host restrictions are deferred to a future major release.
 
 Replacing a `RootKnockoutProvider` or `KnockoutScope` `viewModel` reapplies its
 Knockout bindings. Both components dispose their bindings when replaced or

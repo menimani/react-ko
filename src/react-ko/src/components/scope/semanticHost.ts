@@ -51,6 +51,7 @@ export type SemanticHost =
   | Exclude<keyof HTMLElementTagNameMap, VoidSemanticHost>
 
 const FOREIGN_CONTENT_HOSTS: ReadonlySet<string> = new Set(['math', 'svg'])
+const TEXT_CONTENT_HOSTS: ReadonlySet<string> = new Set(['textarea', 'title'])
 
 export type SemanticHostProps = {
   /** Element that prevents an enclosing Knockout root from binding this scope. */
@@ -80,6 +81,12 @@ export function semanticHostComponent(host: SemanticHost) {
   if (FOREIGN_CONTENT_HOSTS.has(normalizedHost)) {
     throw new Error(
       `react-ko cannot use <${String(host)}> as a semantic host because scope hosts require a non-void HTML element.`
+    )
+  }
+
+  if (TEXT_CONTENT_HOSTS.has(normalizedHost)) {
+    throw new Error(
+      `react-ko cannot use <${String(host)}> as a semantic host because scope hosts require an HTML element that preserves its child element subtree.`
     )
   }
 
