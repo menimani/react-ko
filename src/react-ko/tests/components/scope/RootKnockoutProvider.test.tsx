@@ -2222,6 +2222,42 @@ describe('RootKnockoutProvider', () => {
     expect(vm.choice()).toBe('selected')
   })
 
+  it('does not rebind retained options when the options binding removes a sibling', async () => {
+    const vm = {
+      choices: ko.observableArray(['Retained', 'Removed']),
+      selected: ko.observableArray(['Retained']),
+      afterRender: vi.fn(),
+    }
+
+    render(
+      <RootKnockoutProvider viewModel={vm}>
+        <select
+          multiple
+          data-testid="knockout-owned-options"
+          data-bind="options: choices, selectedOptions: selected, optionsAfterRender: afterRender"
+        />
+      </RootKnockoutProvider>
+    )
+    const select = screen.getByTestId('knockout-owned-options') as HTMLSelectElement
+
+    expect([...select.selectedOptions].map(({ value }) => value)).toEqual(['Retained'])
+    expect(
+      vm.afterRender.mock.calls.filter(([, item]) => item === 'Retained')
+    ).toHaveLength(1)
+
+    await act(async () => {
+      vm.choices.remove('Removed')
+      await Promise.resolve()
+    })
+
+    expect([...select.options].map(({ value }) => value)).toEqual(['Retained'])
+    expect([...select.selectedOptions].map(({ value }) => value)).toEqual(['Retained'])
+    expect(vm.selected()).toEqual(['Retained'])
+    expect(
+      vm.afterRender.mock.calls.filter(([, item]) => item === 'Retained')
+    ).toHaveLength(1)
+  })
+
   it('reapplies selectedOptions when React changes a value-less option text', async () => {
     const vm = { choices: ko.observableArray(['late']) }
 

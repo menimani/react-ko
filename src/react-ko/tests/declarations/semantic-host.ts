@@ -4,11 +4,15 @@ declare global {
   interface HTMLElementTagNameMap {
     'custom-host': HTMLElement
     customhost: HTMLElement
+    frame: HTMLElement
+    basefont: HTMLElement
+    bgsound: HTMLElement
+    keygen: HTMLElement
+    menuitem: HTMLElement
   }
 }
 
 type Assert<T extends true> = T
-type AssertNot<T extends false> = T
 
 type MarqueeIsSemanticHost = Assert<'marquee' extends SemanticHost ? true : false>
 type DirIsSemanticHost = Assert<'dir' extends SemanticHost ? true : false>
@@ -20,19 +24,11 @@ type CustomElementIsSemanticHost = Assert<
 type DeclarationMergedHostIsSemanticHost = Assert<
   'customhost' extends SemanticHost ? true : false
 >
-type FrameIsNotSemanticHost = AssertNot<'frame' extends SemanticHost ? true : false>
-type BasefontIsNotSemanticHost = AssertNot<
-  'basefont' extends SemanticHost ? true : false
->
-type BgsoundIsNotSemanticHost = AssertNot<
-  'bgsound' extends SemanticHost ? true : false
->
-type KeygenIsNotSemanticHost = AssertNot<
-  'keygen' extends SemanticHost ? true : false
->
-type MenuitemIsNotSemanticHost = AssertNot<
-  'menuitem' extends SemanticHost ? true : false
->
+type FrameIsSemanticHost = Assert<'frame' extends SemanticHost ? true : false>
+type BasefontIsSemanticHost = Assert<'basefont' extends SemanticHost ? true : false>
+type BgsoundIsSemanticHost = Assert<'bgsound' extends SemanticHost ? true : false>
+type KeygenIsSemanticHost = Assert<'keygen' extends SemanticHost ? true : false>
+type MenuitemIsSemanticHost = Assert<'menuitem' extends SemanticHost ? true : false>
 
 void (true satisfies MarqueeIsSemanticHost)
 void (true satisfies DirIsSemanticHost)
@@ -40,8 +36,8 @@ void (true satisfies FontIsSemanticHost)
 void (true satisfies FramesetIsSemanticHost)
 void (true satisfies CustomElementIsSemanticHost)
 void (true satisfies DeclarationMergedHostIsSemanticHost)
-void (false satisfies FrameIsNotSemanticHost)
-void (false satisfies BasefontIsNotSemanticHost)
-void (false satisfies BgsoundIsNotSemanticHost)
-void (false satisfies KeygenIsNotSemanticHost)
-void (false satisfies MenuitemIsNotSemanticHost)
+void (true satisfies FrameIsSemanticHost)
+void (true satisfies BasefontIsSemanticHost)
+void (true satisfies BgsoundIsSemanticHost)
+void (true satisfies KeygenIsSemanticHost)
+void (true satisfies MenuitemIsSemanticHost)

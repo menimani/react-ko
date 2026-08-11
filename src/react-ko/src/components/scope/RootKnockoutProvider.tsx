@@ -34,6 +34,7 @@ export const RootKnockoutProvider = React.memo(function RootKnockoutProvider<T>(
   }, [])
   const {
     container: koContainer,
+    bindingCommitMarker,
     generation,
     bindingEstablished,
     preserveServerChildren,
@@ -59,6 +60,7 @@ export const RootKnockoutProvider = React.memo(function RootKnockoutProvider<T>(
         <ScopeBindGenerationContext.Provider value={generation}>
           <BoundaryHost data-bind={`${DESCENDANT_BINDING_BOUNDARY}: true`} style={{ display: 'contents' }}>
             <BindingHost ref={koContainer} style={{ display: 'contents' }}>
+              {bindingCommitMarker}
               {(preserveServerChildren || bindingEstablished) && !replacingHost
                 ? children
                 : null}

@@ -38,6 +38,7 @@ export const KnockoutScope = React.memo(function KnockoutScope<T>({
   }, [])
   const {
     container,
+    bindingCommitMarker,
     generation,
     bindingEstablished,
     preserveServerChildren,
@@ -62,6 +63,7 @@ export const KnockoutScope = React.memo(function KnockoutScope<T>({
       <ScopeBindGenerationContext.Provider value={generation}>
         <BoundaryHost data-bind={`${DESCENDANT_BINDING_BOUNDARY}: true`} style={{ display: 'contents' }}>
           <BindingHost ref={container} style={{ display: 'contents' }}>
+            {bindingCommitMarker}
             {(preserveServerChildren || bindingEstablished) && !replacingHost
               ? children
               : null}

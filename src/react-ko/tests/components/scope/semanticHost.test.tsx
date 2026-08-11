@@ -97,8 +97,18 @@ describe('semantic hosts', () => {
     }
   )
 
-  it.each(['marquee', 'dir', 'font', 'frameset'])(
-    'accepts the mapped non-void <%s> host at runtime',
+  it.each([
+    'marquee',
+    'dir',
+    'font',
+    'frameset',
+    'frame',
+    'basefont',
+    'bgsound',
+    'keygen',
+    'menuitem',
+  ])(
+    'accepts the compatible mapped <%s> host at runtime',
     (host) => {
       expect(() => semanticHostComponent(host as never)).not.toThrow()
     }
@@ -172,22 +182,6 @@ describe('semantic hosts', () => {
       consoleError.mockRestore()
     }
   })
-
-  it.each(['frame', 'basefont', 'bgsound', 'keygen', 'menuitem'])(
-    'rejects the JavaScript childless <%s> host before React can discard its children',
-    (host) => {
-      for (const hostProp of ['as', 'boundaryAs'] as const) {
-        const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
-        try {
-          expect(() => renderWithJavaScriptHost(hostProp, host)).toThrow(
-            `cannot use the void HTML element <${host}>`
-          )
-        } finally {
-          consoleError.mockRestore()
-        }
-      }
-    }
-  )
 
   it.each([
     ['as', 'svg'],

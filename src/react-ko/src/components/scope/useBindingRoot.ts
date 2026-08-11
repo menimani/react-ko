@@ -1,4 +1,5 @@
 import {
+  createElement,
   useInsertionEffect,
   useLayoutEffect,
   useRef,
@@ -26,6 +27,11 @@ const subscribeToNothing = () => () => undefined
 const getClientSnapshot = () => false
 const getServerSnapshot = () => true
 
+function BindingCommitMarker({ onCommit }: { onCommit: () => void }) {
+  useInsertionEffect(onCommit)
+  return null
+}
+
 export function useBindingRoot(
   viewModel: unknown,
   parentGeneration: number,
@@ -40,13 +46,17 @@ export function useBindingRoot(
   const bindingEstablishedIdentity = useRef<unknown>(UNBOUND_BINDING)
   const [, setBindingEstablishedVersion] = useState(0)
   const [generation, setGeneration] = useState(0)
-  const renderedActiveBinding = activeBinding.current
-  // Host mutations happen before insertion effects. Publish the pending handoff
-  // during render so the old observer cannot bind them with its ViewModel.
-  pendingBindingReplacement.current =
-    renderedActiveBinding !== null &&
-    (!Object.is(renderedActiveBinding.viewModel, viewModel) ||
-      renderedActiveBinding.parentGeneration !== parentGeneration)
+  // The marker precedes user children, so its insertion effect publishes a
+  // replacement before their host mutations. Suspended renders never run it.
+  const bindingCommitMarker = createElement(BindingCommitMarker, {
+    onCommit: () => {
+      const active = activeBinding.current
+      pendingBindingReplacement.current =
+        active !== null &&
+        (!Object.is(active.viewModel, viewModel) ||
+          active.parentGeneration !== parentGeneration)
+    },
+  })
   // React uses the server snapshot for SSR and the first hydration render.
   // Client-only mounts still wait for the binding-established update.
   const preserveServerChildren = useSyncExternalStore(
@@ -145,6 +155,7 @@ export function useBindingRoot(
 
   return {
     container,
+    bindingCommitMarker,
     generation,
     bindingEstablished: Object.is(
       bindingEstablishedIdentity.current,

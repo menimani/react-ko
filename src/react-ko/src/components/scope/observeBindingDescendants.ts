@@ -1062,9 +1062,13 @@ function changedOptionSelects(
       }
     }
 
+    const select = parent.closest('select') as HTMLElement | null
+    const ownedContent =
+      select === null ? null : bindingStates.get(select)?.ownedContent
     for (const node of record.removedNodes) {
       if (
         node.nodeType !== Node.ELEMENT_NODE ||
+        ownedContent?.has(node) === true ||
         !hasReactOwnership(parent)
       ) {
         continue
