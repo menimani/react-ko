@@ -1247,9 +1247,15 @@ function reactPropForAttribute(
 ) {
   const keys = new Set([...previous.keys(), ...current.keys()])
   return [...keys].find(
-    (name) =>
-      (REACT_PROP_ATTRIBUTE_ALIASES.get(name) ?? name).toLowerCase() ===
-      attributeName.toLowerCase()
+    (name) => {
+      const attribute =
+        name === 'defaultChecked'
+          ? 'checked'
+          : name === 'defaultValue'
+            ? 'value'
+            : REACT_PROP_ATTRIBUTE_ALIASES.get(name) ?? name
+      return attribute.toLowerCase() === attributeName.toLowerCase()
+    }
   )
 }
 
@@ -1371,18 +1377,21 @@ function refreshReactOwnedDom(
       }
 
       const propertyBindings: Array<
-        [string, string[], 'value' | 'checked' | 'disabled']
+        [string[], string[], 'value' | 'checked' | 'disabled']
       > = [
-        ['value', ['value', 'textInput', 'checkedValue'], 'value'],
-        ['checked', ['checked'], 'checked'],
-        ['disabled', ['enable', 'disable'], 'disabled'],
+        [['value', 'defaultValue'], ['value', 'textInput', 'checkedValue'], 'value'],
+        [['checked', 'defaultChecked'], ['checked'], 'checked'],
+        [['disabled'], ['enable', 'disable'], 'disabled'],
       ]
-      for (const [prop, bindings, snapshotKey] of propertyBindings) {
+      for (const [props, bindings, snapshotKey] of propertyBindings) {
+        const changedProp = props.find((prop) =>
+          reactPropChanged(state.reactProps, currentProps, prop)
+        )
         if (
           bindings.some((binding) => names.has(binding)) &&
-          reactPropChanged(state.reactProps, currentProps, prop)
+          changedProp !== undefined
         ) {
-          const reactValue = currentProps.get(prop)
+          const reactValue = currentProps.get(changedProp)
           if (snapshotKey === 'value') state.beforeBinding.value = reactValue ?? ''
           else if (snapshotKey === 'checked') state.beforeBinding.checked = Boolean(reactValue)
           else state.beforeBinding.disabled = Boolean(reactValue)
