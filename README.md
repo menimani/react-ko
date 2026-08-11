@@ -99,9 +99,11 @@ Additional non-void names added through `HTMLElementTagNameMap` declaration merg
 are supported at both the type and runtime boundaries and do not need a hyphen.
 Known void tags such as `input`, `img`, and `br`, and foreign-content roots such as
 `svg`, are rejected at runtime. The text-only `textarea` and `title` elements are also
-rejected because they cannot preserve the binding subtree. This rejection is an
-intentional bug fix. All other `SemanticHost` values remain accepted at runtime for v2
-compatibility; tighter host restrictions are deferred to a future major release.
+rejected because they cannot preserve the binding subtree. The `template` element is
+rejected because a scope host must keep its children in the document tree, while a
+`template` keeps them in its `content` fragment. These rejections are intentional bug
+fixes. All other `SemanticHost` values remain accepted at runtime for v2 compatibility;
+tighter host restrictions are deferred to a future major release.
 
 Replacing a `RootKnockoutProvider` or `KnockoutScope` `viewModel` reapplies its
 Knockout bindings. Both components dispose their bindings when replaced or

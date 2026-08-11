@@ -25,7 +25,7 @@ export const RootKnockoutProvider = React.memo(function RootKnockoutProvider<T>(
   const BoundaryHost = semanticHostComponent(boundaryAs)
   const BindingHost = semanticHostComponent(as)
   const hostIdentity = `${boundaryAs}\0${as}`
-  const requiresPostBindChildren = as === 'script' || as === 'template'
+  const requiresPostBindChildren = as === 'script'
   const committedHostIdentity = React.useRef(hostIdentity)
   const replacingHost = committedHostIdentity.current !== hostIdentity
   const parentGeneration = useContext(ScopeBindGenerationContext)
@@ -39,14 +39,12 @@ export const RootKnockoutProvider = React.memo(function RootKnockoutProvider<T>(
     generation,
     bindingEstablished,
     preserveServerChildren,
-    preserveHydratedTemplate,
   } = useBindingRoot(
     viewModel,
     parentGeneration,
     handleBindingError,
     true,
-    hostIdentity,
-    as === 'template'
+    hostIdentity
   )
 
   React.useLayoutEffect(() => {
@@ -63,13 +61,8 @@ export const RootKnockoutProvider = React.memo(function RootKnockoutProvider<T>(
         <ScopeBindGenerationContext.Provider value={generation}>
           <BoundaryHost data-bind={`${DESCENDANT_BINDING_BOUNDARY}: true`} style={{ display: 'contents' }}>
             {bindingCommitMarker}
-            <BindingHost
-              ref={koContainer}
-              style={{ display: 'contents' }}
-              suppressHydrationWarning={as === 'template' ? true : undefined}
-            >
-              {!preserveHydratedTemplate &&
-              ((!replacingHost &&
+            <BindingHost ref={koContainer} style={{ display: 'contents' }}>
+              {((!replacingHost &&
                 (!requiresPostBindChildren || preserveServerChildren)) ||
                 bindingEstablished)
                 ? children

@@ -2,7 +2,6 @@ import {
   createElement,
   useCallback,
   useEffect,
-  useId,
   useInsertionEffect,
   useLayoutEffect,
   useRef,
@@ -24,104 +23,22 @@ type ActiveBinding = {
   viewModel: unknown
   parentGeneration: number
   stopObserving: () => void
-  releaseTemplateAttachmentCheck?: () => void
 }
 
 const UNBOUND_BINDING = Symbol('unbound')
 const subscribeToNothing = () => () => undefined
 const getClientSnapshot = () => false
 const getServerSnapshot = () => true
-const TEMPLATE_ATTACHMENT_CHECK = Symbol.for(
-  'react-ko.templateContentAttachmentCheck'
-)
-
-type TemplateAttachmentCheckRegistry = {
-  owners: number
-  key: string
-  original: (node: Node) => boolean
-  patched: (node: Node) => boolean
-}
-
-function retainTemplateAttachmentCheck() {
-  const utils = ko.utils as typeof ko.utils & Record<string, unknown> & {
-    [TEMPLATE_ATTACHMENT_CHECK]?: TemplateAttachmentCheckRegistry
-  }
-  let registry = utils[TEMPLATE_ATTACHMENT_CHECK]
-  if (registry === undefined) {
-    // Parsed template contents use an inert owner document with no
-    // documentElement. Knockout's private attachment check assumes one exists,
-    // so locate the debug or minified method by its stable DOM expression.
-    const attachmentCheck = Object.entries(utils).find(
-      ([, candidate]) =>
-        typeof candidate === 'function' &&
-        Function.prototype.toString
-          .call(candidate)
-          .includes('ownerDocument.documentElement')
-    )
-    if (attachmentCheck === undefined) {
-      throw new Error(
-        'react-ko could not prepare Knockout bindings for hydrated <template> content.'
-      )
-    }
-    const [key, originalValue] = attachmentCheck
-    const original = originalValue as (node: Node) => boolean
-    const patched = (node: Node) =>
-      node.ownerDocument.documentElement === null || original(node)
-    registry = { owners: 0, key, original, patched }
-    utils[TEMPLATE_ATTACHMENT_CHECK] = registry
-    utils[key] = patched
-  }
-  registry.owners += 1
-
-  return () => {
-    if (registry === undefined) return
-    registry.owners -= 1
-    if (registry.owners !== 0) return
-    if (utils[registry.key] === registry.patched) {
-      utils[registry.key] = registry.original
-    }
-    delete utils[TEMPLATE_ATTACHMENT_CHECK]
-  }
-}
-
-function hasReactTag(node: Node) {
-  for (const name of Object.getOwnPropertyNames(node)) {
-    if (name.startsWith('__reactFiber$') || name.startsWith('__reactProps$')) {
-      return true
-    }
-  }
-  return false
-}
-
-function belongsToReactRoot(node: Node) {
-  for (
-    let current: Node | null = node;
-    current !== null;
-    current = current.parentNode
-  ) {
-    if (
-      Object.getOwnPropertyNames(current).some((name) =>
-        name.startsWith('__reactContainer$')
-      )
-    ) {
-      return true
-    }
-  }
-  return false
-}
 
 function BindingCommitMarker({
   onCommit,
   onActivate,
-  hydrationId,
 }: {
   onCommit: () => void
   onActivate: (node: HTMLElement | null) => void
-  hydrationId?: string
 }) {
   useInsertionEffect(onCommit)
   return createElement('template', {
-    'data-react-ko-hydration': hydrationId,
     ref: (marker: HTMLTemplateElement | null) => {
       onActivate((marker?.nextElementSibling as HTMLElement | null) ?? null)
     },
@@ -133,8 +50,7 @@ export function useBindingRoot(
   parentGeneration: number,
   onError: (error: unknown) => void,
   notifyBindingEstablished = false,
-  bindingIdentity: unknown = undefined,
-  templateHost = false
+  bindingIdentity: unknown = undefined
 ) {
   const containerNode = useRef<HTMLElement | null>(null)
   const activeBinding = useRef<ActiveBinding | null>(null)
@@ -145,48 +61,6 @@ export function useBindingRoot(
   const refreshInitialBinding = useRef(false)
   const [, setBindingEstablishedVersion] = useState(0)
   const [generation, setGeneration] = useState(0)
-  const hydrationId = useId()
-  const [hydratedTemplate] = useState(() => {
-    if (!templateHost || typeof document === 'undefined') return false
-
-    // An unclaimed marker beneath a container already registered by
-    // hydrateRoot identifies this render without confusing a later SSR pass
-    // with an already-mounted root that happens to reuse the same useId.
-    for (const marker of document.querySelectorAll<HTMLTemplateElement>(
-      'template[data-react-ko-hydration]'
-    )) {
-      if (
-        marker.dataset.reactKoHydration !== hydrationId ||
-        hasReactTag(marker) ||
-        !belongsToReactRoot(marker)
-      ) {
-        continue
-      }
-      const host = marker.nextElementSibling
-      const view = host?.ownerDocument.defaultView
-      return (
-        host !== null &&
-        view !== null &&
-        view !== undefined &&
-        host instanceof view.HTMLTemplateElement &&
-        host.content.hasChildNodes()
-      )
-    }
-    return false
-  })
-  const hydratedTemplateIdentity = useRef(bindingIdentity)
-  const hydratedTemplateActive = useRef(hydratedTemplate)
-  if (
-    hydratedTemplateActive.current &&
-    (!templateHost ||
-      !Object.is(hydratedTemplateIdentity.current, bindingIdentity))
-  ) {
-    hydratedTemplateActive.current = false
-  }
-  const preserveHydratedTemplate = hydratedTemplateActive.current
-  const preserveHydratedTemplateRef = useRef(preserveHydratedTemplate)
-  preserveHydratedTemplateRef.current = preserveHydratedTemplate
-  const hydratedTemplateContainer = useRef<HTMLElement | null>(null)
   const preserveServerChildren = useSyncExternalStore(
     subscribeToNothing,
     getClientSnapshot,
@@ -201,36 +75,25 @@ export function useBindingRoot(
 
     active.stopObserving()
     ko.cleanNode(active.node)
-    active.releaseTemplateAttachmentCheck?.()
     activeBinding.current = null
   }
 
   function bind(node: HTMLElement, replacing: boolean) {
-    const releaseTemplateAttachmentCheck =
-      node === hydratedTemplateContainer.current
-        ? retainTemplateAttachmentCheck()
-        : undefined
-    try {
-      const bindingStates = prepareBindingDescendants(node)
-      const deferredSuspenseBindings = applyBindingsSafely(viewModel, node)
-      const stopObserving = observeBindingDescendants(
-        viewModel,
-        node,
-        onError,
-        bindingStates,
-        () => pendingBindingReplacement.current,
-        deferredSuspenseBindings
-      )
-      activeBinding.current = {
-        node,
-        viewModel,
-        parentGeneration,
-        stopObserving,
-        releaseTemplateAttachmentCheck,
-      }
-    } catch (error) {
-      releaseTemplateAttachmentCheck?.()
-      throw error
+    const bindingStates = prepareBindingDescendants(node)
+    const deferredSuspenseBindings = applyBindingsSafely(viewModel, node)
+    const stopObserving = observeBindingDescendants(
+      viewModel,
+      node,
+      onError,
+      bindingStates,
+      () => pendingBindingReplacement.current,
+      deferredSuspenseBindings
+    )
+    activeBinding.current = {
+      node,
+      viewModel,
+      parentGeneration,
+      stopObserving,
     }
     if (
       notifyBindingEstablished &&
@@ -280,30 +143,9 @@ export function useBindingRoot(
   // The inert template precedes the binding host inside the structural
   // boundary. Its ref is attached before the host's descendants run layout
   // effects without changing the caller-visible child subtree.
-  const prepareBindingHost = useCallback((node: HTMLElement | null) => {
-    if (node === null) return
-    if (preserveHydratedTemplateRef.current) {
-      const template = node as HTMLTemplateElement
-      let contentContainer = hydratedTemplateContainer.current
-      if (contentContainer === null) {
-        // React cannot traverse template.content during hydration. Keep those
-        // server nodes there and bind them through the same display:contents
-        // structural container used by ordinary binding roots.
-        contentContainer = template.ownerDocument.createElement('div')
-        contentContainer.style.display = 'contents'
-        contentContainer.append(...template.content.childNodes)
-        template.content.append(contentContainer)
-        hydratedTemplateContainer.current = contentContainer
-      }
-      containerNode.current = contentContainer
-    } else {
-      containerNode.current = node
-    }
-  }, [])
-
   const activateBindingHost = useCallback((node: HTMLElement | null) => {
     if (node === null) return
-    prepareBindingHost(node)
+    containerNode.current = node
     const hadActiveBinding = activeBinding.current !== null
     synchronizeBindingForCommit.current()
     refreshInitialBinding.current =
@@ -311,7 +153,6 @@ export function useBindingRoot(
   }, [])
 
   const bindingCommitMarker = createElement(BindingCommitMarker, {
-    hydrationId: templateHost ? hydrationId : undefined,
     onCommit: () => {
       synchronizeBindingForCommit.current = synchronizeBinding
       const active = activeBinding.current
@@ -360,7 +201,7 @@ export function useBindingRoot(
   )
 
   return {
-    container: templateHost ? prepareBindingHost : containerNode,
+    container: containerNode,
     bindingCommitMarker,
     generation,
     bindingEstablished: Object.is(
@@ -368,6 +209,5 @@ export function useBindingRoot(
       bindingIdentity
     ),
     preserveServerChildren,
-    preserveHydratedTemplate,
   }
 }
