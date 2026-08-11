@@ -15,6 +15,12 @@ import {
   type AppViewModelContextHandle,
 } from 'react-ko'
 
+declare global {
+  interface HTMLElementTagNameMap {
+    'custom-host': HTMLElement
+  }
+}
+
 type Equal<Left, Right> =
   (<T>() => T extends Left ? 1 : 2) extends
   (<T>() => T extends Right ? 1 : 2) ? true : false
@@ -46,6 +52,11 @@ expectType<ViewModel>(useAppViewModel<ViewModel>())
 
 createElement(RootKnockoutProvider, { viewModel, children: child })
 createElement(RootKnockoutProvider, { viewModel, children: child, boundaryAs: 'main', as: 'section' })
+createElement(RootKnockoutProvider, { viewModel, children: child, as: 'custom-host' })
+createElement(RootKnockoutProvider, { viewModel, children: child, as: 'marquee' })
+createElement(RootKnockoutProvider, { viewModel, children: child, as: 'dir' })
+createElement(RootKnockoutProvider, { viewModel, children: child, as: 'font' })
+createElement(RootKnockoutProvider, { viewModel, children: child, as: 'frameset' })
 // @ts-expect-error Scope hosts always contain children, so void elements are invalid.
 createElement(RootKnockoutProvider, { viewModel, children: child, boundaryAs: 'input' })
 // @ts-expect-error A root requires a view model.
@@ -83,6 +94,12 @@ type Row = { id: number; label: string }
 const rows: Row[] = [{ id: 1, label: 'one' }]
 const observableRows = ko.observableArray(rows)
 const computedRows = ko.pureComputed(() => observableRows())
+const nullableObservableRows = ko.observable<Row[] | null | undefined>(rows)
+const nullableComputedRows = ko.pureComputed<Row[] | null | undefined>(
+  () => nullableObservableRows()
+)
+const readonlyRows = [{ id: 2, label: 'two' }] as const
+const readonlyObservableRows = ko.observable<readonly Row[]>(readonlyRows)
 
 KoForeach({
   items: rows,
@@ -96,6 +113,24 @@ KoForeach({
 KoForeach({ items: observableRows, children: (row) => row.label })
 KoForeach({ items: rows, children: (row) => row.label, boundaryAs: 'li', as: 'span' })
 KoForeach({ items: computedRows, children: (row) => row.label })
+KoForeach({ items: nullableObservableRows, children: (row) => row.label })
+KoForeach({ items: nullableComputedRows, children: (row) => row.label })
+KoForeach({
+  items: readonlyRows,
+  children: (row) => {
+    expectType<'two'>(row.label)
+    return row.label
+  },
+})
+KoForeach({
+  items: readonlyObservableRows,
+  children: (row) => {
+    expectType<Row>(row)
+    return row.label
+  },
+})
+KoForeach<Row>({ items: null, children: (row) => row.label })
+KoForeach<Row>({ items: undefined, children: (row) => row.label })
 // @ts-expect-error The render callback receives the inferred item type.
 KoForeach({ items: rows, children: (row: string) => row })
 // @ts-expect-error itemKey must return a React key.

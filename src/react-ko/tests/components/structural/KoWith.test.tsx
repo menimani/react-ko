@@ -161,6 +161,59 @@ describe('KoWith', () => {
     expect(screen.queryByText('Hidden')).toBeNull()
   })
 
+  it('re-renders when the plain value prop changes', () => {
+    function Harness({ value }: { value: string | null }) {
+      return (
+        <RootKnockoutProvider viewModel={{}}>
+          <KoWith value={value}>{(current) => <span>{current}</span>}</KoWith>
+        </RootKnockoutProvider>
+      )
+    }
+
+    const { rerender } = render(<Harness value="First" />)
+    expect(screen.getByText('First')).toBeDefined()
+
+    rerender(<Harness value={null} />)
+    expect(screen.queryByText('First')).toBeNull()
+
+    rerender(<Harness value="Second" />)
+    expect(screen.getByText('Second')).toBeDefined()
+  })
+
+  it('moves its subscription when the value source is replaced', () => {
+    const first = ko.observable<Selection | null>(selection('First'))
+    const second = ko.observable<Selection | null>(selection('Second'))
+
+    function Harness({ value }: { value: ko.Observable<Selection | null> }) {
+      return (
+        <RootKnockoutProvider viewModel={{}}>
+          <KoWith value={value}>{() => <span data-bind="text: label" />}</KoWith>
+        </RootKnockoutProvider>
+      )
+    }
+
+    const { rerender } = render(<Harness value={first} />)
+    expect(first.getSubscriptionsCount()).toBe(1)
+
+    rerender(<Harness value={second} />)
+
+    expect(screen.queryByText('First')).toBeNull()
+    expect(screen.getByText('Second')).toBeDefined()
+    expect(first.getSubscriptionsCount()).toBe(0)
+    expect(second.getSubscriptionsCount()).toBe(1)
+
+    act(() => {
+      first(null)
+    })
+    expect(screen.getByText('Second')).toBeDefined()
+
+    act(() => {
+      second(selection('Third'))
+    })
+    expect(screen.queryByText('Second')).toBeNull()
+    expect(screen.getByText('Third')).toBeDefined()
+  })
+
   it('disposes its value subscription on unmount', () => {
     const value = ko.observable<Selection | null>(selection('Selected'))
     const { unmount } = render(

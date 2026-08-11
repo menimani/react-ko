@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest'
-import { render, screen, act, waitFor } from '@testing-library/react'
-import { Component, type ReactNode } from 'react'
+import { describe, it, expect, vi } from 'vitest'
+import { render, screen, act, fireEvent, waitFor } from '@testing-library/react'
+import { Component, type ReactNode, useLayoutEffect, useRef, useState } from 'react'
 import ko from 'knockout'
 import { RootKnockoutProvider, KnockoutScope } from '@/index'
 
@@ -26,7 +26,353 @@ function Host({ vm }: { vm: unknown }) {
   )
 }
 
+function LocalClassBinding({ vm }: { vm: unknown }) {
+  const [className, setClassName] = useState('react-initial')
+  const [bound, setBound] = useState(true)
+
+  return (
+    <RootKnockoutProvider viewModel={vm}>
+      <>
+        <span
+          data-testid="class-owner"
+          className={className}
+          data-bind={bound ? 'class: activeClass' : undefined}
+        />
+        <button onClick={() => setClassName('react-updated')}>Update class</button>
+        <button onClick={() => setBound(false)}>Retire class</button>
+      </>
+    </RootKnockoutProvider>
+  )
+}
+
+function LocalVisibilityBinding({ binding, vm }: { binding: 'visible' | 'hidden'; vm: unknown }) {
+  const [display, setDisplay] = useState('inline')
+  const [bound, setBound] = useState(true)
+
+  return (
+    <RootKnockoutProvider viewModel={vm}>
+      <>
+        <span
+          data-testid={`${binding}-owner`}
+          style={{ display }}
+          data-bind={bound ? `${binding}: concealed` : undefined}
+        />
+        <button onClick={() => setDisplay('flex')}>Update {binding} display</button>
+        <button onClick={() => setBound(false)}>Retire {binding}</button>
+      </>
+    </RootKnockoutProvider>
+  )
+}
+
+function LocalSvgAttributeBinding({ vm }: { vm: unknown }) {
+  const [strokeWidth, setStrokeWidth] = useState(1)
+  const [bound, setBound] = useState(true)
+
+  return (
+    <RootKnockoutProvider viewModel={vm}>
+      <>
+        <svg>
+          <line
+            data-testid="stroke-owner"
+            strokeWidth={strokeWidth}
+            data-bind={bound ? "attr: { 'stroke-width': knockoutStrokeWidth }" : undefined}
+          />
+        </svg>
+        <button onClick={() => setStrokeWidth(3)}>Update stroke width</button>
+        <button onClick={() => setBound(false)}>Retire stroke width</button>
+      </>
+    </RootKnockoutProvider>
+  )
+}
+
+function LocalNamespacedSvgAttributeBinding({ vm }: { vm: unknown }) {
+  const [phase, setPhase] = useState(0)
+
+  return (
+    <RootKnockoutProvider viewModel={vm}>
+      <>
+        <svg xmlnsXlink="http://www.w3.org/1999/xlink">
+          <use
+            data-testid="namespaced-owner"
+            xlinkHref={phase === 0 ? '#react-initial' : '#react-latest'}
+            xmlSpace={phase === 0 ? 'default' : 'react-latest'}
+            data-bind={
+              phase < 2
+                ? "attr: { 'xlink:href': knockoutHref, 'xml:space': knockoutSpace }"
+                : undefined
+            }
+          />
+        </svg>
+        <button onClick={() => setPhase((current) => current + 1)}>
+          Advance namespaced props
+        </button>
+      </>
+    </RootKnockoutProvider>
+  )
+}
+
+function LocalPanoseSvgAttributeBinding({ vm }: { vm: unknown }) {
+  const [phase, setPhase] = useState(0)
+  const owner = useRef<SVGSVGElement>(null)
+  const reactPanose = phase === 0 ? 'react-initial' : 'react-latest'
+
+  useLayoutEffect(() => {
+    // React's canonical property table maps panose1 to panose-1. Reflect that
+    // spelling explicitly because the React version in this test matrix still
+    // writes the pre-fix panose1 attribute.
+    owner.current?.setAttribute('panose-1', reactPanose)
+  }, [reactPanose])
+
+  return (
+    <RootKnockoutProvider viewModel={vm}>
+      <>
+        <svg
+          ref={owner}
+          data-testid="panose-owner"
+          panose1={reactPanose}
+          data-bind={phase < 2 ? "attr: { 'panose-1': knockoutPanose }" : undefined}
+        />
+        <button onClick={() => setPhase((current) => current + 1)}>
+          Advance panose prop
+        </button>
+      </>
+    </RootKnockoutProvider>
+  )
+}
+
 describe('observeBindingDescendants', () => {
+  it('rejects a late React child owned by an initially empty custom descendant controller', async () => {
+    const binding = 'customLateDescendantController'
+    const removeChildren = ko.observable(false)
+    ko.bindingHandlers[binding] = {
+      init() {
+        return { controlsDescendantBindings: true }
+      },
+      update(element, valueAccessor) {
+        if (ko.unwrap(valueAccessor())) {
+          ko.utils.emptyDomNode(element)
+        }
+      },
+    }
+
+    function LateChild() {
+      useLayoutEffect(() => {
+        removeChildren(true)
+      }, [])
+      return <span>Late React child</span>
+    }
+
+    function Harness({ showChild }: { showChild: boolean }) {
+      return (
+        <ErrorBoundary>
+          <RootKnockoutProvider viewModel={{ removeChildren }}>
+            <section
+              data-testid="custom-controller"
+              data-bind={`${binding}: removeChildren`}
+            >
+              {showChild ? <LateChild /> : null}
+            </section>
+          </RootKnockoutProvider>
+        </ErrorBoundary>
+      )
+    }
+
+    try {
+      const mounted = render(<Harness showChild={false} />)
+      expect(screen.getByTestId('custom-controller').childNodes).toHaveLength(0)
+      expect(removeChildren.getSubscriptionsCount()).toBe(1)
+
+      mounted.rerender(<Harness showChild />)
+
+      await waitFor(() => expect(screen.getByText('Binding failed')).toBeDefined())
+    } finally {
+      delete ko.bindingHandlers[binding]
+    }
+  })
+
+  it('rejects a React-owned virtual binding introduced by an HTML replacement', async () => {
+    const viewModel = { visible: ko.observable(false) }
+
+    function Harness({ replaced }: { replaced: boolean }) {
+      const markup = replaced
+        ? '<!-- ko if: visible --><span>Ignored replacement</span><!-- /ko -->'
+        : '<span>Initial markup</span>'
+
+      return (
+        <ErrorBoundary>
+          <RootKnockoutProvider viewModel={viewModel}>
+            <div dangerouslySetInnerHTML={{ __html: markup }} />
+          </RootKnockoutProvider>
+        </ErrorBoundary>
+      )
+    }
+
+    const mounted = render(<Harness replaced={false} />)
+    expect(screen.getByText('Initial markup')).toBeDefined()
+
+    mounted.rerender(<Harness replaced />)
+
+    await waitFor(() => expect(screen.getByText('Binding failed')).toBeDefined())
+  })
+
+  it('retires a click binding with its handlerless Bubble option when data-bind is removed', () => {
+    const handle = vi.fn()
+
+    function Harness({ bound }: { bound: boolean }) {
+      return (
+        <ErrorBoundary>
+          <RootKnockoutProvider viewModel={{ handle }}>
+            <button
+              data-testid="click-owner"
+              data-bind={bound ? 'click: handle, clickBubble: false' : undefined}
+            />
+          </RootKnockoutProvider>
+        </ErrorBoundary>
+      )
+    }
+
+    const { rerender } = render(<Harness bound />)
+    const owner = screen.getByTestId('click-owner')
+    fireEvent.click(owner)
+    expect(handle).toHaveBeenCalledOnce()
+
+    rerender(<Harness bound={false} />)
+    expect(screen.queryByText('Binding failed')).toBeNull()
+    fireEvent.click(owner)
+    expect(handle).toHaveBeenCalledOnce()
+  })
+
+  it('retires an event binding with its handlerless Bubble option when data-bind is replaced', () => {
+    const handle = vi.fn()
+
+    function Harness({ replaced }: { replaced: boolean }) {
+      return (
+        <ErrorBoundary>
+          <RootKnockoutProvider viewModel={{ handle, label: 'Replacement' }}>
+            <button
+              data-testid="event-owner"
+              data-bind={
+                replaced
+                  ? 'text: label'
+                  : 'event: { mouseover: handle }, mouseoverBubble: false'
+              }
+            />
+          </RootKnockoutProvider>
+        </ErrorBoundary>
+      )
+    }
+
+    const { rerender } = render(<Harness replaced={false} />)
+    const owner = screen.getByTestId('event-owner')
+    fireEvent.mouseOver(owner)
+    expect(handle).toHaveBeenCalledOnce()
+
+    rerender(<Harness replaced />)
+    expect(screen.queryByText('Binding failed')).toBeNull()
+    expect(owner.textContent).toBe('Replacement')
+    fireEvent.mouseOver(owner)
+    expect(handle).toHaveBeenCalledOnce()
+  })
+
+  it('reapplies a class binding after a local React className update and retires it safely', async () => {
+    render(<LocalClassBinding vm={{ activeClass: ko.observable('ko-active') }} />)
+    const owner = screen.getByTestId('class-owner')
+    expect(owner.className).toBe('react-initial ko-active')
+
+    act(() => screen.getByText('Update class').click())
+    await waitFor(() => expect(owner.className).toBe('react-updated ko-active'))
+
+    act(() => screen.getByText('Retire class').click())
+    await waitFor(() => expect(owner.className).toBe('react-updated'))
+  })
+
+  it('reapplies and safely retires an attr binding after a React SVG prop update', async () => {
+    render(<LocalSvgAttributeBinding vm={{ knockoutStrokeWidth: 2 }} />)
+    const owner = screen.getByTestId('stroke-owner')
+    expect(owner.getAttribute('stroke-width')).toBe('2')
+
+    act(() => screen.getByText('Update stroke width').click())
+    await waitFor(() => expect(owner.getAttribute('stroke-width')).toBe('2'))
+
+    act(() => screen.getByText('Retire stroke width').click())
+    await waitFor(() => expect(owner.getAttribute('stroke-width')).toBe('3'))
+  })
+
+  it('reapplies and safely retires namespaced attr bindings after React prop updates', async () => {
+    render(
+      <LocalNamespacedSvgAttributeBinding
+        vm={{ knockoutHref: '#knockout', knockoutSpace: 'knockout-space' }}
+      />
+    )
+    const owner = screen.getByTestId('namespaced-owner')
+    const xlink = 'http://www.w3.org/1999/xlink'
+    const xml = 'http://www.w3.org/XML/1998/namespace'
+    expect(owner.getAttributeNS(xlink, 'href')).toBe('#knockout')
+    expect(owner.getAttributeNS(xml, 'space')).toBe('knockout-space')
+
+    act(() => screen.getByText('Advance namespaced props').click())
+    await waitFor(() => {
+      expect(owner.getAttributeNS(xlink, 'href')).toBe('#knockout')
+      expect(owner.getAttributeNS(xml, 'space')).toBe('knockout-space')
+    })
+
+    act(() => screen.getByText('Advance namespaced props').click())
+    await waitFor(() => {
+      expect(owner.getAttributeNS(xlink, 'href')).toBe('#react-latest')
+      expect(owner.getAttributeNS(xml, 'space')).toBe('react-latest')
+    })
+  })
+
+  it('reapplies and safely retires panose-1 after a React panose1 update', async () => {
+    render(<LocalPanoseSvgAttributeBinding vm={{ knockoutPanose: 'knockout' }} />)
+    const owner = screen.getByTestId('panose-owner')
+    expect(owner.getAttribute('panose-1')).toBe('knockout')
+
+    act(() => screen.getByText('Advance panose prop').click())
+    await waitFor(() => expect(owner.getAttribute('panose-1')).toBe('knockout'))
+
+    act(() => screen.getByText('Advance panose prop').click())
+    await waitFor(() => expect(owner.getAttribute('panose-1')).toBe('react-latest'))
+  })
+
+  for (const binding of ['visible', 'hidden'] as const) {
+    it(`reapplies and safely retires a ${binding} binding after a local React display update`, async () => {
+      const concealed = binding === 'visible' ? false : true
+      render(<LocalVisibilityBinding binding={binding} vm={{ concealed }} />)
+      const owner = screen.getByTestId(`${binding}-owner`)
+      expect(owner.style.display).toBe('none')
+
+      act(() => screen.getByText(`Update ${binding} display`).click())
+      await waitFor(() => expect(owner.style.display).toBe('none'))
+
+      act(() => screen.getByText(`Retire ${binding}`).click())
+      await waitFor(() => expect(owner.style.display).toBe('flex'))
+    })
+  }
+
+  it('leaves html binding descendants unbound after observable updates', async () => {
+    const vm = {
+      label: 'Bound unexpectedly',
+      markup: ko.observable('<span data-bind="text: label">Initial markup</span>'),
+    }
+    render(
+      <RootKnockoutProvider viewModel={{}}>
+        <KnockoutScope viewModel={vm}>
+          <div data-testid="html-owner" data-bind="html: markup" />
+        </KnockoutScope>
+      </RootKnockoutProvider>
+    )
+
+    const owner = screen.getByTestId('html-owner')
+    expect(owner.textContent).toBe('Initial markup')
+
+    act(() => {
+      vm.markup('<span data-bind="text: label">Updated markup</span>')
+    })
+
+    await waitFor(() => expect(owner.textContent).toBe('Updated markup'))
+  })
+
   it('degrades to a no-op observer in a document without a window', async () => {
     const detached = document.implementation.createHTMLDocument('detached')
     expect(detached.defaultView).toBeNull()
@@ -82,6 +428,26 @@ describe('observeBindingDescendants', () => {
     await waitFor(() => expect(screen.getByText('Inserted')).toBeDefined())
   })
 
+  it('disposes a late-bound child removed in the same batch as unmount', async () => {
+    const vm = { label: ko.observable('Late') }
+    const { unmount } = render(<Host vm={vm} />)
+    const host = screen.getByTestId('host')
+    const child = document.createElement('span')
+    child.setAttribute('data-bind', 'text: label')
+
+    act(() => {
+      host.appendChild(child)
+    })
+    await waitFor(() => expect(vm.label.getSubscriptionsCount()).toBe(1))
+
+    act(() => {
+      child.remove()
+      unmount()
+    })
+
+    expect(vm.label.getSubscriptionsCount()).toBe(0)
+  })
+
   it('binds nodes added through replaceChild', async () => {
     const vm = { label: ko.observable('Replaced') }
     render(<Host vm={vm} />)
@@ -115,6 +481,10 @@ describe('observeBindingDescendants', () => {
 
   it('restores prototype interceptors only after the last root unmounts', () => {
     const originalAppendChild = Node.prototype.appendChild
+    const originalNodeValueSetter = Object.getOwnPropertyDescriptor(
+      Node.prototype,
+      'nodeValue'
+    )?.set
     const originalValueSetter = Object.getOwnPropertyDescriptor(
       HTMLInputElement.prototype,
       'value'
@@ -131,9 +501,119 @@ describe('observeBindingDescendants', () => {
 
     second.unmount()
     expect(Node.prototype.appendChild).toBe(originalAppendChild)
+    expect(Object.getOwnPropertyDescriptor(Node.prototype, 'nodeValue')?.set).toBe(
+      originalNodeValueSetter
+    )
     expect(Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set).toBe(
       originalValueSetter
     )
+  })
+
+  it('restores prototype interceptors shared by two module instances', async () => {
+    const methods = [
+      [Node.prototype, 'appendChild'],
+      [Node.prototype, 'insertBefore'],
+      [Node.prototype, 'replaceChild'],
+      [Element.prototype, 'setAttribute'],
+      [Element.prototype, 'removeAttribute'],
+    ] as const
+    const properties = [
+      [Node.prototype, 'nodeValue'],
+      [Node.prototype, 'textContent'],
+      [CharacterData.prototype, 'data'],
+      [HTMLInputElement.prototype, 'value'],
+      [HTMLInputElement.prototype, 'checked'],
+      [HTMLTextAreaElement.prototype, 'value'],
+      [HTMLSelectElement.prototype, 'value'],
+      [HTMLOptionElement.prototype, 'selected'],
+    ] as const
+    const originals = [...methods, ...properties].map(([prototype, name]) => ({
+      prototype,
+      name,
+      descriptor: Object.getOwnPropertyDescriptor(prototype, name),
+    }))
+    const rootA = document.createElement('div')
+    const rootB = document.createElement('div')
+
+    vi.resetModules()
+    const first = await import('@/components/scope/observeBindingDescendants')
+    vi.resetModules()
+    const second = await import('@/components/scope/observeBindingDescendants')
+
+    const stopFirst = first.observeBindingDescendants(
+      {},
+      rootA,
+      () => undefined,
+      first.prepareBindingDescendants(rootA)
+    )
+    const stopSecond = second.observeBindingDescendants(
+      {},
+      rootB,
+      () => undefined,
+      second.prepareBindingDescendants(rootB)
+    )
+
+    stopFirst()
+    expect(Node.prototype.appendChild).not.toBe(
+      originals.find(({ name }) => name === 'appendChild')?.descriptor?.value
+    )
+
+    stopSecond()
+    for (const { prototype, name, descriptor } of originals) {
+      expect(Object.getOwnPropertyDescriptor(prototype, name)).toEqual(descriptor)
+    }
+    vi.resetModules()
+  })
+
+  it('binds a late child inside a copy-B root provider to its inner view model', async () => {
+    vi.resetModules()
+    const first = await import('@/index')
+    vi.resetModules()
+    const second = await import('@/index')
+    const OuterRoot = first.RootKnockoutProvider
+    const InnerRoot = second.RootKnockoutProvider
+    const outerViewModel = { label: 'Outer provider' }
+    const innerViewModel = { label: 'Inner provider' }
+
+    function Harness({
+      showInner,
+      showLate,
+    }: {
+      showInner: boolean
+      showLate: boolean
+    }) {
+      return (
+        <OuterRoot viewModel={outerViewModel}>
+          <span data-testid="copy-a-ready" data-bind="text: label" />
+          {showInner ? (
+            <InnerRoot viewModel={innerViewModel}>
+              <span data-testid="copy-b-ready" data-bind="text: label" />
+              {showLate ? (
+                <span data-testid="two-copy-late" data-bind="text: label" />
+              ) : null}
+            </InnerRoot>
+          ) : null}
+        </OuterRoot>
+      )
+    }
+
+    const mounted = render(<Harness showInner={false} showLate={false} />)
+    try {
+      await waitFor(() =>
+        expect(screen.getByTestId('copy-a-ready').textContent).toBe('Outer provider')
+      )
+
+      mounted.rerender(<Harness showInner showLate={false} />)
+      await waitFor(() =>
+        expect(screen.getByTestId('copy-b-ready').textContent).toBe('Inner provider')
+      )
+
+      mounted.rerender(<Harness showInner showLate />)
+      expect(screen.getByTestId('two-copy-late').textContent).toBe('Inner provider')
+    } finally {
+      mounted.unmount()
+      vi.resetModules()
+    }
   })
 
   it('retires css classes owned by a replaced binding', async () => {
@@ -211,6 +691,54 @@ describe('observeBindingDescendants', () => {
     })
   })
 
+  it('removes the implicit radio name when a checked binding is removed', async () => {
+    const vm = { choice: ko.observable('selected') }
+    render(<Host vm={vm} />)
+    const host = screen.getByTestId('host')
+
+    const el = document.createElement('input')
+    el.type = 'radio'
+    el.value = 'selected'
+    el.setAttribute('data-bind', 'checked: choice')
+    act(() => {
+      host.appendChild(el)
+    })
+    await waitFor(() => expect(el.getAttribute('name')).toMatch(/^ko_unique_/))
+
+    act(() => {
+      el.removeAttribute('data-bind')
+    })
+
+    await waitFor(() => expect(el.getAttribute('name')).toBeNull())
+  })
+
+  it('removes the implicit radio name when a checked binding is replaced', async () => {
+    const vm = {
+      choice: ko.observable('selected'),
+      title: ko.observable('after'),
+    }
+    render(<Host vm={vm} />)
+    const host = screen.getByTestId('host')
+
+    const el = document.createElement('input')
+    el.type = 'radio'
+    el.value = 'selected'
+    el.setAttribute('data-bind', 'checked: choice')
+    act(() => {
+      host.appendChild(el)
+    })
+    await waitFor(() => expect(el.getAttribute('name')).toMatch(/^ko_unique_/))
+
+    act(() => {
+      el.setAttribute('data-bind', 'attr: { title: title }')
+    })
+
+    await waitFor(() => {
+      expect(el.getAttribute('name')).toBeNull()
+      expect(el.getAttribute('title')).toBe('after')
+    })
+  })
+
   it('removes attributes owned by a replaced attr binding', async () => {
     const vm = { title: ko.observable('owned'), label: ko.observable('Plain') }
     render(<Host vm={vm} />)
@@ -281,6 +809,42 @@ describe('observeBindingDescendants', () => {
     })
 
     await waitFor(() => expect(el.value).toBe('Before binding'))
+  })
+
+  it('rejects retirement when the textinput preprocessor is overridden', async () => {
+    const registered = ko.bindingHandlers.textinput
+    const preprocess = vi.fn(
+      (
+        value: string,
+        name: string,
+        addBinding: (key: string, value: string) => void
+      ) => {
+        registered.preprocess?.(value, name, addBinding)
+        addBinding('attr', "{ title: 'custom effect' }")
+      }
+    )
+    ko.bindingHandlers.textinput = { preprocess }
+
+    try {
+      render(<Host vm={{ overriddenValue: 'Knockout value' }} />)
+      const host = screen.getByTestId('host')
+      const el = document.createElement('input')
+      el.setAttribute('data-bind', 'textinput: overriddenValue')
+
+      act(() => {
+        host.appendChild(el)
+      })
+      await waitFor(() => expect(el.getAttribute('title')).toBe('custom effect'))
+
+      expect(() => {
+        act(() => el.removeAttribute('data-bind'))
+      }).toThrow(
+        'react-ko cannot replace the Knockout "textinput" binding because its DOM effects cannot be safely retired.'
+      )
+      expect(preprocess).toHaveBeenCalled()
+    } finally {
+      ko.bindingHandlers.textinput = registered
+    }
   })
 
   it('retires a binding whose data-bind attribute is removed', async () => {

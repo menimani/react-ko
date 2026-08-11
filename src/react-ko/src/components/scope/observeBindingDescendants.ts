@@ -2,28 +2,38 @@ import ko from 'knockout'
 import {
   applyBindingsSafely,
   assertNoReactUnsafeBindings,
+  customDescendantControllerFor,
+  currentReactHostProps,
+  findDehydratedSuspenseBindings,
+  hasCanonicalKnockoutBindingHandler,
   hasReactOwnedChildren,
+  REACT_RENDERS_BIGINT,
+  suspenseRangeElements,
+  type DeferredSuspenseBinding,
 } from './applyBindingsSafely'
+import { hasReactKoBindingHandler } from './bindingHandlerOwnership'
 import { descendantBindingContextFor } from './descendantBindingContexts'
 import { DESCENDANT_BINDING_BOUNDARY } from './descendantBindingBoundary'
 
-// Observers on enclosing roots also see mutations inside nested scopes. Keep
-// track of each binding root so only the nearest one handles a changed subtree.
-// The view model registry also lets an ancestor attribute rebind restore any
-// descendant roots that ko.cleanNode necessarily cleaned along with it.
-const bindingRoots = new Map<HTMLElement, unknown>()
-const bindingObservers = new Map<
-  HTMLElement,
-  {
-    observer: MutationObserver
-    reconcile: (records: MutationRecord[]) => void
-    shouldDeferInsertion: (parent: Node) => boolean
-    onError: (error: unknown) => void
-  }
->()
-const reconcilingRoots = new Set<HTMLElement>()
+type BindingObserverState = {
+  observer: MutationObserver
+  reconcile: (records: MutationRecord[], reactCommitInProgress?: boolean) => void
+  shouldDeferReconciliation?: () => boolean
+  shouldDeferDataBindChange: (element: Element) => boolean
+  shouldDeferInsertion: (parent: Node) => boolean
+  shouldReconcileDirectTextWrite: (element: HTMLElement) => boolean
+  refreshAfterLayout: () => void
+  onError: (error: unknown) => void
+}
+
+type BindingRootRegistry = {
+  bindingRoots: Map<HTMLElement, unknown>
+  bindingObservers: Map<HTMLElement, BindingObserverState>
+  reconcilingRoots: Set<HTMLElement>
+  scheduledPropertyRoots: Set<HTMLElement>
+}
 type AttributeInterceptor = {
-  count: number
+  owners: Map<InterceptorOwner, number>
   setAttribute: typeof Element.prototype.setAttribute
   removeAttribute: typeof Element.prototype.removeAttribute
   interceptedSetAttribute: typeof Element.prototype.setAttribute
@@ -35,10 +45,16 @@ type AttributeInterceptor = {
     interceptedSet: (this: Element, value: unknown) => void
   }>
 }
-const attributeInterceptors = new Map<typeof Element.prototype, AttributeInterceptor>()
-const scheduledPropertyRoots = new Set<HTMLElement>()
+type TrackedCheckedInterceptor = {
+  descriptor: PropertyDescriptor
+  interceptedSet: (value: unknown) => void
+}
+const trackedCheckedInterceptors = new WeakMap<
+  HTMLInputElement,
+  TrackedCheckedInterceptor
+>()
 type ChildListInterceptor = {
-  count: number
+  owners: Map<InterceptorOwner, number>
   appendChild: typeof Node.prototype.appendChild
   insertBefore: typeof Node.prototype.insertBefore
   replaceChild: typeof Node.prototype.replaceChild
@@ -46,12 +62,66 @@ type ChildListInterceptor = {
   interceptedInsertBefore: typeof Node.prototype.insertBefore
   interceptedReplaceChild: typeof Node.prototype.replaceChild
 }
-const childListInterceptors = new Map<typeof Node.prototype, ChildListInterceptor>()
+type DirectTextInterceptor = {
+  owners: Map<InterceptorOwner, number>
+  properties: Array<{
+    prototype: object
+    name: string
+    descriptor: PropertyDescriptor
+    interceptedSet: (this: Node, value: unknown) => void
+  }>
+}
+type InterceptorOwner = {
+  reconcileChangedDataBind: (element: Element, name: string) => void
+  reconcileChangedProperty: (element: Element) => void
+  hasReactOwnership: (node: Node, parent?: Element) => boolean
+  reconcileInsertedChildren: (parent: Node, reactOwned: boolean) => void
+  reconcileDirectTextWrite: (node: Node) => void
+}
+type PrototypeInterceptorRegistry = {
+  attribute?: AttributeInterceptor
+  childList?: ChildListInterceptor
+  directText?: DirectTextInterceptor
+  bindingRoots?: BindingRootRegistry
+}
+const INTERCEPTOR_REGISTRY = Symbol.for(
+  'react-ko.observeBindingDescendants.prototypeInterceptors'
+)
+
+function interceptorRegistry(view: Window & typeof globalThis) {
+  const registries = view as unknown as {
+    [key: symbol]: PrototypeInterceptorRegistry | undefined
+  }
+  return (registries[INTERCEPTOR_REGISTRY] ??= {})
+}
+
+const detachedBindingRoots = createBindingRootRegistry()
+
+function createBindingRootRegistry(): BindingRootRegistry {
+  return {
+    bindingRoots: new Map(),
+    bindingObservers: new Map(),
+    reconcilingRoots: new Set(),
+    scheduledPropertyRoots: new Set(),
+  }
+}
+
+// Observers on enclosing roots also see mutations inside nested scopes. Keep
+// ownership on the DOM window so independently loaded copies still dispatch a
+// changed subtree to the globally nearest root. The view model registry also
+// lets an ancestor rebind restore descendant roots cleaned along with it.
+function bindingRootRegistry(node: Node) {
+  const view = node.ownerDocument.defaultView
+  if (view === null) return detachedBindingRoots
+  const registry = interceptorRegistry(view)
+  return (registry.bindingRoots ??= createBindingRootRegistry())
+}
 const CONTENT_BINDINGS = new Set(['text', 'html', 'component', 'options'])
 const SAFELY_RETIRABLE_BINDINGS = new Set([
   'attr',
   'checked',
   'checkedValue',
+  'class',
   'click',
   'component',
   'css',
@@ -61,6 +131,7 @@ const SAFELY_RETIRABLE_BINDINGS = new Set([
   'hasFocus',
   'hasfocus',
   'html',
+  'hidden',
   'let',
   'options',
   'optionsAfterRender',
@@ -81,6 +152,34 @@ const SAFELY_RETIRABLE_BINDINGS = new Set([
   'visible',
   DESCENDANT_BINDING_BOUNDARY,
 ])
+const POST_LAYOUT_REFRESH_BINDINGS = new Set([
+  'attr',
+  'checked',
+  'checkedValue',
+  'class',
+  'click',
+  'css',
+  'disable',
+  'enable',
+  'event',
+  'hasFocus',
+  'hasfocus',
+  'hidden',
+  'style',
+  'submit',
+  'textInput',
+  'textinput',
+  'uniqueName',
+  'value',
+  'visible',
+])
+const DELEGATED_BINDING_HANDLERS = new Map<string, readonly string[]>([
+  ['checked', ['uniqueName']],
+  ['click', ['event']],
+  ['disable', ['enable']],
+  ['hidden', ['visible']],
+  ['textinput', ['textInput']],
+])
 
 type DomSnapshot = {
   attributes: Map<string, string>
@@ -95,15 +194,17 @@ type DomSnapshot = {
 
 type BindingState = {
   source: string | null
+  customDescendantController: string | null
   ownedContent: Set<Node> | null
   ownedAttributes: Set<string>
   beforeBinding: DomSnapshot
   reactProps: Map<string, unknown>
+  reactOwned: boolean
 }
 
-export type BindingStateStore = WeakMap<HTMLElement, BindingState>
+type BindingStateStore = WeakMap<HTMLElement, BindingState>
 
-function bindingNames(source: string | null) {
+function rawBindingNames(source: string | null) {
   if (source === null) {
     return new Set<string>()
   }
@@ -111,9 +212,15 @@ function bindingNames(source: string | null) {
   return new Set(
     ko.expressionRewriting
       .parseObjectLiteral(source)
-      .flatMap(({ key }) =>
-        key === undefined ? [] : [key === 'textinput' ? 'textInput' : key]
-      )
+      .flatMap(({ key }) => (key === undefined ? [] : [key]))
+  )
+}
+
+function bindingNames(source: string | null) {
+  return new Set(
+    [...rawBindingNames(source)].map((name) =>
+      name === 'textinput' ? 'textInput' : name
+    )
   )
 }
 
@@ -171,21 +278,142 @@ function snapshotReactProps(element: HTMLElement) {
   )
 }
 
+type ReactHostProps = Record<string, unknown>
+
+type ReactHostFiber = {
+  pendingProps?: ReactHostProps
+  alternate?: ReactHostFiber | null
+}
+
+function reactHostFiber(element: Element): ReactHostFiber | undefined {
+  const key = Object.getOwnPropertyNames(element).find((name) =>
+    name.startsWith('__reactFiber$')
+  )
+  return key === undefined
+    ? undefined
+    : ((element as unknown as Record<string, unknown>)[key] as ReactHostFiber)
+}
+
+function directReactContent(props: ReactHostProps | ReadonlyMap<string, unknown> | undefined) {
+  const get = (name: string) => (props instanceof Map ? props.get(name) : props?.[name])
+  const innerHtml = (get('dangerouslySetInnerHTML') as { __html?: unknown } | undefined)
+    ?.__html
+  if (innerHtml !== undefined && innerHtml !== null) {
+    return { kind: 'html', value: String(innerHtml) } as const
+  }
+
+  const children = get('children')
+  if (
+    typeof children === 'string' ||
+    typeof children === 'number' ||
+    (typeof children === 'bigint' && REACT_RENDERS_BIGINT)
+  ) {
+    return { kind: 'text', value: String(children) } as const
+  }
+
+  return null
+}
+
+function sameDirectReactContent(
+  left: ReturnType<typeof directReactContent>,
+  right: ReturnType<typeof directReactContent>
+) {
+  return (
+    left === right ||
+    (left !== null &&
+      right !== null &&
+      left.kind === right.kind &&
+      left.value === right.value)
+  )
+}
+
+function pendingDirectReactProps(
+  element: HTMLElement,
+  previousProps: ReadonlyMap<string, unknown>
+) {
+  const fiber = reactHostFiber(element)
+  const candidates = [
+    currentReactHostProps(element, true),
+    fiber?.pendingProps,
+    fiber?.alternate?.pendingProps,
+    currentReactHostProps(element),
+  ].filter(
+    (props, index, all): props is ReactHostProps =>
+      props !== undefined && all.indexOf(props) === index
+  )
+  const previous = directReactContent(previousProps)
+  // Empty text and empty HTML have no DOM identity to distinguish their
+  // removal from the previous render. In that case the candidate that differs
+  // from the recorded props is the pending transition on both React majors.
+  return (
+    candidates.find(
+      (props) =>
+        (props['data-bind'] ?? null) === element.getAttribute('data-bind') &&
+        !sameDirectReactContent(directReactContent(props), previous)
+    ) ?? candidates[0]
+  )
+}
+
+function hasDirectReactContentTransition(
+  element: HTMLElement,
+  previousProps: ReadonlyMap<string, unknown>,
+  reactCommitInProgress: boolean
+) {
+  const previous = directReactContent(previousProps)
+  const current = directReactContent(
+    reactCommitInProgress
+      ? pendingDirectReactProps(element, previousProps)
+      : currentReactHostProps(element)
+  )
+
+  return (
+    (previous !== null || current !== null) &&
+    (previous === null ||
+      current === null ||
+      current.kind !== previous.kind ||
+      current.value !== previous.value)
+  )
+}
+
+function hasActiveDirectReactTextWrite(
+  element: HTMLElement,
+  previousProps: ReadonlyMap<string, unknown>
+) {
+  const currentProps = currentReactHostProps(element, true)
+  const current = directReactContent(currentProps)
+
+  // After a commit, the alternate describes the previous render but remains
+  // reachable. A later Knockout text notification must not be mistaken for
+  // that stale render: an active React write produces the pending text and
+  // keeps the binding source currently reflected in the DOM.
+  return (
+    current?.kind === 'text' &&
+    current.value === element.textContent &&
+    (currentProps?.['data-bind'] ?? null) === element.getAttribute('data-bind') &&
+    hasDirectReactContentTransition(element, previousProps, true)
+  )
+}
+
 function prepareBindingTree(
   element: HTMLElement,
   root: HTMLElement,
   bindingStates: BindingStateStore
 ) {
-  if (element !== root && bindingRoots.has(element)) {
+  if (
+    element !== root &&
+    bindingRootRegistry(root).bindingRoots.has(element)
+  ) {
     return
   }
 
   bindingStates.set(element, {
     source: element.getAttribute('data-bind'),
+    customDescendantController: null,
     ownedContent: null,
     ownedAttributes: new Set(),
     beforeBinding: snapshotDom(element),
     reactProps: snapshotReactProps(element),
+    reactOwned: hasReactOwnership(element),
   })
 
   for (const child of element.children) {
@@ -216,7 +444,7 @@ function belongsToBindingRoot(node: Node, root: Node) {
 
   let ancestor = node.parentNode
   while (ancestor !== null && ancestor !== root) {
-    if (bindingRoots.has(ancestor as HTMLElement)) {
+    if (bindingRootRegistry(root).bindingRoots.has(ancestor as HTMLElement)) {
       return false
     }
     ancestor = ancestor.parentNode
@@ -228,7 +456,7 @@ function belongsToBindingRoot(node: Node, root: Node) {
 function nearestBindingRoot(element: Element) {
   let nearest: HTMLElement | undefined
 
-  for (const root of bindingObservers.keys()) {
+  for (const root of bindingRootRegistry(element).bindingObservers.keys()) {
     if (
       (root === element || root.contains(element)) &&
       (nearest === undefined || nearest.contains(root))
@@ -247,15 +475,23 @@ function reconcileChangedDataBind(element: Element, name: string) {
 
   const root = nearestBindingRoot(element)
   if (root !== undefined) {
+    if (
+      bindingRootRegistry(root).bindingObservers
+        .get(root)
+        ?.shouldDeferDataBindChange(element)
+    ) {
+      return
+    }
     reconcileBindingDescendants(root)
   }
 }
 
-function hasReactOwnership(node: Node) {
+function hasReactOwnership(node: Node, parent?: Element) {
   // React 18 and 19 tag host nodes before inserting them. Knockout-created
   // template nodes have no such tag and must remain on the asynchronous path.
+  // Fiber-backed text keeps its tag after removal; optimized direct text has
+  // no tag, so its host's committed or pending props decide.
   if (
-    node.nodeType === Node.ELEMENT_NODE &&
     Object.getOwnPropertyNames(node).some(
       (name) => name.startsWith('__reactFiber$') || name.startsWith('__reactProps$')
     )
@@ -263,37 +499,89 @@ function hasReactOwnership(node: Node) {
     return true
   }
 
-  return [...node.childNodes].some(hasReactOwnership)
+  if (node.nodeType === Node.TEXT_NODE && parent !== undefined) {
+    return hasReactOwnedChildren(parent)
+  }
+
+  return [...node.childNodes].some((child) => hasReactOwnership(child))
 }
 
 function reconcileInsertedChildren(parent: Node, reactOwned: boolean) {
-  if (!reactOwned || parent.nodeType !== Node.ELEMENT_NODE) {
+  if (parent.nodeType !== Node.ELEMENT_NODE) {
     return
   }
 
-  const root = nearestBindingRoot(parent as Element)
-  const state = root === undefined ? undefined : bindingObservers.get(root)
+  const element = parent as Element
+  if (!reactOwned && !hasReactOwnedChildren(element)) return
+
+  const root = nearestBindingRoot(element)
+  const registry = bindingRootRegistry(element)
+  const state = root === undefined ? undefined : registry.bindingObservers.get(root)
   if (
     root !== undefined &&
     state !== undefined &&
     !state.shouldDeferInsertion(parent) &&
-    !reconcilingRoots.has(root)
+    !registry.reconcilingRoots.has(root)
   ) {
     reconcileBindingDescendants(root)
   }
 }
 
-function releaseAttributeInterceptor(prototype: typeof Element.prototype) {
-  const interceptor = attributeInterceptors.get(prototype)
+function reconcileDirectTextWrite(node: Node) {
+  const element =
+    node.nodeType === Node.ELEMENT_NODE
+      ? (node as HTMLElement)
+      : node.parentElement
+  if (element === null) return
+
+  const root = nearestBindingRoot(element)
+  const registry = bindingRootRegistry(element)
+  const state = root === undefined ? undefined : registry.bindingObservers.get(root)
+  if (
+    root !== undefined &&
+    state !== undefined &&
+    state.shouldReconcileDirectTextWrite(element) &&
+    !registry.reconcilingRoots.has(root)
+  ) {
+    reconcileBindingDescendants(root)
+  }
+}
+
+const interceptorOwner: InterceptorOwner = {
+  reconcileChangedDataBind,
+  reconcileChangedProperty,
+  hasReactOwnership,
+  reconcileInsertedChildren,
+  reconcileDirectTextWrite,
+}
+
+function addInterceptorOwner(owners: Map<InterceptorOwner, number>) {
+  owners.set(interceptorOwner, (owners.get(interceptorOwner) ?? 0) + 1)
+}
+
+function releaseInterceptorOwner(owners: Map<InterceptorOwner, number>) {
+  const count = owners.get(interceptorOwner)
+  if (count === undefined) return false
+  if (count > 1) {
+    owners.set(interceptorOwner, count - 1)
+    return false
+  }
+  owners.delete(interceptorOwner)
+  return owners.size === 0
+}
+
+function releaseAttributeInterceptor(view: Window & typeof globalThis) {
+  const registry = interceptorRegistry(view)
+  const interceptor = registry.attribute
   if (interceptor === undefined) {
     return
   }
 
-  interceptor.count -= 1
-  if (interceptor.count !== 0) {
+  if (!releaseInterceptorOwner(interceptor.owners)) {
     return
   }
 
+  const prototype = view.Element.prototype
   if (prototype.setAttribute === interceptor.interceptedSetAttribute) {
     prototype.setAttribute = interceptor.setAttribute
   }
@@ -310,30 +598,94 @@ function releaseAttributeInterceptor(prototype: typeof Element.prototype) {
       Object.defineProperty(propertyPrototype, name, descriptor)
     }
   }
-  attributeInterceptors.delete(prototype)
+  delete registry.attribute
 }
 
 function reconcileChangedProperty(element: Element) {
   const root = nearestBindingRoot(element)
-  if (root === undefined || scheduledPropertyRoots.has(root)) return
-  scheduledPropertyRoots.add(root)
+  if (root === undefined) return
+  const registry = bindingRootRegistry(root)
+  if (registry.scheduledPropertyRoots.has(root)) return
+  registry.scheduledPropertyRoots.add(root)
   queueMicrotask(() => {
-    scheduledPropertyRoots.delete(root)
-    const state = bindingObservers.get(root)
-    if (state === undefined || reconcilingRoots.has(root)) return
-    reconcilingRoots.add(root)
+    registry.scheduledPropertyRoots.delete(root)
+    const state = registry.bindingObservers.get(root)
+    if (state === undefined || registry.reconcilingRoots.has(root)) return
+    registry.reconcilingRoots.add(root)
     try {
       state.reconcile([])
     } catch (error) {
       state.observer.disconnect()
       state.onError(error)
     } finally {
-      reconcilingRoots.delete(root)
+      registry.reconcilingRoots.delete(root)
     }
   })
 }
 
-function interceptFormProperties(view: Window & typeof globalThis) {
+function interceptReactTrackedChecked(element: HTMLElement) {
+  const view = element.ownerDocument.defaultView
+  if (
+    view === null ||
+    !(element instanceof view.HTMLInputElement) ||
+    trackedCheckedInterceptors.has(element)
+  ) {
+    return
+  }
+
+  // React 18 tracks checked through an own property descriptor installed
+  // before this root binds. Its setter closes over the original prototype
+  // setter, so the prototype interceptor below cannot observe controlled
+  // checkbox writes.
+  const descriptor = Object.getOwnPropertyDescriptor(element, 'checked')
+  if (descriptor?.set === undefined) return
+  const set = descriptor.set
+  const interceptedSet = function (this: HTMLInputElement, value: unknown) {
+    set.call(this, value)
+    reconcileChangedProperty(this)
+  }
+  Object.defineProperty(element, 'checked', {
+    ...descriptor,
+    set: interceptedSet,
+  })
+  trackedCheckedInterceptors.set(element, { descriptor, interceptedSet })
+}
+
+function releaseReactTrackedChecked(
+  element: HTMLElement,
+  ownerRoot?: HTMLElement
+) {
+  if (
+    ownerRoot !== undefined &&
+    element !== ownerRoot &&
+    bindingRootRegistry(ownerRoot).bindingRoots.has(element)
+  ) {
+    return
+  }
+
+  const view = element.ownerDocument.defaultView
+  if (view !== null && element instanceof view.HTMLInputElement) {
+    const interceptor = trackedCheckedInterceptors.get(element)
+    if (interceptor !== undefined) {
+      if (
+        Object.getOwnPropertyDescriptor(element, 'checked')?.set ===
+        interceptor.interceptedSet
+      ) {
+        Object.defineProperty(element, 'checked', interceptor.descriptor)
+      }
+      trackedCheckedInterceptors.delete(element)
+    }
+  }
+
+  for (const child of element.children) {
+    releaseReactTrackedChecked(child as HTMLElement, ownerRoot)
+  }
+}
+
+function interceptFormProperties(
+  view: Window & typeof globalThis,
+  owners: Map<InterceptorOwner, number>
+) {
   const intercepted: AttributeInterceptor['formProperties'] = []
   const properties: Array<[object, string]> = [
     [view.HTMLInputElement.prototype, 'value'],
@@ -348,7 +700,9 @@ function interceptFormProperties(view: Window & typeof globalThis) {
     const set = descriptor.set
     const interceptedSet = function (this: Element, value: unknown) {
       set.call(this, value)
-      reconcileChangedProperty(this)
+      for (const owner of owners.keys()) {
+        owner.reconcileChangedProperty(this)
+      }
     }
     Object.defineProperty(prototype, name, {
       ...descriptor,
@@ -365,52 +719,59 @@ function interceptDataBindChanges(root: HTMLElement) {
     return () => undefined
   }
 
+  const registry = interceptorRegistry(view)
   const prototype = view.Element.prototype
-  const existing = attributeInterceptors.get(prototype)
+  const existing = registry.attribute
   if (existing !== undefined) {
-    existing.count += 1
-    return () => releaseAttributeInterceptor(prototype)
+    addInterceptorOwner(existing.owners)
+    return () => releaseAttributeInterceptor(view)
   }
 
   const setAttribute = prototype.setAttribute
   const removeAttribute = prototype.removeAttribute
+  const owners = new Map([[interceptorOwner, 1]])
   // MutationObserver callbacks run after layout effects, and a state update
   // below the binding root does not rerender that root. Drain the queued
   // data-bind record directly from React's attribute mutation in that case.
   const interceptedSetAttribute: typeof prototype.setAttribute = function (name, value) {
     setAttribute.call(this, name, value)
-    reconcileChangedDataBind(this, name)
+    for (const owner of owners.keys()) {
+      owner.reconcileChangedDataBind(this, name)
+    }
   }
   const interceptedRemoveAttribute: typeof prototype.removeAttribute = function (name) {
     removeAttribute.call(this, name)
-    reconcileChangedDataBind(this, name)
+    for (const owner of owners.keys()) {
+      owner.reconcileChangedDataBind(this, name)
+    }
   }
   prototype.setAttribute = interceptedSetAttribute
   prototype.removeAttribute = interceptedRemoveAttribute
-  const formProperties = interceptFormProperties(view)
-  attributeInterceptors.set(prototype, {
-    count: 1,
+  const formProperties = interceptFormProperties(view, owners)
+  registry.attribute = {
+    owners,
     setAttribute,
     removeAttribute,
     interceptedSetAttribute,
     interceptedRemoveAttribute,
     formProperties,
-  })
+  }
 
-  return () => releaseAttributeInterceptor(prototype)
+  return () => releaseAttributeInterceptor(view)
 }
 
-function releaseChildListInterceptor(prototype: typeof Node.prototype) {
-  const interceptor = childListInterceptors.get(prototype)
+function releaseChildListInterceptor(view: Window & typeof globalThis) {
+  const registry = interceptorRegistry(view)
+  const interceptor = registry.childList
   if (interceptor === undefined) {
     return
   }
 
-  interceptor.count -= 1
-  if (interceptor.count !== 0) {
+  if (!releaseInterceptorOwner(interceptor.owners)) {
     return
   }
 
+  const prototype = view.Node.prototype
   if (prototype.appendChild === interceptor.interceptedAppendChild) {
     prototype.appendChild = interceptor.appendChild
   }
@@ -420,7 +781,7 @@ function releaseChildListInterceptor(prototype: typeof Node.prototype) {
   if (prototype.replaceChild === interceptor.interceptedReplaceChild) {
     prototype.replaceChild = interceptor.replaceChild
   }
-  childListInterceptors.delete(prototype)
+  delete registry.childList
 }
 
 function interceptChildListInsertions(root: HTMLElement) {
@@ -429,59 +790,165 @@ function interceptChildListInsertions(root: HTMLElement) {
     return () => undefined
   }
 
+  const registry = interceptorRegistry(view)
   const prototype = view.Node.prototype
-  const existing = childListInterceptors.get(prototype)
+  const existing = registry.childList
   if (existing !== undefined) {
-    existing.count += 1
-    return () => releaseChildListInterceptor(prototype)
+    addInterceptorOwner(existing.owners)
+    return () => releaseChildListInterceptor(view)
   }
 
   const appendChild = prototype.appendChild
   const insertBefore = prototype.insertBefore
   const replaceChild = prototype.replaceChild
+  const owners = new Map([[interceptorOwner, 1]])
   const interceptedAppendChild: typeof prototype.appendChild = function <T extends Node>(
     child: T
   ): T {
-    const reactOwned = hasReactOwnership(child)
+    const parent = this.nodeType === Node.ELEMENT_NODE ? (this as Element) : undefined
+    const ownership = Array.from(owners.keys(), (owner) => [
+      owner,
+      owner.hasReactOwnership(child, parent),
+    ] as const)
     const inserted = appendChild.call(this, child) as T
-    reconcileInsertedChildren(this, reactOwned)
+    for (const [owner, reactOwned] of ownership) {
+      owner.reconcileInsertedChildren(this, reactOwned)
+    }
     return inserted
   }
   const interceptedInsertBefore: typeof prototype.insertBefore = function <T extends Node>(
     child: T,
     referenceChild: Node | null
   ): T {
-    const reactOwned = hasReactOwnership(child)
+    const parent = this.nodeType === Node.ELEMENT_NODE ? (this as Element) : undefined
+    const ownership = Array.from(owners.keys(), (owner) => [
+      owner,
+      owner.hasReactOwnership(child, parent),
+    ] as const)
     const inserted = insertBefore.call(this, child, referenceChild) as T
-    reconcileInsertedChildren(this, reactOwned)
+    for (const [owner, reactOwned] of ownership) {
+      owner.reconcileInsertedChildren(this, reactOwned)
+    }
     return inserted
   }
   const interceptedReplaceChild: typeof prototype.replaceChild = function <T extends Node>(
     child: Node,
     replacedChild: T
   ): T {
-    const reactOwned = hasReactOwnership(child)
+    const parent = this.nodeType === Node.ELEMENT_NODE ? (this as Element) : undefined
+    const ownership = Array.from(owners.keys(), (owner) => [
+      owner,
+      owner.hasReactOwnership(child, parent),
+    ] as const)
     const replaced = replaceChild.call(this, child, replacedChild) as T
-    reconcileInsertedChildren(this, reactOwned)
+    for (const [owner, reactOwned] of ownership) {
+      owner.reconcileInsertedChildren(this, reactOwned)
+    }
     return replaced
   }
   prototype.appendChild = interceptedAppendChild
   prototype.insertBefore = interceptedInsertBefore
   prototype.replaceChild = interceptedReplaceChild
-  childListInterceptors.set(prototype, {
-    count: 1,
+  registry.childList = {
+    owners,
     appendChild,
     insertBefore,
     replaceChild,
     interceptedAppendChild,
     interceptedInsertBefore,
     interceptedReplaceChild,
-  })
+  }
 
-  return () => releaseChildListInterceptor(prototype)
+  return () => releaseChildListInterceptor(view)
 }
 
-function addedBindingRoots(records: MutationRecord[], root: Node) {
+function releaseDirectTextInterceptor(view: Window & typeof globalThis) {
+  const registry = interceptorRegistry(view)
+  const interceptor = registry.directText
+  if (interceptor === undefined) return
+
+  if (!releaseInterceptorOwner(interceptor.owners)) return
+
+  for (const {
+    prototype: propertyPrototype,
+    name,
+    descriptor,
+    interceptedSet,
+  } of interceptor.properties) {
+    if (Object.getOwnPropertyDescriptor(propertyPrototype, name)?.set === interceptedSet) {
+      Object.defineProperty(propertyPrototype, name, descriptor)
+    }
+  }
+  delete registry.directText
+}
+
+function interceptDirectTextWrites(root: HTMLElement) {
+  const view = root.ownerDocument.defaultView
+  if (view === null) return () => undefined
+
+  const registry = interceptorRegistry(view)
+  const prototype = view.Node.prototype
+  const existing = registry.directText
+  if (existing !== undefined) {
+    addInterceptorOwner(existing.owners)
+    return () => releaseDirectTextInterceptor(view)
+  }
+
+  const owners = new Map([[interceptorOwner, 1]])
+  const properties: DirectTextInterceptor['properties'] = []
+  // React can update a direct text child without calling a child-list method.
+  // Observe every DOM setter it uses before sibling layout effects can notify
+  // the content binding that still owns the host's current child nodes.
+  for (const [propertyPrototype, name] of [
+    [prototype, 'nodeValue'],
+    [prototype, 'textContent'],
+    [view.CharacterData.prototype, 'data'],
+  ] as Array<[object, string]>) {
+    const descriptor = Object.getOwnPropertyDescriptor(propertyPrototype, name)
+    if (descriptor?.set === undefined) continue
+    const set = descriptor.set
+    const interceptedSet = function (this: Node, value: unknown) {
+      set.call(this, value)
+      for (const owner of owners.keys()) {
+        owner.reconcileDirectTextWrite(this)
+      }
+    }
+    Object.defineProperty(propertyPrototype, name, {
+      ...descriptor,
+      set: interceptedSet,
+    })
+    properties.push({ prototype: propertyPrototype, name, descriptor, interceptedSet })
+  }
+  registry.directText = { owners, properties }
+
+  return () => releaseDirectTextInterceptor(view)
+}
+
+function isKnockoutOwnedContentAddition(
+  record: MutationRecord,
+  node: Node,
+  bindingStates: BindingStateStore
+) {
+  if (record.target.nodeType !== Node.ELEMENT_NODE) {
+    return false
+  }
+
+  const target = record.target as HTMLElement
+  const state = bindingStates.get(target)
+  // Content bindings own their output but do not bind its descendants. Keep
+  // later output consistent with the initial binding pass.
+  return (
+    state !== undefined &&
+    state.ownedContent !== null &&
+    !hasReactOwnership(node, target)
+  )
+}
+
+function addedBindingRoots(
+  records: MutationRecord[],
+  root: Node,
+  bindingStates: BindingStateStore
+) {
   const addedRoots: HTMLElement[] = []
 
   for (const record of records) {
@@ -489,7 +956,8 @@ function addedBindingRoots(records: MutationRecord[], root: Node) {
       if (
         node.nodeType === Node.ELEMENT_NODE &&
         belongsToBindingRoot(node, root) &&
-        ko.contextFor(node) === undefined
+        ko.contextFor(node) === undefined &&
+        !isKnockoutOwnedContentAddition(record, node, bindingStates)
       ) {
         addedRoots.push(node as HTMLElement)
       }
@@ -500,7 +968,7 @@ function addedBindingRoots(records: MutationRecord[], root: Node) {
 }
 
 export function restoreDescendantBindingRoots(element: HTMLElement, ownerRoot: HTMLElement) {
-  const descendantRoots = [...bindingRoots].filter(
+  const descendantRoots = [...bindingRootRegistry(ownerRoot).bindingRoots].filter(
     ([bindingRoot]) => bindingRoot !== ownerRoot && element.contains(bindingRoot)
   )
 
@@ -520,11 +988,18 @@ export function restoreDescendantBindingRoots(element: HTMLElement, ownerRoot: H
 function trackBindingTree(
   element: HTMLElement,
   ownerRoot: HTMLElement,
-  bindingStates: BindingStateStore
+  bindingStates: BindingStateStore,
+  excludedElements?: ReadonlySet<Element>
 ) {
-  if (element !== ownerRoot && bindingRoots.has(element)) {
+  if (excludedElements?.has(element)) return
+  if (
+    element !== ownerRoot &&
+    bindingRootRegistry(ownerRoot).bindingRoots.has(element)
+  ) {
     return
   }
+
+  interceptReactTrackedChecked(element)
 
   const source = element.getAttribute('data-bind')
   const beforeBinding = bindingStates.get(element)?.beforeBinding ?? snapshotDom(element)
@@ -543,16 +1018,27 @@ function trackBindingTree(
       ownedAttributes.add(name)
     }
   }
+  const customDescendantController = customDescendantControllerFor(element) ?? null
   bindingStates.set(element, {
     source,
-    ownedContent: controlsElementContent(source) ? new Set(element.childNodes) : null,
+    customDescendantController,
+    ownedContent:
+      controlsElementContent(source) || customDescendantController !== null
+        ? new Set(element.childNodes)
+        : null,
     ownedAttributes,
     beforeBinding,
     reactProps: snapshotReactProps(element),
+    reactOwned: hasReactOwnership(element),
   })
 
   for (const child of element.children) {
-    trackBindingTree(child as HTMLElement, ownerRoot, bindingStates)
+    trackBindingTree(
+      child as HTMLElement,
+      ownerRoot,
+      bindingStates,
+      excludedElements
+    )
   }
 }
 
@@ -580,15 +1066,153 @@ function changedBindingElements(
   return changedElements
 }
 
+function selectBindingDependsOnOptions(state: BindingState | undefined) {
+  if (state === undefined) return false
+  const names = bindingNames(state.source)
+  return (
+    names.has('selectedOptions') ||
+    (names.has('value') && names.has('valueAllowUnset'))
+  )
+}
+
+function changedOptionSelects(
+  records: MutationRecord[],
+  root: HTMLElement,
+  bindingStates: BindingStateStore
+) {
+  const changed = new Set<HTMLElement>()
+
+  const addOwningSelect = (element: Element) => {
+    const select = element.closest('select') as HTMLElement | null
+    if (
+      select !== null &&
+      belongsToBindingRoot(select, root) &&
+      selectBindingDependsOnOptions(bindingStates.get(select))
+    ) {
+      changed.add(select)
+    }
+  }
+
+  const addTextChangedOptionSelect = (
+    node: Node,
+    parent: Element,
+    removed = false
+  ) => {
+    if (node.nodeType !== Node.TEXT_NODE) {
+      return
+    }
+
+    const state = bindingStates.get(parent as HTMLElement)
+    const previousContent =
+      state === undefined ? null : directReactContent(state.reactProps)
+    const removedReactText =
+      removed &&
+      state !== undefined &&
+      previousContent?.kind === 'text' &&
+      previousContent.value === node.nodeValue &&
+      hasDirectReactContentTransition(
+        parent as HTMLElement,
+        state.reactProps,
+        true
+      )
+    if (!hasReactOwnership(node, parent) && !removedReactText) return
+
+    const option = parent.closest('option')
+    if (option !== null && !option.hasAttribute('value')) {
+      addOwningSelect(option)
+    }
+  }
+
+  for (const record of records) {
+    if (
+      record.type === 'characterData' &&
+      record.target.parentNode?.nodeType === Node.ELEMENT_NODE
+    ) {
+      addTextChangedOptionSelect(
+        record.target,
+        record.target.parentNode as Element
+      )
+    }
+
+    if (record.type !== 'childList' || record.target.nodeType !== Node.ELEMENT_NODE) {
+      continue
+    }
+
+    const parent = record.target as Element
+    for (const node of record.addedNodes) {
+      addTextChangedOptionSelect(node, parent)
+    }
+    for (const node of record.removedNodes) {
+      addTextChangedOptionSelect(node, parent, true)
+    }
+
+    for (const node of record.addedNodes) {
+      if (
+        node.nodeType !== Node.ELEMENT_NODE ||
+        !hasReactOwnership(node, parent)
+      ) {
+        continue
+      }
+
+      const element = node as Element
+      if (element.tagName === 'OPTION' || element.querySelector('option') !== null) {
+        addOwningSelect(element)
+      }
+    }
+
+    const select = parent.closest('select') as HTMLElement | null
+    const ownedContent =
+      select === null ? null : bindingStates.get(select)?.ownedContent
+    for (const node of record.removedNodes) {
+      if (
+        node.nodeType !== Node.ELEMENT_NODE ||
+        ownedContent?.has(node) === true ||
+        !(bindingStates.get(node as HTMLElement)?.reactOwned === true ||
+          hasReactOwnership(node))
+      ) {
+        continue
+      }
+
+      const element = node as Element
+      if (element.tagName === 'OPTION' || element.querySelector('option') !== null) {
+        // Removed options are detached, so find their owning select through
+        // the mutation target that remains in the React-owned tree.
+        addOwningSelect(parent)
+      }
+    }
+  }
+
+  // React normally reflects an option value prop through the value attribute,
+  // but the property interceptor can also schedule a record-free pass. Compare
+  // host props so both paths reapply the binding without reacting to Knockout's
+  // own DOM writes.
+  for (const select of root.querySelectorAll('select')) {
+    if (!selectBindingDependsOnOptions(bindingStates.get(select))) continue
+    for (const option of select.querySelectorAll('option')) {
+      const state = bindingStates.get(option)
+      if (
+        state !== undefined &&
+        reactPropChanged(state.reactProps, snapshotReactProps(option), 'value')
+      ) {
+        changed.add(select)
+        break
+      }
+    }
+  }
+
+  return changed
+}
+
 function recordOwnedAttributeChanges(
   records: MutationRecord[],
   bindingStates: BindingStateStore
 ) {
   for (const record of records) {
+    const attributeName = mutationAttributeName(record)
     if (
       record.type !== 'attributes' ||
-      record.attributeName === null ||
-      record.attributeName === 'data-bind'
+      attributeName === null ||
+      attributeName === 'data-bind'
     ) {
       continue
     }
@@ -596,7 +1220,7 @@ function recordOwnedAttributeChanges(
     const element = record.target as HTMLElement
     const state = bindingStates.get(element)
     if (state !== undefined && bindingNames(state.source).has('attr')) {
-      state.ownedAttributes.add(record.attributeName)
+      state.ownedAttributes.add(attributeName)
     }
   }
 }
@@ -763,9 +1387,114 @@ const OVERLOADED_BOOLEAN_ATTRIBUTES = new Set(['capture', 'download'])
 const REACT_PROP_ATTRIBUTE_ALIASES = new Map([
   ['acceptCharset', 'accept-charset'],
   ['className', 'class'],
+  ['crossOrigin', 'crossorigin'],
   ['htmlFor', 'for'],
   ['httpEquiv', 'http-equiv'],
+  ['accentHeight', 'accent-height'],
+  ['alignmentBaseline', 'alignment-baseline'],
+  ['arabicForm', 'arabic-form'],
+  ['baselineShift', 'baseline-shift'],
+  ['capHeight', 'cap-height'],
+  ['clipPath', 'clip-path'],
+  ['clipRule', 'clip-rule'],
+  ['colorInterpolation', 'color-interpolation'],
+  ['colorInterpolationFilters', 'color-interpolation-filters'],
+  ['colorProfile', 'color-profile'],
+  ['colorRendering', 'color-rendering'],
+  ['dominantBaseline', 'dominant-baseline'],
+  ['enableBackground', 'enable-background'],
+  ['fillOpacity', 'fill-opacity'],
+  ['fillRule', 'fill-rule'],
+  ['floodColor', 'flood-color'],
+  ['floodOpacity', 'flood-opacity'],
+  ['fontFamily', 'font-family'],
+  ['fontSize', 'font-size'],
+  ['fontSizeAdjust', 'font-size-adjust'],
+  ['fontStretch', 'font-stretch'],
+  ['fontStyle', 'font-style'],
+  ['fontVariant', 'font-variant'],
+  ['fontWeight', 'font-weight'],
+  ['glyphName', 'glyph-name'],
+  ['glyphOrientationHorizontal', 'glyph-orientation-horizontal'],
+  ['glyphOrientationVertical', 'glyph-orientation-vertical'],
+  ['horizAdvX', 'horiz-adv-x'],
+  ['horizOriginX', 'horiz-origin-x'],
+  ['imageRendering', 'image-rendering'],
+  ['letterSpacing', 'letter-spacing'],
+  ['lightingColor', 'lighting-color'],
+  ['markerEnd', 'marker-end'],
+  ['markerMid', 'marker-mid'],
+  ['markerStart', 'marker-start'],
+  ['overlinePosition', 'overline-position'],
+  ['overlineThickness', 'overline-thickness'],
+  ['paintOrder', 'paint-order'],
+  ['panose1', 'panose-1'],
+  ['pointerEvents', 'pointer-events'],
+  ['renderingIntent', 'rendering-intent'],
+  ['shapeRendering', 'shape-rendering'],
+  ['stopColor', 'stop-color'],
+  ['stopOpacity', 'stop-opacity'],
+  ['strikethroughPosition', 'strikethrough-position'],
+  ['strikethroughThickness', 'strikethrough-thickness'],
+  ['strokeDasharray', 'stroke-dasharray'],
+  ['strokeDashoffset', 'stroke-dashoffset'],
+  ['strokeLinecap', 'stroke-linecap'],
+  ['strokeLinejoin', 'stroke-linejoin'],
+  ['strokeMiterlimit', 'stroke-miterlimit'],
+  ['strokeOpacity', 'stroke-opacity'],
+  ['strokeWidth', 'stroke-width'],
+  ['textAnchor', 'text-anchor'],
+  ['textDecoration', 'text-decoration'],
+  ['textRendering', 'text-rendering'],
+  ['transformOrigin', 'transform-origin'],
+  ['underlinePosition', 'underline-position'],
+  ['underlineThickness', 'underline-thickness'],
+  ['unicodeBidi', 'unicode-bidi'],
+  ['unicodeRange', 'unicode-range'],
+  ['unitsPerEm', 'units-per-em'],
+  ['vAlphabetic', 'v-alphabetic'],
+  ['vHanging', 'v-hanging'],
+  ['vIdeographic', 'v-ideographic'],
+  ['vMathematical', 'v-mathematical'],
+  ['vectorEffect', 'vector-effect'],
+  ['vertAdvY', 'vert-adv-y'],
+  ['vertOriginX', 'vert-origin-x'],
+  ['vertOriginY', 'vert-origin-y'],
+  ['wordSpacing', 'word-spacing'],
+  ['writingMode', 'writing-mode'],
+  ['xlinkActuate', 'xlink:actuate'],
+  ['xlinkArcrole', 'xlink:arcrole'],
+  ['xlinkHref', 'xlink:href'],
+  ['xlinkRole', 'xlink:role'],
+  ['xlinkShow', 'xlink:show'],
+  ['xlinkTitle', 'xlink:title'],
+  ['xlinkType', 'xlink:type'],
+  ['xmlBase', 'xml:base'],
+  ['xmlLang', 'xml:lang'],
+  ['xmlSpace', 'xml:space'],
+  ['xmlnsXlink', 'xmlns:xlink'],
+  ['xHeight', 'x-height'],
 ])
+
+const ATTRIBUTE_NAMESPACE_PREFIXES = new Map([
+  ['http://www.w3.org/1999/xlink', 'xlink'],
+  ['http://www.w3.org/XML/1998/namespace', 'xml'],
+  ['http://www.w3.org/2000/xmlns/', 'xmlns'],
+])
+const ATTRIBUTE_PREFIX_NAMESPACES = new Map(
+  [...ATTRIBUTE_NAMESPACE_PREFIXES].map(([namespace, prefix]) => [prefix, namespace])
+)
+
+function mutationAttributeName(record: MutationRecord) {
+  if (record.attributeName === null) return null
+  const prefix =
+    record.attributeNamespace === null
+      ? undefined
+      : ATTRIBUTE_NAMESPACE_PREFIXES.get(record.attributeNamespace)
+  return prefix === undefined
+    ? record.attributeName
+    : `${prefix}:${record.attributeName}`
+}
 
 function reactAttributeValue(name: string, value: unknown) {
   if (value === null || value === undefined) return null
@@ -784,7 +1513,11 @@ function updateAttributeBaselineFromReactProp(
   propName: string,
   value: unknown
 ) {
-  const baseline = reactAttributeValue(propName, value)
+  const serializationName =
+    propName === 'defaultChecked' || propName === 'defaultValue'
+      ? attributeName
+      : propName
+  const baseline = reactAttributeValue(serializationName, value)
   if (baseline === null) state.beforeBinding.attributes.delete(attributeName)
   else state.beforeBinding.attributes.set(attributeName, baseline)
 }
@@ -811,9 +1544,15 @@ function reactPropForAttribute(
 ) {
   const keys = new Set([...previous.keys(), ...current.keys()])
   return [...keys].find(
-    (name) =>
-      (REACT_PROP_ATTRIBUTE_ALIASES.get(name) ?? name).toLowerCase() ===
-      attributeName.toLowerCase()
+    (name) => {
+      const attribute =
+        name === 'defaultChecked'
+          ? 'checked'
+          : name === 'defaultValue'
+            ? 'value'
+            : REACT_PROP_ATTRIBUTE_ALIASES.get(name) ?? name
+      return attribute.toLowerCase() === attributeName.toLowerCase()
+    }
   )
 }
 
@@ -825,10 +1564,11 @@ function refreshReactOwnedDom(
   const changed = new Set<HTMLElement>()
 
   for (const record of records) {
+    const attributeName = mutationAttributeName(record)
     if (
       record.type !== 'attributes' ||
-      record.attributeName === null ||
-      record.attributeName === 'data-bind'
+      attributeName === null ||
+      attributeName === 'data-bind'
     ) {
       continue
     }
@@ -839,7 +1579,7 @@ function refreshReactOwnedDom(
     const names = bindingNames(state.source)
     const currentProps = snapshotReactProps(element)
     const reactProp = reactPropForAttribute(
-      record.attributeName,
+      attributeName,
       state.reactProps,
       currentProps
     )
@@ -847,7 +1587,10 @@ function refreshReactOwnedDom(
       reactProp !== undefined && reactPropChanged(state.reactProps, currentProps, reactProp)
     if (!propsChanged || reactProp === undefined) continue
 
-    if (record.attributeName === 'class' && names.has('css')) {
+    if (
+      attributeName === 'class' &&
+      (names.has('class') || names.has('css'))
+    ) {
       updateAttributeBaselineFromReactProp(
         state,
         'class',
@@ -855,17 +1598,28 @@ function refreshReactOwnedDom(
         currentProps.get(reactProp)
       )
       changed.add(element)
-    } else if (record.attributeName === 'style' && names.has('style')) {
+    } else if (
+      attributeName === 'style' &&
+      (names.has('style') || names.has('visible') || names.has('hidden')) &&
+      (names.has('style') ||
+        stylePropChanged(
+          state.reactProps.get('style'),
+          currentProps.get('style'),
+          'display'
+        ))
+    ) {
       updateStyleBaselineFromReactProps(
         state,
         state.reactProps.get('style'),
         currentProps.get('style')
       )
+      state.beforeBinding.styleDisplay =
+        state.beforeBinding.style.get('display')?.value ?? ''
       changed.add(element)
-    } else if (names.has('attr') && state.ownedAttributes.has(record.attributeName)) {
+    } else if (names.has('attr') && state.ownedAttributes.has(attributeName)) {
       updateAttributeBaselineFromReactProp(
         state,
-        record.attributeName,
+        attributeName,
         reactProp,
         currentProps.get(reactProp)
       )
@@ -874,13 +1628,19 @@ function refreshReactOwnedDom(
   }
 
   function visit(element: HTMLElement) {
-    if (element !== root && bindingRoots.has(element)) return
+    if (
+      element !== root &&
+      bindingRootRegistry(root).bindingRoots.has(element)
+    ) return
     const state = bindingStates.get(element)
     if (state !== undefined) {
       const names = bindingNames(state.source)
       const currentProps = snapshotReactProps(element)
 
-      if (names.has('css') && reactPropChanged(state.reactProps, currentProps, 'className')) {
+      if (
+        (names.has('class') || names.has('css')) &&
+        reactPropChanged(state.reactProps, currentProps, 'className')
+      ) {
         const className = currentProps.get('className')
         if (className === undefined || className === null) {
           state.beforeBinding.attributes.delete('class')
@@ -892,8 +1652,17 @@ function refreshReactOwnedDom(
 
       const previousStyle = state.reactProps.get('style')
       const currentStyle = currentProps.get('style')
-      if (names.has('style') && reactPropChanged(state.reactProps, currentProps, 'style')) {
+      const displayChanged = stylePropChanged(previousStyle, currentStyle, 'display')
+      if (
+        (names.has('style') ||
+          ((names.has('visible') || names.has('hidden')) && displayChanged)) &&
+        reactPropChanged(state.reactProps, currentProps, 'style')
+      ) {
         updateStyleBaselineFromReactProps(state, previousStyle, currentStyle)
+        if (displayChanged) {
+          state.beforeBinding.styleDisplay =
+            state.beforeBinding.style.get('display')?.value ?? ''
+        }
         changed.add(element)
       }
 
@@ -907,21 +1676,25 @@ function refreshReactOwnedDom(
         changed.add(element)
       }
 
-      const propertyBindings: Array<[string, string[], keyof DomSnapshot]> = [
-        ['value', ['value', 'textInput', 'checkedValue'], 'value'],
-        ['checked', ['checked'], 'checked'],
-        ['disabled', ['enable', 'disable'], 'disabled'],
+      const propertyBindings: Array<
+        [string[], string[], 'value' | 'checked' | 'disabled']
+      > = [
+        [['value', 'defaultValue'], ['value', 'textInput', 'checkedValue'], 'value'],
+        [['checked', 'defaultChecked'], ['checked'], 'checked'],
+        [['disabled'], ['enable', 'disable'], 'disabled'],
       ]
-      for (const [prop, bindings, snapshotKey] of propertyBindings) {
+      for (const [props, bindings, snapshotKey] of propertyBindings) {
+        const changedProp = props.find((prop) =>
+          reactPropChanged(state.reactProps, currentProps, prop)
+        )
         if (
           bindings.some((binding) => names.has(binding)) &&
-          reactPropChanged(state.reactProps, currentProps, prop)
+          changedProp !== undefined
         ) {
-          const reactValue = currentProps.get(prop)
+          const reactValue = currentProps.get(changedProp)
           if (snapshotKey === 'value') state.beforeBinding.value = reactValue ?? ''
           else if (snapshotKey === 'checked') state.beforeBinding.checked = Boolean(reactValue)
-          else if (snapshotKey === 'disabled') state.beforeBinding.disabled = Boolean(reactValue)
-          else state.beforeBinding.selected = Boolean(reactValue)
+          else state.beforeBinding.disabled = Boolean(reactValue)
           changed.add(element)
         }
       }
@@ -936,29 +1709,72 @@ function refreshReactOwnedDom(
 function refreshOwnedContent(
   records: MutationRecord[],
   changedElements: Set<HTMLElement>,
-  bindingStates: BindingStateStore
+  bindingStates: BindingStateStore,
+  reactCommitInProgress: boolean
 ) {
+  const elements = new Set<HTMLElement>()
   for (const record of records) {
-    if (record.type !== 'childList' || record.target.nodeType !== Node.ELEMENT_NODE) {
-      continue
+    if (record.type === 'childList' && record.target.nodeType === Node.ELEMENT_NODE) {
+      elements.add(record.target as HTMLElement)
+    } else if (
+      record.type === 'characterData' &&
+      record.target.parentNode?.nodeType === Node.ELEMENT_NODE
+    ) {
+      elements.add(record.target.parentNode as HTMLElement)
     }
+  }
 
-    const element = record.target as HTMLElement
+  for (const element of elements) {
     const state = bindingStates.get(element)
     if (state !== undefined && state.ownedContent !== null && !changedElements.has(element)) {
       // An element that was empty at bind time can gain React children later.
-      // Knockout's own content writes carry no React tag, so only a React-owned
-      // node outside the tracked content makes the element contested.
+      // Direct text and HTML writes can instead replace a tracked node in place
+      // or remove it with an empty payload, so compare their host props too.
       const owned = state.ownedContent
-      const contested = [...element.childNodes].some(
-        (child) => !owned.has(child) && hasReactOwnership(child)
+      const textChanged = records.some(
+        (record) => record.type === 'characterData' && record.target.parentNode === element
       )
+      const removedOwnedContent = records.some(
+        (record) =>
+          record.type === 'childList' &&
+          record.target === element &&
+          [...record.removedNodes].some((node) => owned.has(node))
+      )
+      // Direct text setters enter the synchronous path only when their write
+      // matches an active React commit. An asynchronously delivered text
+      // record can instead be a Knockout notification after that commit.
+      const directReactContentTransition =
+        (removedOwnedContent || (textChanged && reactCommitInProgress)) &&
+        hasDirectReactContentTransition(
+          element,
+          state.reactProps,
+          reactCommitInProgress
+        )
+      const hasUnownedChild = [...element.childNodes].some((child) => !owned.has(child))
+      const contested =
+        directReactContentTransition ||
+        ((hasUnownedChild || textChanged) &&
+          (hasReactOwnedChildren(element, owned) ||
+            [...element.childNodes].some(
+              (child) => !owned.has(child) && hasReactOwnership(child, element)
+            )))
       if (contested) {
-        assertNoReactUnsafeBindings(element)
+        if (state.customDescendantController !== null) {
+          throw new Error(
+            `react-ko cannot apply the Knockout "${state.customDescendantController}" binding because its custom handler controls React-owned child nodes. ` +
+              'Custom bindings on elements with React-owned children must leave their descendants in place.'
+          )
+        }
+        assertNoReactUnsafeBindings(
+          element,
+          directReactContentTransition,
+          false
+        )
       }
 
-      // While a content binding remains active, its direct children belong to
-      // Knockout. Refresh the snapshot after text/html/component/options updates.
+      // A single DOM operation can enqueue several records for one element.
+      // Refresh only after all of them have been checked so the first record
+      // cannot absorb a later React node into Knockout's ownership snapshot.
       state.ownedContent = new Set(element.childNodes)
     }
   }
@@ -970,10 +1786,16 @@ function restoreAttribute(
   name: string
 ) {
   const value = snapshot.attributes.get(name)
+  const separator = name.indexOf(':')
+  const prefix = separator === -1 ? undefined : name.slice(0, separator)
+  const namespace =
+    prefix === undefined ? undefined : ATTRIBUTE_PREFIX_NAMESPACES.get(prefix)
   if (value === undefined) {
-    element.removeAttribute(name)
+    if (namespace === undefined) element.removeAttribute(name)
+    else element.removeAttributeNS(namespace, name.slice(separator + 1))
   } else {
-    element.setAttribute(name, value)
+    if (namespace === undefined) element.setAttribute(name, value)
+    else element.setAttributeNS(namespace, name, value)
   }
 }
 
@@ -985,9 +1807,36 @@ function restoreStyle(element: HTMLElement, snapshot: DomSnapshot) {
 }
 
 function assertBindingsCanBeRetired(state: BindingState) {
-  const unsafe = [...bindingNames(state.source)].find(
-    (name) => !SAFELY_RETIRABLE_BINDINGS.has(name)
-  )
+  const names = bindingNames(state.source)
+  const hasCanonicalHandlers = (name: string, visited = new Set<string>()): boolean => {
+    if (visited.has(name)) return true
+    const nextVisited = new Set(visited).add(name)
+
+    const canonical =
+      name === DESCENDANT_BINDING_BOUNDARY
+        ? hasReactKoBindingHandler(name)
+        : hasCanonicalKnockoutBindingHandler(name)
+    return (
+      canonical &&
+      (DELEGATED_BINDING_HANDLERS.get(name)?.every((delegate) =>
+        hasCanonicalHandlers(delegate, nextVisited)
+      ) ?? true)
+    )
+  }
+  const unsafe = [...rawBindingNames(state.source)].find((rawName) => {
+    const name = rawName === 'textinput' ? 'textInput' : rawName
+    return (
+      !(
+        SAFELY_RETIRABLE_BINDINGS.has(name) &&
+        hasCanonicalHandlers(rawName)
+      ) &&
+      !(
+        name.endsWith('Bubble') &&
+        ko.bindingHandlers[rawName] === undefined &&
+        (names.has('event') || (name === 'clickBubble' && names.has('click')))
+      )
+    )
+  })
   if (unsafe !== undefined) {
     throw new Error(
       `react-ko cannot replace the Knockout "${unsafe}" binding because its DOM effects cannot be safely retired.`
@@ -1005,22 +1854,25 @@ function restoreRetiredDomEffects(element: HTMLElement, state: BindingState) {
     selected?: boolean
   }
 
-  if (names.has('css')) {
+  if (names.has('class') || names.has('css')) {
     restoreAttribute(element, state.beforeBinding, 'class')
   }
   if (names.has('style')) {
     restoreStyle(element, state.beforeBinding)
-  } else if (names.has('visible')) {
+  } else if (names.has('visible') || names.has('hidden')) {
     element.style.display = state.beforeBinding.styleDisplay
   }
   if (names.has('attr')) {
     for (const name of state.ownedAttributes) {
-      if (name === 'class' && names.has('css')) continue
+      if (name === 'class' && (names.has('class') || names.has('css'))) continue
       if (name === 'style' && names.has('style')) continue
       restoreAttribute(element, state.beforeBinding, name)
     }
   }
-  if (names.has('uniqueName')) {
+  // Knockout's checked binding delegates to uniqueName for unnamed radios so
+  // that old IE does not merge unrelated radio groups. Retiring checked must
+  // undo that implicit attribute just as retiring uniqueName does.
+  if (names.has('uniqueName') || names.has('checked')) {
     restoreAttribute(element, state.beforeBinding, 'name')
   }
   if (
@@ -1055,7 +1907,10 @@ function restoreBindingTree(
   root: HTMLElement,
   bindingStates: BindingStateStore
 ) {
-  if (element !== root && bindingRoots.has(element)) {
+  if (
+    element !== root &&
+    bindingRootRegistry(root).bindingRoots.has(element)
+  ) {
     return
   }
 
@@ -1138,6 +1993,9 @@ function cleanRemovedNodes(records: MutationRecord[], root: Node) {
       // bindings while the same node remains under this binding root.
       if (!root.contains(node)) {
         ko.cleanNode(node)
+        if (node.nodeType === Node.ELEMENT_NODE) {
+          releaseReactTrackedChecked(node as HTMLElement)
+        }
       }
     }
   }
@@ -1150,17 +2008,37 @@ function bindAddedNodes(
   bindingStates: BindingStateStore
 ) {
   for (const record of records) {
+    if (
+      record.type === 'characterData' &&
+      record.target.parentNode?.nodeType === Node.ELEMENT_NODE &&
+      belongsToBindingRoot(record.target, root) &&
+      hasReactOwnership(record.target, record.target.parentNode as Element)
+    ) {
+      assertNoReactUnsafeBindings(
+        record.target.parentNode as HTMLElement,
+        false,
+        false
+      )
+    }
+
     for (const node of record.addedNodes) {
       if (
-        node.nodeType !== Node.ELEMENT_NODE ||
+        (node.nodeType !== Node.ELEMENT_NODE && node.nodeType !== Node.TEXT_NODE) ||
         !belongsToBindingRoot(node, root) ||
-        ko.contextFor(node) !== undefined
+        (node.nodeType === Node.ELEMENT_NODE && ko.contextFor(node) !== undefined) ||
+        isKnockoutOwnedContentAddition(record, node, bindingStates)
       ) {
         continue
       }
 
       // Binding the highest added element covers its subtree and respects any
       // descendant scope boundary encountered during that pass.
+      if (record.target.nodeType === Node.ELEMENT_NODE) {
+        assertNoReactUnsafeBindings(record.target as HTMLElement, false, false)
+      }
+      if (node.nodeType === Node.TEXT_NODE) {
+        continue
+      }
       const bindingContext = descendantBindingContextFor(node, root)
       prepareBindingTree(node as HTMLElement, root, bindingStates)
       applyBindingsSafely(bindingContext ?? viewModel, node as HTMLElement)
@@ -1177,15 +2055,30 @@ export function observeBindingDescendants(
   viewModel: unknown,
   root: HTMLElement,
   onError: (error: unknown) => void,
-  bindingStates: BindingStateStore = prepareBindingDescendants(root)
+  bindingStates: BindingStateStore = prepareBindingDescendants(root),
+  shouldDeferReconciliation?: () => boolean,
+  deferredSuspenseBindings: readonly DeferredSuspenseBinding[] = []
 ) {
-  bindingRoots.set(root, viewModel)
-  trackBindingTree(root, root, bindingStates)
+  const registry = bindingRootRegistry(root)
+  registry.bindingRoots.set(root, viewModel)
+  const deferredSuspenseElements = new Set(
+    deferredSuspenseBindings.flatMap(({ start, end }) =>
+      suspenseRangeElements(start, end)
+    )
+  )
+  trackBindingTree(root, root, bindingStates, deferredSuspenseElements)
 
-  const reconcile = (records: MutationRecord[]) => {
+  const reconcile = (records: MutationRecord[], reactCommitInProgress = false) => {
     cleanRemovedNodes(records, root)
-    const addedRoots = addedBindingRoots(records, root)
+    const addedRoots = addedBindingRoots(records, root, bindingStates)
     const changedElements = changedBindingElements(records, root, addedRoots)
+    for (const select of changedOptionSelects(
+      records,
+      root,
+      bindingStates
+    )) {
+      changedElements.add(select)
+    }
     recordOwnedAttributeChanges(records, bindingStates)
     for (const element of refreshReactOwnedDom(
       records,
@@ -1194,7 +2087,12 @@ export function observeBindingDescendants(
     )) {
       changedElements.add(element)
     }
-    refreshOwnedContent(records, changedElements, bindingStates)
+    refreshOwnedContent(
+      records,
+      changedElements,
+      bindingStates,
+      reactCommitInProgress
+    )
     rebindChangedAttributes(changedElements, root, viewModel, bindingStates, addedRoots)
     bindAddedNodes(records, root, viewModel, bindingStates)
     // Rebinding deliberately mutates the same attributes that React changed.
@@ -1203,24 +2101,49 @@ export function observeBindingDescendants(
     observer.takeRecords()
   }
   const observer = new MutationObserver((records) => {
-    if (reconcilingRoots.has(root)) {
+    if (registry.reconcilingRoots.has(root)) {
       return
     }
 
-    reconcilingRoots.add(root)
+    registry.reconcilingRoots.add(root)
     try {
+      if (shouldDeferReconciliation?.() === true) {
+        // The replacement pass cleans and binds the current tree as a whole.
+        // Only detached nodes need immediate cleanup from this delivered batch.
+        cleanRemovedNodes(records, root)
+        return
+      }
       reconcile(records)
     } catch (error) {
       observer.disconnect()
       onError(error)
     } finally {
-      reconcilingRoots.delete(root)
+      registry.reconcilingRoots.delete(root)
+      scheduleHydrationCheck(records.length > 0)
     }
   })
-  bindingObservers.set(root, {
+  registry.bindingObservers.set(root, {
     observer,
     reconcile,
+    shouldDeferReconciliation,
     onError,
+    // React sets data-bind before clearing the host's previous text or HTML.
+    // Let that host mutation finish so stale current props do not make the
+    // newly empty element appear contested during its binding handoff.
+    shouldDeferDataBindChange: (target) => {
+      const element = target as HTMLElement
+      const state = bindingStates.get(element)
+      const source = element.getAttribute('data-bind')
+      const nextProps = reactHostFiber(element)?.alternate?.pendingProps
+      return (
+        state?.source === null &&
+        source !== null &&
+        controlsElementContent(source) &&
+        nextProps?.['data-bind'] === source &&
+        directReactContent(nextProps) === null &&
+        hasReactOwnedChildren(element)
+      )
+    },
     // A content binding may be inserting its own DOM, or React may be retiring
     // that binding in the same commit. Inspect React's work-in-progress host
     // props so only the latter ownership transition is deferred. If the binding
@@ -1237,56 +2160,214 @@ export function observeBindingDescendants(
         return false
       }
 
-      const reactFiberKey = Object.getOwnPropertyNames(element).find((name) =>
-        name.startsWith('__reactFiber$')
+      return currentReactHostProps(element, true)?.['data-bind'] !== state.source
+    },
+    shouldReconcileDirectTextWrite: (element) => {
+      const state = bindingStates.get(element)
+      return (
+        state !== undefined &&
+        state.ownedContent !== null &&
+        hasActiveDirectReactTextWrite(element, state.reactProps)
       )
-      if (reactFiberKey === undefined) {
-        return false
+    },
+    refreshAfterLayout: () => {
+      const records = observer.takeRecords()
+      reconcile(records, true)
+      const layoutTargets = new Set(
+        records.flatMap((record) => {
+          if (record.target.nodeType === Node.ELEMENT_NODE) {
+            return [record.target as HTMLElement]
+          }
+          return record.target.parentElement === null
+            ? []
+            : [record.target.parentElement]
+        })
+      )
+      const changedElements = new Set<HTMLElement>()
+      function visit(element: HTMLElement) {
+        if (
+          element !== root &&
+          bindingRootRegistry(root).bindingRoots.has(element)
+        ) return
+        const state = bindingStates.get(element)
+        const names = bindingNames(state?.source ?? null)
+        if (
+          layoutTargets.has(element) &&
+          names.size > 0 &&
+          [...names].every((name) => POST_LAYOUT_REFRESH_BINDINGS.has(name))
+        ) {
+          try {
+            if (state !== undefined) assertBindingsCanBeRetired(state)
+            changedElements.add(element)
+          } catch {
+            // A consumer override cannot be safely initialized a second time.
+          }
+        }
+        for (const child of element.children) visit(child as HTMLElement)
       }
-      const fiber = (element as unknown as Record<string, unknown>)[reactFiberKey] as {
-        alternate?: { pendingProps: Record<string, unknown> } | null
-      }
-
-      // During the mutation phase the DOM marker still points at the current
-      // fiber, while its alternate contains the props being committed.
-      return fiber.alternate !== undefined &&
-        fiber.alternate !== null &&
-        fiber.alternate.pendingProps['data-bind'] !== state.source
+      visit(root)
+      rebindChangedAttributes(
+        changedElements,
+        root,
+        viewModel,
+        bindingStates,
+        []
+      )
+      observer.takeRecords()
     },
   })
   observer.observe(root, {
     attributes: true,
-    attributeOldValue: true,
+    characterData: true,
     childList: true,
     subtree: true,
   })
   const stopIntercepting = interceptDataBindChanges(root)
   const stopInterceptingInsertions = interceptChildListInsertions(root)
+  const stopInterceptingDirectText = interceptDirectTextWrites(root)
+  const pendingSuspenseBindings = new Map(
+    deferredSuspenseBindings.map((binding) => [binding.start, binding])
+  )
+  const initialHydrationDelay = 16
+  const maximumHydrationDelay = 1000
+  let hydrationDelay = initialHydrationDelay
+  let hydrationTimer: number | null = null
+  let stopped = false
+
+  const scheduleHydrationCheck = (domChanged = false) => {
+    const view = root.ownerDocument.defaultView
+    if (stopped || view === null || pendingSuspenseBindings.size === 0) {
+      return
+    }
+
+    if (domChanged) {
+      hydrationDelay = initialHydrationDelay
+      if (hydrationTimer !== null) {
+        view.clearTimeout(hydrationTimer)
+        hydrationTimer = null
+      }
+    }
+    if (hydrationTimer !== null) return
+
+    const scheduledDelay = hydrationDelay
+    hydrationTimer = view.setTimeout(() => {
+      hydrationTimer = null
+      hydrationDelay = Math.min(scheduledDelay * 2, maximumHydrationDelay)
+      checkHydratedSuspenseBindings()
+    }, scheduledDelay)
+  }
+
+  const queueDeferredBindings = (
+    bindings: readonly DeferredSuspenseBinding[]
+  ) => {
+    let added = false
+    for (const binding of bindings) {
+      added ||= !pendingSuspenseBindings.has(binding.start)
+      pendingSuspenseBindings.set(binding.start, binding)
+    }
+    if (added) hydrationDelay = initialHydrationDelay
+    scheduleHydrationCheck()
+  }
+
+  const checkHydratedSuspenseBindings = () => {
+    if (stopped) return
+
+    registry.reconcilingRoots.add(root)
+    try {
+      for (const [start, binding] of pendingSuspenseBindings) {
+        if (!root.contains(start) || !root.contains(binding.end)) {
+          pendingSuspenseBindings.delete(start)
+          continue
+        }
+
+        const elements = suspenseRangeElements(start, binding.end)
+        if (!elements.some(hasReactOwnership)) continue
+
+        pendingSuspenseBindings.delete(start)
+        const topLevelElements = elements.filter(
+          (element) =>
+            !elements.some(
+              (candidate) => candidate !== element && candidate.contains(element)
+            ) && hasReactOwnership(element)
+        ) as HTMLElement[]
+        for (const element of topLevelElements) {
+          const bindingContext =
+            descendantBindingContextFor(element, root) ?? viewModel
+          prepareBindingTree(element, root, bindingStates)
+          for (const descendant of [element, ...element.querySelectorAll('*')]) {
+            deferredSuspenseElements.delete(descendant)
+          }
+          const nestedBindings = applyBindingsSafely(bindingContext, element)
+          for (const nested of nestedBindings) {
+            for (const descendant of suspenseRangeElements(
+              nested.start,
+              nested.end
+            )) {
+              deferredSuspenseElements.add(descendant)
+            }
+          }
+          queueDeferredBindings(nestedBindings)
+          trackBindingTree(
+            element,
+            root,
+            bindingStates,
+            deferredSuspenseElements
+          )
+        }
+      }
+      observer.takeRecords()
+    } catch (error) {
+      observer.disconnect()
+      pendingSuspenseBindings.clear()
+      onError(error)
+    } finally {
+      registry.reconcilingRoots.delete(root)
+    }
+
+    // Hydrating an outer boundary can reveal a still-dehydrated nested one.
+    queueDeferredBindings(findDehydratedSuspenseBindings(root))
+    scheduleHydrationCheck()
+  }
+
+  queueDeferredBindings(findDehydratedSuspenseBindings(root))
 
   return () => {
     // A removal and root unmount can happen before the observer callback. Drain
     // pending removals before disconnecting so subscriptions are not orphaned.
     const pendingRecords = observer.takeRecords()
+    stopped = true
+    if (hydrationTimer !== null) {
+      root.ownerDocument.defaultView?.clearTimeout(hydrationTimer)
+    }
     observer.disconnect()
-    bindingRoots.delete(root)
-    bindingObservers.delete(root)
+    registry.bindingRoots.delete(root)
+    registry.bindingObservers.delete(root)
+    registry.reconcilingRoots.delete(root)
+    registry.scheduledPropertyRoots.delete(root)
     stopIntercepting()
     stopInterceptingInsertions()
+    stopInterceptingDirectText()
     cleanRemovedNodes(pendingRecords, root)
+    releaseReactTrackedChecked(root, root)
   }
 }
 
 /** Reconciles queued React DOM mutations before descendant layout effects run. */
 export function reconcileBindingDescendants(root: HTMLElement) {
-  const state = bindingObservers.get(root)
-  if (state === undefined || reconcilingRoots.has(root)) {
+  const registry = bindingRootRegistry(root)
+  const state = registry.bindingObservers.get(root)
+  if (
+    state === undefined ||
+    state.shouldDeferReconciliation?.() === true ||
+    registry.reconcilingRoots.has(root)
+  ) {
     return
   }
 
   const records = state.observer.takeRecords()
-  reconcilingRoots.add(root)
+  registry.reconcilingRoots.add(root)
   try {
-    state.reconcile(records)
+    state.reconcile(records, true)
   } catch (error) {
     state.observer.disconnect()
     // React continues mounting layout effects after a host mutation throws.
@@ -1295,6 +2376,23 @@ export function reconcileBindingDescendants(root: HTMLElement) {
     ko.cleanNode(root)
     throw error
   } finally {
-    reconcilingRoots.delete(root)
+    registry.reconcilingRoots.delete(root)
+  }
+}
+
+/** Reapplies safely repeatable bindings after enclosing layout effects. */
+export function refreshBindingDescendantsAfterLayout(root: HTMLElement) {
+  const registry = bindingRootRegistry(root)
+  const state = registry.bindingObservers.get(root)
+  if (state === undefined || registry.reconcilingRoots.has(root)) return
+
+  registry.reconcilingRoots.add(root)
+  try {
+    state.refreshAfterLayout()
+  } catch (error) {
+    state.observer.disconnect()
+    state.onError(error)
+  } finally {
+    registry.reconcilingRoots.delete(root)
   }
 }

@@ -22,6 +22,19 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean
 }
 
 describe('KnockoutScope', () => {
+  it('requires an enclosing app view model provider without leaking subscriptions', () => {
+    const vm = { name: ko.observable('Unbound') }
+
+    expect(() =>
+      render(
+        <KnockoutScope viewModel={vm}>
+          <span data-bind="text: name" />
+        </KnockoutScope>
+      )
+    ).toThrow('useAppViewModel must be used within an AppViewModelContext.Provider.')
+    expect(vm.name.getSubscriptionsCount()).toBe(0)
+  })
+
   it('binds directly beneath AppViewModelContext.Provider without a root provider', () => {
     const appVm = { name: ko.observable('App') }
     const scopeVm = { name: ko.observable('Scoped') }
@@ -105,6 +118,35 @@ describe('KnockoutScope', () => {
     act(() => showInput())
 
     expect(vm.name()).toBe('Changed in layout')
+  })
+
+  it('binds initial descendants before their layout effects run without a root provider', () => {
+    const appVm = {}
+    const vm = { name: ko.observable('Initial') }
+
+    function ChangeInLayout() {
+      const input = useRef<HTMLInputElement>(null)
+
+      useLayoutEffect(() => {
+        if (input.current !== null) {
+          input.current.value = 'Changed in layout'
+          input.current.dispatchEvent(new Event('change', { bubbles: true }))
+        }
+      }, [])
+
+      return <input ref={input} data-bind="value: name" />
+    }
+
+    render(
+      <AppViewModelContext.Provider value={appVm}>
+        <KnockoutScope viewModel={vm}>
+          <ChangeInLayout />
+        </KnockoutScope>
+      </AppViewModelContext.Provider>
+    )
+
+    expect(vm.name()).toBe('Changed in layout')
+    expect(screen.getByDisplayValue('Changed in layout')).toBeDefined()
   })
 
   it('sends a late binding error to a React error boundary with a stable view model', async () => {
@@ -424,37 +466,5 @@ describe('KnockoutScope', () => {
 describe('KoScope', () => {
   it('is an alias of KnockoutScope', () => {
     expect(KoScope).toBe(KnockoutScope)
-  })
-
-  it('binds a scoped view model', () => {
-    render(
-      <RootKnockoutProvider viewModel={{}}>
-        <KoScope viewModel={{ label: 'Alias smoke' }}>
-          <span data-bind="text: label" />
-        </KoScope>
-      </RootKnockoutProvider>
-    )
-
-    expect(screen.getByText('Alias smoke')).toBeDefined()
-  })
-
-  it('surfaces a structural binding rejected at initial mount and unbinds cleanly', () => {
-    const vm = { items: ko.observableArray<string>([]) }
-
-    const { unmount } = render(
-      <ErrorBoundary>
-        <RootKnockoutProvider viewModel={{}}>
-          <KnockoutScope viewModel={vm}>
-            <div data-bind="foreach: items">
-              <span />
-            </div>
-          </KnockoutScope>
-        </RootKnockoutProvider>
-      </ErrorBoundary>
-    )
-
-    expect(screen.getByText('Binding failed')).toBeDefined()
-
-    unmount()
   })
 })

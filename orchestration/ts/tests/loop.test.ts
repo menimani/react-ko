@@ -14,7 +14,8 @@ import { createLoop, type Loop } from '../src/loop.ts'
 import {
   syncOrchestrationDepsAtStartup, type OrchestrationDepsRuntime,
 } from '../src/merge.ts'
-import { finalMessageFile, orchPaths, statusFile, type OrchPaths } from '../src/paths.ts'
+import { finalMessageFile, logFile, orchPaths, statusFile, type OrchPaths } from '../src/paths.ts'
+import { readStatus } from '../src/status.ts'
 import { makeFakeForge, type FakeForge } from './fakeForge.ts'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -130,6 +131,121 @@ describe('daemon startup', () => {
     expect(install).toHaveBeenCalledOnce()
     expect(install).toHaveBeenCalledWith(join(repoRoot, 'orchestration', 'ts'))
     expect(logged).toContain('Installed  orchestration deps  at startup')
+  })
+
+  it('reloads the project adapter before starting each scan', async () => {
+    initializeGitRepo()
+    mkdirSync(join(paths.root, 'templates'), { recursive: true })
+    writeFileSync(join(paths.root, 'templates', 'scan-template.md'), '# {{SCAN_ID}}\n{{SCAN_SCOPE}}\n')
+    mkdirSync(join(paths.root, 'ts'), { recursive: true })
+    writeFileSync(join(paths.root, 'ts', 'package-lock.json'), '{}\n')
+    git(['add', 'orchestration/templates/scan-template.md', 'orchestration/ts/package-lock.json'])
+    git(['commit', '-m', 'test: add scan template'])
+
+    const currentProject: ProjectAdapter = {
+      ...stubProject,
+      scanWorktreeSetup: [
+        {
+          label: 'Library dependencies',
+          cwd: '',
+          command: 'node -e "require(\'node:fs\').appendFileSync(\'setup-order\', \'library\\n\')"',
+        },
+        {
+          label: 'Orchestration dependencies',
+          cwd: 'orchestration/ts',
+          command: 'node -e "require(\'node:fs\').appendFileSync(\'../../setup-order\', \'orchestration\\n\')"',
+          requires: 'orchestration/ts/package-lock.json',
+        },
+      ],
+    }
+    const reloadProject = vi.fn(async () => currentProject)
+    const loop = createLoop({
+      paths,
+      config: { ...loadConfig({}), autoPr: false, reviewEnabled: false, scanParallel: 2 },
+      forge: makeForge(),
+      runner: makeRunner(),
+      project: stubProject,
+      reloadProject,
+      log: (line) => logged.push(line),
+      now: () => new Date(2026, 7, 8, 12, 0, 0),
+    })
+
+    expect(await loop.triggerScanIfIdle()).toBe('continue')
+
+    expect(reloadProject).toHaveBeenCalledTimes(2)
+    const scanWorktrees = readdirSync(paths.worktreesDir)
+    expect(scanWorktrees).toHaveLength(2)
+    expect(scanWorktrees.every((name) =>
+      readFileSync(join(paths.worktreesDir, name, 'setup-order'), 'utf8')
+        === 'library\norchestration\n')).toBe(true)
+    expect(runnerStarts).toHaveLength(2)
+  })
+
+  it('does not record a scan cycle when reloading the project adapter fails', async () => {
+    const reloadProject = vi.fn(async () => {
+      throw new Error('project reload exploded')
+    })
+    const loop = createLoop({
+      paths,
+      config: { ...loadConfig({}), autoPr: false, reviewEnabled: false, scanParallel: 1 },
+      forge: makeForge(),
+      runner: makeRunner(),
+      project: stubProject,
+      reloadProject,
+      log: (line) => logged.push(line),
+      now: () => new Date(2026, 7, 8, 12, 0, 0),
+    })
+
+    expect(await loop.triggerScanIfIdle()).toBe('continue')
+
+    expect(reloadProject).toHaveBeenCalledOnce()
+    expect(existsSync(join(paths.queueDir, 'scan-count.txt'))).toBe(false)
+    expect(readdirSync(paths.tasksDir)).toEqual([])
+    expect(readdirSync(paths.statusDir)).toEqual([])
+    expect(runnerStarts).toEqual([])
+    expect(logText()).toContain(
+      'scan startup failed while reloading project adapter: project reload exploded'
+    )
+  })
+
+  it.each([
+    ['Library dependencies', 0],
+    ['Orchestration dependencies', 1],
+  ] as const)('aborts scan dispatch with diagnostics when %s setup fails', async (label, failingStep) => {
+    initializeGitRepo()
+    mkdirSync(join(paths.root, 'templates'), { recursive: true })
+    writeFileSync(join(paths.root, 'templates', 'scan-template.md'), '# {{SCAN_ID}}\n{{SCAN_SCOPE}}\n')
+    mkdirSync(join(paths.root, 'ts'), { recursive: true })
+    writeFileSync(join(paths.root, 'ts', 'package-lock.json'), '{}\n')
+    git(['add', 'orchestration/templates/scan-template.md', 'orchestration/ts/package-lock.json'])
+    git(['commit', '-m', 'test: add scan setup fixtures'])
+
+    const successfulCommands = [
+      'node -e "require(\'node:fs\').writeFileSync(\'library-ready\', \'\')"',
+      'node -e "require(\'node:fs\').writeFileSync(\'orchestration-ready\', \'\')"',
+    ]
+    const setup = ['Library dependencies', 'Orchestration dependencies'].map((stepLabel, index) => ({
+      label: stepLabel,
+      cwd: index === 0 ? '' : 'orchestration/ts',
+      command: index === failingStep
+        ? `node -e "process.stderr.write('${stepLabel} setup exploded'); process.exit(1)"`
+        : successfulCommands[index] as string,
+    }))
+    const loop = makeLoop(
+      { autoPr: false, reviewEnabled: false, scanParallel: 1 },
+      { ...stubProject, scanWorktreeSetup: setup },
+    )
+
+    expect(await loop.triggerScanIfIdle()).toBe('continue')
+
+    const [scanId] = readdirSync(paths.worktreesDir)
+    expect(scanId).toBeDefined()
+    expect(runnerStarts).toEqual([])
+    expect(readStatus(paths, scanId as string)?.status).toBe('failed')
+    const taskLog = readFileSync(logFile(paths, scanId as string), 'utf8')
+    expect(taskLog).toContain(`${label} setup exploded`)
+    expect(taskLog).toContain(`Worktree setup failed during "${label}"`)
+    expect(logText()).toContain(`scan startup failed: Worktree setup failed during "${label}"`)
   })
 })
 

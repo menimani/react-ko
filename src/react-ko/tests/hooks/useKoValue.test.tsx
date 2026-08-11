@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { render, screen, act } from '@testing-library/react'
-import { useLayoutEffect } from 'react'
+import { StrictMode, useLayoutEffect } from 'react'
 import ko from 'knockout'
 import { useKoValue } from '@/index'
 
@@ -97,6 +97,48 @@ describe('useKoValue', () => {
     expect(screen.getByTestId('value').textContent).toBe('Updated')
   })
 
+  it('disposes its subscription when the source becomes plain or undefined', () => {
+    const observable = ko.observable('Observable')
+    let renderCount = 0
+
+    function OptionalProbe({
+      source,
+    }: {
+      source?: ko.Observable<string> | string
+    }) {
+      renderCount += 1
+      const value = useKoValue(source)
+      return <span data-testid="value">{value ?? 'none'}</span>
+    }
+
+    const { rerender } = render(<OptionalProbe source={observable} />)
+    expect(observable.getSubscriptionsCount()).toBe(1)
+
+    rerender(<OptionalProbe source="Plain" />)
+
+    expect(screen.getByTestId('value').textContent).toBe('Plain')
+    expect(observable.getSubscriptionsCount()).toBe(0)
+
+    const rendersAfterPlainValue = renderCount
+    act(() => {
+      observable('Ignored after plain value')
+    })
+    expect(renderCount).toBe(rendersAfterPlainValue)
+    expect(screen.getByTestId('value').textContent).toBe('Plain')
+
+    rerender(<OptionalProbe />)
+
+    expect(screen.getByTestId('value').textContent).toBe('none')
+    expect(observable.getSubscriptionsCount()).toBe(0)
+
+    const rendersAfterUndefined = renderCount
+    act(() => {
+      observable('Ignored after undefined')
+    })
+    expect(renderCount).toBe(rendersAfterUndefined)
+    expect(screen.getByTestId('value').textContent).toBe('none')
+  })
+
   it('catches a change fired between render and subscription', () => {
     const name = ko.observable('Hello')
 
@@ -159,6 +201,22 @@ describe('useKoValue', () => {
     const name = ko.observable('Hello')
 
     const { unmount } = render(<Probe source={name} />)
+    expect(name.getSubscriptionsCount()).toBe(1)
+
+    unmount()
+
+    expect(name.getSubscriptionsCount()).toBe(0)
+  })
+
+  it('keeps one live subscription through StrictMode replay and disposes it on unmount', () => {
+    const name = ko.observable('Hello')
+
+    const { unmount } = render(
+      <StrictMode>
+        <Probe source={name} />
+      </StrictMode>
+    )
+
     expect(name.getSubscriptionsCount()).toBe(1)
 
     unmount()

@@ -21,7 +21,37 @@ type VoidSemanticHost = typeof VOID_SEMANTIC_HOSTS extends Set<infer Host>
   ? Host
   : never
 
-export type SemanticHost = Exclude<keyof HTMLElementTagNameMap, VoidSemanticHost>
+const NON_VOID_SEMANTIC_HOST_NAMES = [
+  'acronym',
+  'applet',
+  'big',
+  'blink',
+  'center',
+  'dir',
+  'font',
+  'frameset',
+  'listing',
+  'marquee',
+  'multicol',
+  'nobr',
+  'noembed',
+  'noframes',
+  'plaintext',
+  'rb',
+  'rtc',
+  'strike',
+  'tt',
+  'xmp',
+] as const
+
+type NonVoidSemanticHost = (typeof NON_VOID_SEMANTIC_HOST_NAMES)[number]
+
+export type SemanticHost =
+  | NonVoidSemanticHost
+  | Exclude<keyof HTMLElementTagNameMap, VoidSemanticHost>
+
+const FOREIGN_CONTENT_HOSTS: ReadonlySet<string> = new Set(['math', 'svg'])
+const TEXT_CONTENT_HOSTS: ReadonlySet<string> = new Set(['textarea', 'title'])
 
 export type SemanticHostProps = {
   /** Element that prevents an enclosing Knockout root from binding this scope. */
@@ -35,12 +65,29 @@ type SemanticHostComponentProps = {
   style: React.CSSProperties
   ref?: React.Ref<HTMLElement>
   'data-bind'?: string
+  suppressHydrationWarning?: boolean
 }
 
 export function semanticHostComponent(host: SemanticHost) {
-  if (VOID_SEMANTIC_HOSTS.has(host as VoidSemanticHost)) {
+  const normalizedHost = String(host).toLowerCase()
+
+  if (VOID_SEMANTIC_HOSTS.has(normalizedHost as VoidSemanticHost)) {
     throw new Error(
       `react-ko cannot use the void HTML element <${host}> as a semantic host because scope hosts always contain children.`
+    )
+  }
+
+  // Declaration merging is erased at runtime, so unknown names must be passed
+  // through to React for the public SemanticHost type to remain usable.
+  if (FOREIGN_CONTENT_HOSTS.has(normalizedHost)) {
+    throw new Error(
+      `react-ko cannot use <${String(host)}> as a semantic host because scope hosts require a non-void HTML element.`
+    )
+  }
+
+  if (TEXT_CONTENT_HOSTS.has(normalizedHost)) {
+    throw new Error(
+      `react-ko cannot use <${String(host)}> as a semantic host because scope hosts require an HTML element that preserves its child element subtree.`
     )
   }
 

@@ -2,8 +2,8 @@
 
 Claude Code designs and merges the work; a runner (Codex by default) executes it in a
 dedicated git worktree. The command surface is the `scripts` block of
-`orchestration/ts/package.json` — `npm run -C orchestration/ts <command>`, and running an
-unknown command lists what exists rather than looking for a list here. Environment
+`orchestration/ts/package.json` — `npm run -C orchestration/ts <command>`, and
+`npm run -C orchestration/ts` lists the available commands. Environment
 variables pass through npm unchanged, so settings go in front of the command as they
 always did.
 
@@ -17,10 +17,6 @@ and the repository's own test commands are reached only through the adapters in
 `orchestration/ts/src/adapters/` — forge, runner, and project. Add an adapter to port to
 another forge, agent CLI, or repository; never hardcode any of the three in the core.
 Each task gets its own worktree under `orchestration/worktrees/` on a `task/<id>` branch.
-
-The bash implementation this replaced was deleted after the TS-driven validation run
-(run 9, 2026-08-08) completed and shipped; its behavior survives as `ts/SPEC.md` and the
-vitest suite.
 
 `ISSUE_QUEUE_ENABLED=true` moves the backlog to forge issues: findings are filed once
 per fingerprint under `loop:ready`, worker daemons claim by self-assigning, quiet leases
@@ -215,9 +211,10 @@ still on disk, or a spec tracked by git. `--dry-run` lists without deleting.
 
 `/loop-start` and `/loop-stop` cover this, including what each setting changes and what
 stopping leaves behind. Two things are worth knowing wherever you start it from: the
-daemon holds the code it started with, so editing the loop source changes nothing until it is
-restarted; and stopping does not kill the Codex processes already running, which finish in
-their worktrees with nobody left to merge them.
+daemon holds the core modules it started with, so edits there take effect only after a
+restart; the exception is the project adapter, which is reloaded before each scan so its
+scan-worktree setup can change on the next scan. Stopping does not kill the Codex processes
+already running, which finish in their worktrees with nobody left to merge them.
 
 `npm run -C orchestration/ts loop-status` answers whether it is running and what is in flight, without
 listing every task the repository has ever run.

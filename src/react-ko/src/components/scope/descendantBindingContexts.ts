@@ -1,29 +1,57 @@
 import ko from 'knockout'
+import { registerReactKoBindingHandler } from './bindingHandlerOwnership'
 
 const CAPTURE_DESCENDANT_CONTEXT = 'reactKoCaptureDescendantContext'
+const DESCENDANT_BINDING_CONTEXTS = Symbol.for('react-ko.descendantBindingContexts')
 const CONTEXT_ESTABLISHING_BINDINGS = new Set(['let', 'using'])
-const descendantBindingContexts = new WeakMap<Node, ko.BindingContext<unknown>>()
 
-if (ko.bindingHandlers[CAPTURE_DESCENDANT_CONTEXT] === undefined) {
-  ko.bindingHandlers[CAPTURE_DESCENDANT_CONTEXT] = {
-    init: (element, _valueAccessor, _allBindings, _viewModel, bindingContext) => {
-      const parent = element.parentNode
-      if (parent !== null) {
-        descendantBindingContexts.set(parent, bindingContext)
-        ko.utils.domNodeDisposal.addDisposeCallback(parent, () => {
-          descendantBindingContexts.delete(parent)
-        })
-      }
-
-      // Remove the marker before childrenComplete callbacks run and before
-      // React can observe a node outside its own tree.
-      element.remove()
-    },
-  }
+type CaptureDescendantContextHandler = ko.BindingHandler & {
+  [DESCENDANT_BINDING_CONTEXTS]: WeakMap<Node, ko.BindingContext<unknown>>
 }
 
-function establishesDescendantContext(element: Element) {
-  const source = element.getAttribute('data-bind')
+function descendantBindingContexts() {
+  const registeredHandler =
+    registerReactKoBindingHandler<CaptureDescendantContextHandler>(
+      CAPTURE_DESCENDANT_CONTEXT,
+      () => {
+        const descendantBindingContexts = new WeakMap<
+          Node,
+          ko.BindingContext<unknown>
+        >()
+
+        return {
+          [DESCENDANT_BINDING_CONTEXTS]: descendantBindingContexts,
+          init: (
+            element,
+            _valueAccessor,
+            _allBindings,
+            _viewModel,
+            bindingContext,
+          ) => {
+            const parent = element.parentNode
+            if (parent !== null) {
+              descendantBindingContexts.set(parent, bindingContext)
+              ko.utils.domNodeDisposal.addDisposeCallback(parent, () => {
+                descendantBindingContexts.delete(parent)
+              })
+            }
+
+            // Remove the marker before childrenComplete callbacks run and before
+            // React can observe a node outside its own tree.
+            element.remove()
+          },
+        }
+      },
+    )
+  return registeredHandler[DESCENDANT_BINDING_CONTEXTS]
+}
+
+function establishesDescendantContext(
+  element: Element,
+  validatedSources?: ReadonlyMap<Node, string>
+) {
+  const source =
+    validatedSources?.get(element) ?? element.getAttribute('data-bind')
   if (source === null) {
     return false
   }
@@ -37,12 +65,20 @@ function establishesDescendantContext(element: Element) {
  * Adds short-lived binding markers that retain the exact context Knockout
  * creates for descendants of `using` and `let`, including empty elements.
  */
-export function prepareDescendantBindingContextCapture(root: HTMLElement) {
+export function prepareDescendantBindingContextCapture(
+  root: HTMLElement,
+  validatedSources?: ReadonlyMap<Node, string>,
+  excludedElements?: ReadonlySet<Element>
+) {
+  descendantBindingContexts()
   const candidates = [root, ...root.querySelectorAll<HTMLElement>('[data-bind]')]
   const markers: HTMLElement[] = []
 
   for (const element of candidates) {
-    if (!establishesDescendantContext(element)) {
+    if (excludedElements?.has(element)) {
+      continue
+    }
+    if (!establishesDescendantContext(element, validatedSources)) {
       continue
     }
 
@@ -60,9 +96,10 @@ export function prepareDescendantBindingContextCapture(root: HTMLElement) {
 }
 
 export function descendantBindingContextFor(node: Node, root: Node) {
+  const contexts = descendantBindingContexts()
   let ancestor = node.parentNode
   while (ancestor !== null && ancestor !== root) {
-    const context = descendantBindingContexts.get(ancestor)
+    const context = contexts.get(ancestor)
     if (context !== undefined) {
       return context
     }

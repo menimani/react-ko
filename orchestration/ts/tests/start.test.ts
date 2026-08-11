@@ -1,10 +1,10 @@
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Runner } from '../src/adapters/runner.ts'
-import { logFile, orchPaths, type OrchPaths } from '../src/paths.ts'
+import { logFile, orchPaths, worktreeDir, type OrchPaths } from '../src/paths.ts'
 import { startTask, worktreeAddArgs } from '../src/start.ts'
 import { readStatus } from '../src/status.ts'
 import { specFile } from '../src/tasks.ts'
@@ -38,6 +38,42 @@ describe('startTask', () => {
     ])
   })
 
+  it('runs every setup step in its worktree-relative directory before the runner starts', async () => {
+    const taskId = '20260809_000000_001_scan'
+    const orchestrationDir = join(repoRoot, 'orchestration', 'ts')
+    mkdirSync(orchestrationDir, { recursive: true })
+    writeFileSync(join(orchestrationDir, 'package-lock.json'), '{}\n')
+    git(['add', '-A'])
+    git(['commit', '-qm', 'test: add setup fixture'])
+    writeFileSync(specFile(paths, taskId), '# scan\n')
+
+    const start = vi.fn(async () => {
+      const worktree = worktreeDir(paths, taskId)
+      expect(existsSync(join(worktree, 'root-ready'))).toBe(true)
+      expect(existsSync(join(worktree, 'orchestration', 'ts', 'orchestration-ready'))).toBe(true)
+      return process.pid
+    })
+
+    await startTask(paths, { start }, taskId, {
+      effort: 'high',
+      setup: [
+        {
+          label: 'Root setup',
+          cwd: '',
+          command: 'node -e "require(\'node:fs\').writeFileSync(\'root-ready\', \'\')"',
+        },
+        {
+          label: 'Orchestration setup',
+          cwd: 'orchestration/ts',
+          command: 'node -e "require(\'node:fs\').writeFileSync(\'orchestration-ready\', \'\')"',
+          requires: 'orchestration/ts/package-lock.json',
+        },
+      ],
+    })
+
+    expect(start).toHaveBeenCalledOnce()
+  })
+
   it('records and preserves a worktree setup failure before the runner starts', async () => {
     const taskId = '20260809_000000_001_scan'
     writeFileSync(specFile(paths, taskId), '# scan\n')
@@ -62,6 +98,8 @@ describe('startTask', () => {
 
     expect(start).not.toHaveBeenCalled()
     expect(readStatus(paths, taskId)?.status).toBe('failed')
-    expect(readFileSync(logFile(paths, taskId), 'utf8')).toContain('setup exploded')
+    const taskLog = readFileSync(logFile(paths, taskId), 'utf8')
+    expect(taskLog).toContain('setup exploded')
+    expect(taskLog).toContain('Worktree setup failed during "Failing setup" in .')
   })
 })

@@ -43,6 +43,14 @@ The package ships with zero runtime dependencies: `react`, `react-dom`, and `kno
 are peer dependencies and stay that way. Adding a runtime dependency is a design
 decision that needs agreement, not a convenience call.
 
+## Text-only elements are not semantic hosts
+
+Rejecting `textarea` and `title` as `boundaryAs` or `as` values at runtime is a decided
+bug fix, not a compatibility restriction deferred to a future major version. Browsers
+cannot preserve the child element subtree that a react-ko scope host requires. Keep
+these names in the public `SemanticHost` type for TypeScript compatibility, but do not
+restore their runtime acceptance.
+
 ## data-bind is the user-facing surface, by decision
 
 The library's premise is absorbing Knockout into JSX without multiplying components:

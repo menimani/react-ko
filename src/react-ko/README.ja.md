@@ -94,7 +94,13 @@ const viewModel = {
 ホスト要素は構造用のままで、バインディング境界またはルート用 ref と
 `display: contents` 以外のスタイルや ARIA prop は受け取りません。どちらのホストも
 常に子要素を持つため、`boundaryAs` と `as` に指定できるのは非 void HTML 要素だけです。
-`input`、`img`、`br` などのタグは拒否されます。
+`HTMLElementTagNameMap` の宣言マージで追加した非 void HTML 名にも対応し、その名前に
+ハイフンは不要です。型境界とランタイム境界の両方で利用できます。`input`、`img`、
+`br` などの既知の void 要素と、`svg` などの外来コンテンツのルートはランタイムで
+拒否されます。バインディングのサブツリーを保持できないテキスト専用要素の `textarea` と
+`title` も拒否されます。この拒否は意図的なバグ修正です。それ以外の `SemanticHost` 値は、
+v2 互換性のためランタイムでも引き続き受け付けます。ホストに対する制限の強化は、将来の
+メジャーリリースまで延期されます。
 
 `RootKnockoutProvider` または `KnockoutScope` の `viewModel` を置き換えると、
 Knockout バインディングが再適用されます。どちらのコンポーネントも、置き換え時と
@@ -103,6 +109,12 @@ Knockout バインディングが再適用されます。どちらのコンポ�
 ルートプロバイダーとスコープは入れ子にできます。それぞれが子孫バインディングの境界に
 なるため、子要素はその境界自身の `viewModel` だけを使用し、そのバインディングルートと
 ともにクリーンアップされます。
+内部 Knockout バインディング名 `reactKoScopeBoundary` と
+`reactKoCaptureDescendantContext` は、ルートプロバイダーまたはスコープが初めて
+バインディングを適用するときに遅延登録されます。`useKoValue` だけを使う場合を含め、
+react-ko を読み込むだけでは、これらの名前で登録済みのハンドラーは変更されません。
+別のハンドラーがいずれかの名前を登録済みの場合は、バインディングルートのマウント時に
+例外が発生します。
 最初のバインディング適用後に React がマウントした子孫要素も、最も近いルートまたは
 スコープへ子孫のレイアウト効果が実行される前に自動的にバインドされます。既存の Knockout `using` または `let`
 バインディングの配下にマウントされた場合は、そのバインディングの子孫コンテキストを
@@ -114,9 +126,20 @@ Knockout バインディングが再適用されます。どちらのコンポ�
 所有権を渡す前に、Knockout が作成した内容も削除します。その他のバインディングを置き換える
 場合は、新しい式を適用する前に、以前の式が所有していた属性、クラス、スタイル、フォーム
 プロパティを復元します。DOM 効果を安全に破棄できないカスタムバインディングは拒否されます。
+tooltip バインディングのように子孫を制御しないカスタムバインディングは、React が描画した
+children を持つ要素でも引き続き使用できます。その場合、カスタムバインディング側で children を
+変更せずに維持する必要があります。`controlsDescendantBindings` を返すカスタムハンドラーは、
+ネストしたバインディングが暗黙にスキップされないよう、React が描画した children を持つ要素では
+拒否されます。カスタムバインディングは、初期状態が空の要素を使い、所有する内容を初回
+バインディング時または後続の update で作成できます。後から Knockout が作成した内容もその
+子孫コントローラーの所有対象として維持され、再バインドされません。一方、後から挿入された
+React 所有の children は拒否されます。
 React の props 更新と有効な Knockout バインディングは同じ要素を共有することもできます。
 React 側の最新のクラス、インラインスタイル、属性、フォームプロパティの初期値を保持しつつ、
 有効な Knockout バインディングが宣言した DOM 効果は引き続きそのバインディングが所有します。
+React が後から `option` を挿入または削除したり、その `value` を変更したりした場合も、
+`selectedOptions` と `valueAllowUnset` を伴う `value` を再適用するため、現在の option の集合は
+observable の再通知なしで同期されます。
 `attr` バインディングを取り除くと、React の属性 props は React DOM と同じ規則で復元されます。
 これには `acceptCharset` / `httpEquiv` のような別名を持つ props、false の `inert` やメディア無効化
 props の属性削除、boolean の `download` と `capture` の空文字の存在属性が含まれます。
@@ -167,7 +190,11 @@ export function KoInput({ value }: Props) {
 `KnockoutScope` は内部で `useAppViewModel` を呼び出すため、
 `RootKnockoutProvider` または `AppViewModelContext.Provider` の配下でレンダーする
 必要があります。ルートプロバイダーは、ネストしたスコープの外側にある
-`data-bind` 属性にもバインディングを適用します。
+`data-bind` 属性にもバインディングを適用します。クライアントのみでマウントする場合、
+どちらのコンポーネントも children をマウントする前にバインディングホストを確立するため、
+子孫の layout effect はすでにバインドされた DOM を操作できます。サーバーレンダリングと
+ハイドレーションでは、React がその場でハイドレートできるよう、サーバーでレンダーされた
+子サブツリーを保持します。
 
 ```tsx
 import ko from 'knockout'
@@ -190,15 +217,26 @@ React が描画した children を制御するために、Knockout の `if`、`i
 `foreach`、`template`、`with` の制御フローバインディングを使わないでください。
 これらのバインディングは React が所有している子 DOM ノードを削除または複製します。
 `RootKnockoutProvider` と `KnockoutScope` は、そのバインディングルート内のいずれの
-バインディングも適用する前にこれらを拒否します。代わりに `KoIf`、`KoIfNot`、
+バインディングも適用する前にこれらを拒否します。これには、初回レンダー時または
+後続の置換時に `dangerouslySetInnerHTML` で挿入される、コンテナーレスの制御フローコメントも
+含まれます。安全性チェックはカスタム `preprocess` フックの実行後のバインディングを検査するため、
+カスタムエイリアスから React が描画した children に対してこれらのバインディングを追加することもできません。
+代わりに `KoIf`、`KoIfNot`、
 `KoForeach`、`KoWith` を使ってください。
 
 `text`、`html`、`component`、`options` バインディングも要素の内容を置き換えます。
 これらを使用できるのは、バインド対象の要素に React が描画した children がない場合
 だけです。children がある場合は、その DOM が切り離される前にバインディングを拒否します。
-この制約はバインディングの適用後に React が条件付きで children を追加した場合にも適用され、
-children の挿入はその子の layout effect が実行される前に同期的に拒否されます。
-Knockout が内容を所有している間は、その要素を空にしてください。
+React が直接描画するスカラーのテキストと `dangerouslySetInnerHTML` で挿入する内容も、React が描画した
+children として扱います。React 19 は `bigint` children をスカラーのテキストとして描画するため同じ制約が適用されますが、
+React 18 は何も描画しないため、`bigint` child だけならコンテンツバインディングと競合しません。
+この制約はバインディングの適用後に React が条件付きで children を
+追加した場合にも適用されます。React 要素の挿入はその子の layout effect が実行される前に
+同期的に拒否され、直接のテキストまたは HTML の挿入は後続の再調整で拒否されます。Knockout が
+内容を所有している間は、その要素を空にしてください。空文字列の children または空の
+`dangerouslySetInnerHTML` ペイロードをバインディング後に明示的に追加または削除する更新も、
+Knockout が所有する内容を消去するため拒否されます。一方、既存のテキストまたは HTML を
+削除するのと同じレンダーで内容バインディングを追加すれば、その要素の所有権を React から Knockout へ引き渡せます。
 
 ### `KoForeach`
 
@@ -233,8 +271,9 @@ const vm = { todos: ko.observableArray<Todo>([]) }
 </RootKnockoutProvider>
 ```
 
-- `items` は `ko.ObservableArray<T>`、`ko.Observable<T[]>`、
-  `ko.Computed<T[]>`、素の `T[]` を受け付けます。
+- `items` は可変・読み取り専用の配列を受け付け、observable や computed
+  の配列も指定できます。素の値、observable、computed のいずれでも配列値に
+  `null` または `undefined` を指定でき、どちらも空のリストとして描画されます。
 - `$data` / `$index` / `$parent` の代わりに、関数引数とクロージャを
   使います — 外側の変数（上の例の `vm`）はそのまま見え、行の中に React
   コンポーネントを置けます。
@@ -263,7 +302,8 @@ const vm = { todos: ko.observableArray<Todo>([]) }
 ### `KoIf` / `KoIfNot`
 
 条件が true（`KoIf`）または false（`KoIfNot`）の間だけ children を描画
-します。children 内の `data-bind` は外側スコープの ViewModel を参照します。
+します。`condition` は Knockout observable、computed、または素の boolean を
+受け付けます。children 内の `data-bind` は外側スコープの ViewModel を参照します。
 
 ```tsx
 import ko from 'knockout'

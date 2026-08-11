@@ -94,8 +94,14 @@ available on `RootKnockoutProvider`, `KoIf`, `KoIfNot`, `KoForeach`, and
 
 The host elements remain structural: they receive only the binding boundary or
 binding-root ref and `display: contents`, not styling or ARIA props. Because both
-hosts always contain children, `boundaryAs` and `as` accept only non-void HTML
-elements; tags such as `input`, `img`, and `br` are rejected.
+hosts always contain children, `boundaryAs` and `as` accept non-void HTML elements.
+Additional non-void names added through `HTMLElementTagNameMap` declaration merging
+are supported at both the type and runtime boundaries and do not need a hyphen.
+Known void tags such as `input`, `img`, and `br`, and foreign-content roots such as
+`svg`, are rejected at runtime. The text-only `textarea` and `title` elements are also
+rejected because they cannot preserve the binding subtree. This rejection is an
+intentional bug fix. All other `SemanticHost` values remain accepted at runtime for v2
+compatibility; tighter host restrictions are deferred to a future major release.
 
 Replacing a `RootKnockoutProvider` or `KnockoutScope` `viewModel` reapplies its
 Knockout bindings. Both components dispose their bindings when replaced or
@@ -104,6 +110,11 @@ that pass are also disposed before the error reaches a React error boundary.
 Root providers and scopes can be nested: each is a descendant-binding boundary,
 so its children use only its own `viewModel` and are cleaned up with that binding
 root.
+The internal Knockout binding names `reactKoScopeBoundary` and
+`reactKoCaptureDescendantContext` are registered lazily when a root provider or
+scope first applies bindings. Importing react-ko, including for `useKoValue`
+alone, leaves existing handlers under those names untouched. Mounting a binding
+root throws if another handler has already registered either name.
 React-rendered descendants mounted after the initial binding pass are also bound
 automatically to the nearest root or scope, before their layout effects run. When
 mounted below an existing Knockout `using` or `let` binding, they retain that
@@ -117,9 +128,20 @@ the current binding or React-rendered children take ownership. Other replaced
 bindings restore the attributes, classes, styles, and form properties owned by
 the previous expression before applying the next one; a custom binding is rejected
 if its DOM effects cannot be safely retired.
+Custom bindings that do not control descendants, such as tooltip bindings, remain
+supported on elements with React-rendered children and are responsible for leaving those
+children in place. A custom handler that returns `controlsDescendantBindings` is rejected
+on an element with React-rendered children so their nested bindings cannot be skipped
+silently. A custom binding may use an initially empty element and create its owned
+content during initial binding or a later update. Later Knockout-created content remains
+owned by that descendant controller and is not rebound; React-owned children inserted
+later are rejected.
 React prop updates and active Knockout bindings can also share an element: React's
 latest classes, inline styles, attributes, and form-property defaults are retained,
 while the active Knockout binding continues to own the DOM effects it declares.
+When React later inserts or removes an `option`, or changes its `value`,
+`selectedOptions` and `value` with `valueAllowUnset` are reapplied so the current option
+set is synchronized without another observable notification.
 When an `attr` binding is removed, React attribute props are restored with React DOM
 serialization, including aliased props such as `acceptCharset`/`httpEquiv`, absent false
 boolean props such as `inert` and media disabling props, and empty presence values for
@@ -171,7 +193,10 @@ export function KoInput({ value }: Props) {
 `KnockoutScope` calls `useAppViewModel` internally, so it must be rendered under
 either `RootKnockoutProvider` or an `AppViewModelContext.Provider`. The root
 provider also applies bindings for any `data-bind` attributes outside nested
-scopes.
+scopes. On client-only mounts, both components establish their binding host
+before mounting children, so descendant layout effects interact with DOM that
+is already bound. During server rendering and hydration, they preserve the
+server-rendered child subtree so React can hydrate it in place.
 
 ```tsx
 import ko from 'knockout'
@@ -194,15 +219,27 @@ Do not use Knockout control-flow bindings `if`, `ifnot`, `foreach`, `template`,
 or `with` to control React-rendered children. Those bindings remove or clone
 child DOM nodes that React still owns. `RootKnockoutProvider` and
 `KnockoutScope` reject them before applying any bindings in that binding root.
+This includes containerless control-flow comments inserted through
+`dangerouslySetInnerHTML`, both on initial render and on later replacements.
+Safety checks inspect bindings after custom `preprocess` hooks run, so a custom
+alias cannot inject one of these bindings around React-rendered children.
 Use `KoIf`, `KoIfNot`, `KoForeach`, and `KoWith` instead.
 
 The `text`, `html`, `component`, and `options` bindings also replace an
 element's contents. They are supported only when the bound element has no
 React-rendered children; otherwise the binding is rejected before it can detach
-those children. This remains enforced if React conditionally adds children after
-the binding was applied: the child insertion is rejected synchronously, before
-the child's layout effects run. Leave the element empty while Knockout owns its
-contents.
+those children. Direct React scalar text and content inserted with
+`dangerouslySetInnerHTML` are treated as React-rendered children too. React 19 renders
+`bigint` children as scalar text, so they have the same restriction; React 18 renders
+them as no output, so a `bigint` child alone does not conflict with a content binding. This
+remains enforced if React conditionally adds children after
+the binding was applied. React element insertion is rejected synchronously,
+before the child's layout effects run, and direct text or HTML insertion is
+rejected during late reconciliation. Leave the element empty while Knockout
+owns its contents. Transitions that add or remove an explicit empty-string child
+or an empty `dangerouslySetInnerHTML` payload are rejected too, because those
+React updates clear Knockout-owned content. React can hand existing text or HTML
+off by removing it in the same render that adds the content binding.
 
 ### `KoForeach`
 
@@ -237,8 +274,9 @@ const vm = { todos: ko.observableArray<Todo>([]) }
 </RootKnockoutProvider>
 ```
 
-- `items` accepts `ko.ObservableArray<T>`, `ko.Observable<T[]>`,
-  `ko.Computed<T[]>`, or a plain `T[]`.
+- `items` accepts mutable or readonly arrays, including observable and computed
+  sources. The array value may be `null` or `undefined` for plain, observable,
+  and computed sources; either renders an empty list.
 - Instead of `$data`, `$index`, and `$parent`, use the function arguments
   and closures — outer variables (like `vm` above) are simply in scope, and
   React components can be used inside rows.
@@ -268,6 +306,7 @@ Nesting is plain JSX:
 ### `KoIf` / `KoIfNot`
 
 Render children while the condition is true (`KoIf`) or false (`KoIfNot`).
+`condition` accepts a Knockout observable, computed, or plain boolean.
 `data-bind` inside the children refers to the enclosing scope's view model.
 
 ```tsx

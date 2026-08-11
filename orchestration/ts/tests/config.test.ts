@@ -53,6 +53,10 @@ describe('loadConfig', () => {
     expect(loadConfig({ SCAN_PARALLEL: '9' }).scanParallel).toBe(4)
   })
 
+  it('rejects SCAN_PARALLEL values below one', () => {
+    expect(() => loadConfig({ SCAN_PARALLEL: '0' })).toThrow(/SCAN_PARALLEL must be at least 1/)
+  })
+
   it('rejects a TASK_GATE value that is neither full nor light', () => {
     expect(() => loadConfig({ TASK_GATE: 'fast' })).toThrow(/TASK_GATE/)
   })
