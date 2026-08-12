@@ -546,7 +546,8 @@ function applyValidatedBindings(
   node: HTMLElement,
   validatedSources: ValidatedBindingSources,
   assertSafeProviderBindings: (element: Element, names: Set<string>) => void,
-  deferredBindings: readonly DeferredSuspenseBinding[]
+  deferredBindings: readonly DeferredSuspenseBinding[],
+  descendantRoots: ReadonlySet<HTMLElement>
 ) {
   const provider = ko.bindingProvider.instance
   const getBindingAccessors = provider.getBindingAccessors
@@ -560,6 +561,18 @@ function applyValidatedBindings(
   const getBindingsString = providerWithBindingSource.getBindingsString
   const usesDefaultBindingSource =
     getBindingsString === ko.bindingProvider.prototype.getBindingsString
+
+  function isDescendantRoot(bindingNode: Node) {
+    return bindingNode !== node && descendantRoots.has(bindingNode as HTMLElement)
+  }
+
+  Object.defineProperty(validatingProvider, 'nodeHasBindings', {
+    configurable: true,
+    value: (bindingNode: Node) =>
+      isDescendantRoot(bindingNode) ||
+      provider.nodeHasBindings.call(provider, bindingNode),
+    writable: true,
+  })
 
   function validateProviderBindings(
     bindingNode: Node,
@@ -594,6 +607,12 @@ function applyValidatedBindings(
     Object.defineProperty(validatingProvider, 'getBindingAccessors', {
       configurable: true,
       value: (bindingNode: Node, bindingContext: ko.BindingContext) => {
+        if (isDescendantRoot(bindingNode)) {
+          return {
+            // The boundary handler intentionally never reads its value.
+            [DESCENDANT_BINDING_BOUNDARY]: /* v8 ignore next */ () => true,
+          }
+        }
         const validatedSource = validatedSources.get(bindingNode)
         if (!usesDefaultBindingSource || validatedSource === undefined) {
           return validateProviderBindings(
@@ -629,11 +648,15 @@ function applyValidatedBindings(
   } else if (getBindings !== undefined) {
     Object.defineProperty(validatingProvider, 'getBindings', {
       configurable: true,
-      value: (bindingNode: Node, bindingContext: ko.BindingContext) =>
-        validateProviderBindings(
+      value: (bindingNode: Node, bindingContext: ko.BindingContext) => {
+        if (isDescendantRoot(bindingNode)) {
+          return { [DESCENDANT_BINDING_BOUNDARY]: true }
+        }
+        return validateProviderBindings(
           bindingNode,
           getBindings.call(provider, bindingNode, bindingContext)
-        ) as object,
+        ) as object
+      },
       writable: true,
     })
   }
@@ -829,8 +852,13 @@ function rejectDescendantControllingCustomHandlers(root: HTMLElement) {
  * Applies a binding pass without leaving subscriptions behind when a later
  * binding on the same tree throws before React can register effect cleanup.
  */
-export function applyBindingsSafely(viewModel: unknown, node: HTMLElement) {
+export function applyBindingsSafely(
+  viewModel: unknown,
+  node: HTMLElement,
+  descendantRoots: ReadonlySet<HTMLElement> = new Set()
+) {
   function clearRecordedControllers(element: Element) {
+    if (element !== node && descendantRoots.has(element as HTMLElement)) return
     customDescendantControllers.delete(element)
     for (const child of element.children) clearRecordedControllers(child)
   }
@@ -843,7 +871,10 @@ export function applyBindingsSafely(viewModel: unknown, node: HTMLElement) {
   const usesDefaultBindingSource =
     provider.getBindingsString === ko.bindingProvider.prototype.getBindingsString
   const deferredBindings = findDehydratedSuspenseBindings(node)
-  const excludedElements = deferredElements(deferredBindings)
+  const excludedElements = new Set<Element>([
+    ...deferredElements(deferredBindings),
+    ...descendantRoots,
+  ])
   const { validatedSources, assertSafeProviderBindings } =
     validateNoReactUnsafeBindings(
       node,
@@ -883,7 +914,8 @@ export function applyBindingsSafely(viewModel: unknown, node: HTMLElement) {
       node,
       validatedSources,
       assertSafeProviderBindings,
-      deferredBindings
+      deferredBindings,
+      descendantRoots
     )
   } catch (error) {
     try {

@@ -116,6 +116,14 @@ function bindingRootRegistry(node: Node) {
   const registry = interceptorRegistry(view)
   return (registry.bindingRoots ??= createBindingRootRegistry())
 }
+
+function registeredDescendantRoots(element: HTMLElement) {
+  return new Set(
+    [...bindingRootRegistry(element).bindingRoots.keys()].filter(
+      (root) => root !== element && element.contains(root)
+    )
+  )
+}
 const CONTENT_BINDINGS = new Set(['text', 'html', 'component', 'options'])
 const SAFELY_RETIRABLE_BINDINGS = new Set([
   'attr',
@@ -442,7 +450,7 @@ function belongsToBindingRoot(node: Node, root: Node) {
     return false
   }
 
-  let ancestor = node.parentNode
+  let ancestor = node.nodeType === Node.ELEMENT_NODE ? node : node.parentNode
   while (ancestor !== null && ancestor !== root) {
     if (bindingRootRegistry(root).bindingRoots.has(ancestor as HTMLElement)) {
       return false
@@ -967,9 +975,16 @@ function addedBindingRoots(
   return addedRoots
 }
 
-export function restoreDescendantBindingRoots(element: HTMLElement, ownerRoot: HTMLElement) {
+export function restoreDescendantBindingRoots(
+  element: HTMLElement,
+  ownerRoot: HTMLElement,
+  excludedRoots: ReadonlySet<HTMLElement> = new Set()
+) {
   const descendantRoots = [...bindingRootRegistry(ownerRoot).bindingRoots].filter(
-    ([bindingRoot]) => bindingRoot !== ownerRoot && element.contains(bindingRoot)
+    ([bindingRoot]) =>
+      bindingRoot !== ownerRoot &&
+      !excludedRoots.has(bindingRoot) &&
+      element.contains(bindingRoot)
   )
 
   // Registering layout effects is bottom-up, so Map insertion order can put a
@@ -981,7 +996,11 @@ export function restoreDescendantBindingRoots(element: HTMLElement, ownerRoot: H
   })
 
   for (const [bindingRoot, viewModel] of descendantRoots) {
-    applyBindingsSafely(viewModel, bindingRoot)
+    applyBindingsSafely(
+      viewModel,
+      bindingRoot,
+      registeredDescendantRoots(bindingRoot)
+    )
   }
 }
 
@@ -1980,7 +1999,11 @@ function rebindChangedAttributes(
     removeRetiredContent(element, previousState, addedRoots)
     restoreBindingTree(element, root, bindingStates)
     prepareBindingTree(element, root, bindingStates)
-    applyBindingsSafely(bindingContext, element)
+    applyBindingsSafely(
+      bindingContext,
+      element,
+      registeredDescendantRoots(element)
+    )
     trackBindingTree(element, root, bindingStates)
     restoreDescendantBindingRoots(element, root)
   }
@@ -2041,7 +2064,11 @@ function bindAddedNodes(
       }
       const bindingContext = descendantBindingContextFor(node, root)
       prepareBindingTree(node as HTMLElement, root, bindingStates)
-      applyBindingsSafely(bindingContext ?? viewModel, node as HTMLElement)
+      applyBindingsSafely(
+        bindingContext ?? viewModel,
+        node as HTMLElement,
+        registeredDescendantRoots(node as HTMLElement)
+      )
       trackBindingTree(node as HTMLElement, root, bindingStates)
     }
   }
@@ -2297,7 +2324,11 @@ export function observeBindingDescendants(
           for (const descendant of [element, ...element.querySelectorAll('*')]) {
             deferredSuspenseElements.delete(descendant)
           }
-          const nestedBindings = applyBindingsSafely(bindingContext, element)
+          const nestedBindings = applyBindingsSafely(
+            bindingContext,
+            element,
+            registeredDescendantRoots(element)
+          )
           for (const nested of nestedBindings) {
             for (const descendant of suspenseRangeElements(
               nested.start,
@@ -2350,6 +2381,16 @@ export function observeBindingDescendants(
     cleanRemovedNodes(pendingRecords, root)
     releaseReactTrackedChecked(root, root)
   }
+}
+
+/** Makes every root in one React scope visible before any of them binds. */
+export function registerBindingRoot(root: HTMLElement, viewModel: unknown) {
+  bindingRootRegistry(root).bindingRoots.set(root, viewModel)
+}
+
+/** Removes a root whose binding pass failed before observation began. */
+export function unregisterBindingRoot(root: HTMLElement) {
+  bindingRootRegistry(root).bindingRoots.delete(root)
 }
 
 /** Reconciles queued React DOM mutations before descendant layout effects run. */
