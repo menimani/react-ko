@@ -1,25 +1,33 @@
 import type * as React from 'react'
 
-const VOID_SEMANTIC_HOSTS = new Set([
-  'area',
-  'base',
-  'br',
-  'col',
-  'embed',
-  'hr',
-  'img',
-  'input',
-  'link',
-  'meta',
-  'param',
-  'source',
-  'track',
-  'wbr',
-] as const)
+const REJECTED_SEMANTIC_HOSTS = {
+  area: 'void',
+  base: 'void',
+  br: 'void',
+  col: 'void',
+  embed: 'void',
+  hr: 'void',
+  img: 'void',
+  input: 'void',
+  link: 'void',
+  meta: 'void',
+  param: 'void',
+  source: 'void',
+  track: 'void',
+  wbr: 'void',
+  math: 'foreign-content',
+  svg: 'foreign-content',
+  textarea: 'text-content',
+  title: 'text-content',
+  template: 'template-content',
+  script: 'inert-children',
+  head: 'hoisted',
+  body: 'hoisted',
+  html: 'hoisted',
+  keygen: 'ssr',
+} as const
 
-type VoidSemanticHost = typeof VOID_SEMANTIC_HOSTS extends Set<infer Host>
-  ? Host
-  : never
+type RejectedSemanticHost = keyof typeof REJECTED_SEMANTIC_HOSTS
 
 const NON_VOID_SEMANTIC_HOST_NAMES = [
   'acronym',
@@ -48,10 +56,7 @@ type NonVoidSemanticHost = (typeof NON_VOID_SEMANTIC_HOST_NAMES)[number]
 
 export type SemanticHost =
   | NonVoidSemanticHost
-  | Exclude<keyof HTMLElementTagNameMap, VoidSemanticHost>
-
-const FOREIGN_CONTENT_HOSTS: ReadonlySet<string> = new Set(['math', 'svg'])
-const TEXT_CONTENT_HOSTS: ReadonlySet<string> = new Set(['textarea', 'title'])
+  | Exclude<keyof HTMLElementTagNameMap, RejectedSemanticHost>
 
 export type SemanticHostProps = {
   /** Element that prevents an enclosing Knockout root from binding this scope. */
@@ -69,31 +74,40 @@ type SemanticHostComponentProps = {
 
 export function semanticHostComponent(host: SemanticHost) {
   const normalizedHost = String(host).toLowerCase()
-
-  if (VOID_SEMANTIC_HOSTS.has(normalizedHost as VoidSemanticHost)) {
-    throw new Error(
-      `react-ko cannot use the void HTML element <${host}> as a semantic host because scope hosts always contain children.`
-    )
-  }
+  const rejection =
+    REJECTED_SEMANTIC_HOSTS[normalizedHost as RejectedSemanticHost]
 
   // Declaration merging is erased at runtime, so unknown names must be passed
   // through to React for the public SemanticHost type to remain usable.
-  if (FOREIGN_CONTENT_HOSTS.has(normalizedHost)) {
-    throw new Error(
-      `react-ko cannot use <${String(host)}> as a semantic host because scope hosts require a non-void HTML element.`
-    )
-  }
-
-  if (TEXT_CONTENT_HOSTS.has(normalizedHost)) {
-    throw new Error(
-      `react-ko cannot use <${String(host)}> as a semantic host because scope hosts require an HTML element that preserves its child element subtree.`
-    )
-  }
-
-  if (normalizedHost === 'template') {
-    throw new Error(
-      `react-ko cannot use <${String(host)}> as a semantic host because a scope host must keep its children in the document tree, but a <template>'s children live in its content fragment.`
-    )
+  switch (rejection) {
+    case 'void':
+      throw new Error(
+        `react-ko cannot use the void HTML element <${host}> as a semantic host because scope hosts always contain children.`
+      )
+    case 'foreign-content':
+      throw new Error(
+        `react-ko cannot use <${String(host)}> as a semantic host because scope hosts require a non-void HTML element.`
+      )
+    case 'text-content':
+      throw new Error(
+        `react-ko cannot use <${String(host)}> as a semantic host because scope hosts require an HTML element that preserves its child element subtree.`
+      )
+    case 'template-content':
+      throw new Error(
+        `react-ko cannot use <${String(host)}> as a semantic host because a scope host must keep its children in the document tree, but a <template>'s children live in its content fragment.`
+      )
+    case 'inert-children':
+      throw new Error(
+        `react-ko cannot use <${String(host)}> as a semantic host because inert children cannot hold a live binding scope.`
+      )
+    case 'hoisted':
+      throw new Error(
+        `react-ko cannot use <${String(host)}> as a semantic host because it is hoisted out of the scope that contains it.`
+      )
+    case 'ssr':
+      throw new Error(
+        `react-ko cannot use <${String(host)}> as a semantic host because it is unable to survive SSR.`
+      )
   }
 
   return host as unknown as React.ComponentType<SemanticHostComponentProps>

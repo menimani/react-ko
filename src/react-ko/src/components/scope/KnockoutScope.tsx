@@ -27,7 +27,6 @@ export const KnockoutScope = React.memo(function KnockoutScope<T>({
   const BoundaryHost = semanticHostComponent(boundaryAs)
   const BindingHost = semanticHostComponent(as)
   const hostIdentity = `${boundaryAs}\0${as}`
-  const requiresPostBindChildren = as === 'script'
   const committedHostIdentity = React.useRef(hostIdentity)
   const replacingHost = committedHostIdentity.current !== hostIdentity
   useAppViewModel()
@@ -42,7 +41,6 @@ export const KnockoutScope = React.memo(function KnockoutScope<T>({
     bindingCommitMarker,
     generation,
     bindingEstablished,
-    preserveServerChildren,
   } = useBindingRoot(
     viewModel,
     parentGeneration,
@@ -65,9 +63,7 @@ export const KnockoutScope = React.memo(function KnockoutScope<T>({
         <BoundaryHost data-bind={`${DESCENDANT_BINDING_BOUNDARY}: true`} style={{ display: 'contents' }}>
           {bindingCommitMarker}
           <BindingHost ref={container} style={{ display: 'contents' }}>
-            {((!replacingHost &&
-              (!requiresPostBindChildren || preserveServerChildren)) ||
-              bindingEstablished)
+            {(!replacingHost || bindingEstablished)
               ? children
               : null}
           </BindingHost>
