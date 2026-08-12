@@ -54,19 +54,28 @@ export function ElementKnockoutScope<T>({ viewModel, children }: Props<T>) {
     handleBindingError
   )
   const childRef = elementRef(children)
+  // One detach path for both majors. Returning a cleanup from this callback would make
+  // React 19 skip the null call while React 18 never invokes the cleanup — two exits, one
+  // unreachable per major, which no coverage threshold can hold to 100% on either. By
+  // returning nothing, both majors call back with null, and a 19-style cleanup returned
+  // by the child's own ref is invoked from that shared path instead.
+  const childRefCleanup = React.useRef<(() => void) | undefined>(undefined)
   const mergedRef = React.useCallback(
     (node: HTMLElement | null) => {
-      bindingContainer(node)
-      const cleanup = setRef(childRef, node)
-      return typeof cleanup === 'function'
-        /* v8 ignore next 4 -- React 18 never invokes callback-ref cleanups, so this
-           function cannot execute on that major and `ignore next` alone still counted
-           it against the 100% function threshold there. */
-        ? () => {
-            cleanup()
-            bindingContainer(null)
-          }
-        : undefined
+      if (node !== null) {
+        bindingContainer(node)
+        const cleanup = setRef(childRef, node)
+        childRefCleanup.current = typeof cleanup === 'function' ? cleanup : undefined
+        return
+      }
+      bindingContainer(null)
+      const cleanup = childRefCleanup.current
+      childRefCleanup.current = undefined
+      if (cleanup !== undefined) {
+        cleanup()
+      } else {
+        setRef(childRef, null)
+      }
     },
     [bindingContainer, childRef]
   )
