@@ -93,16 +93,16 @@ const viewModel = {
 
 ホスト要素は構造用のままで、バインディング境界またはルート用 ref と
 `display: contents` 以外のスタイルや ARIA prop は受け取りません。どちらのホストも
-常に子要素を持つため、`boundaryAs` と `as` に指定できるのは非 void HTML 要素だけです。
-`HTMLElementTagNameMap` の宣言マージで追加した非 void HTML 名にも対応し、その名前に
-ハイフンは不要です。型境界とランタイム境界の両方で利用できます。`input`、`img`、
-`br` などの既知の void 要素と、`svg` などの外来コンテンツのルートはランタイムで
-拒否されます。バインディングのサブツリーを保持できないテキスト専用要素の `textarea` と
-`title` も拒否されます。`template` 要素も拒否されます。スコープホストは子要素をドキュメント
-ツリー内に保持する必要がありますが、`template` は子要素を自身の `content` フラグメント内に
-保持するためです。これらの拒否は意図的なバグ修正です。それ以外の `SemanticHost` 値は、v2
-互換性のためランタイムでも引き続き受け付けます。ホストに対する制限の強化は、将来の
-メジャーリリースまで延期されます。
+常に子要素を持つため、`boundaryAs` と `as` に指定できるのは、生きた子サブツリーを保持できる
+HTML 要素だけです。`HTMLElementTagNameMap` の宣言マージで追加した非 void HTML 名にも対応し、
+その名前にハイフンは不要です。型境界とランタイム境界の両方で利用でき、カスタム要素名は
+組み込み要素に対する除外の影響を受けません。
+
+型とランタイムは同じホスト名を拒否します。`input`、`img`、`br` などの既知の void 要素、
+外来コンテンツのルートである `svg` と `math`、テキスト専用の `textarea` と `title`、および
+`template` です。また、子要素が inert になる `script`、ブラウザーによって包含スコープの外へ
+移動される `head`、`body`、`html`、SSR を通過できない `keygen` も拒否します。それ以外の
+`SemanticHost` 値は引き続き受け付けます。
 
 `RootKnockoutProvider` または `KnockoutScope` の `viewModel` を置き換えると、
 Knockout バインディングが再適用されます。どちらのコンポーネントも、置き換え時と
@@ -426,6 +426,12 @@ const items = useKoValue(vm.items) ?? []
 この変更は `ko.ObservableArray` ソースだけに適用されます。配列以外の
 オーバーロードは変更されず、nullish な配列値は実行時に従来どおりそのまま
 返されます。
+
+`textarea`、`title`、`template`、`script`、`head`、`body`、`html`、`keygen` も
+セマンティックホストとして型チェックを通らなくなりました。これにより公開型とランタイムの
+ガードが一致します。既知の void 要素と `svg`、`math` のルートは、すでに `SemanticHost` から
+除外されていました。代わりに `div` や `span` などの通常の要素をホストとして使い、制限対象の
+要素はスコープの内側に配置してください。
 
 ---
 

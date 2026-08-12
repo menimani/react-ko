@@ -6,7 +6,6 @@ import {
   useLayoutEffect,
   useRef,
   useState,
-  useSyncExternalStore,
 } from 'react'
 import ko from 'knockout'
 import { applyBindingsSafely } from './applyBindingsSafely'
@@ -26,9 +25,6 @@ type ActiveBinding = {
 }
 
 const UNBOUND_BINDING = Symbol('unbound')
-const subscribeToNothing = () => () => undefined
-const getClientSnapshot = () => false
-const getServerSnapshot = () => true
 
 function BindingCommitMarker({
   onCommit,
@@ -61,11 +57,6 @@ export function useBindingRoot(
   const refreshInitialBinding = useRef(false)
   const [, setBindingEstablishedVersion] = useState(0)
   const [generation, setGeneration] = useState(0)
-  const preserveServerChildren = useSyncExternalStore(
-    subscribeToNothing,
-    getClientSnapshot,
-    getServerSnapshot
-  )
 
   function disposeBinding() {
     const active = activeBinding.current
@@ -208,6 +199,5 @@ export function useBindingRoot(
       bindingEstablishedIdentity.current,
       bindingIdentity
     ),
-    preserveServerChildren,
   }
 }

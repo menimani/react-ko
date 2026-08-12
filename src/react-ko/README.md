@@ -94,16 +94,17 @@ available on `RootKnockoutProvider`, `KoIf`, `KoIfNot`, `KoForeach`, and
 
 The host elements remain structural: they receive only the binding boundary or
 binding-root ref and `display: contents`, not styling or ARIA props. Because both
-hosts always contain children, `boundaryAs` and `as` accept non-void HTML elements.
-Additional non-void names added through `HTMLElementTagNameMap` declaration merging
-are supported at both the type and runtime boundaries and do not need a hyphen.
-Known void tags such as `input`, `img`, and `br`, and foreign-content roots such as
-`svg`, are rejected at runtime. The text-only `textarea` and `title` elements are also
-rejected because they cannot preserve the binding subtree. The `template` element is
-rejected because a scope host must keep its children in the document tree, while a
-`template` keeps them in its `content` fragment. These rejections are intentional bug
-fixes. All other `SemanticHost` values remain accepted at runtime for v2 compatibility;
-tighter host restrictions are deferred to a future major release.
+hosts always contain children, `boundaryAs` and `as` accept HTML elements that can
+preserve a live child subtree. Additional non-void names added through
+`HTMLElementTagNameMap` declaration merging are supported at both the type and runtime
+boundaries and do not need a hyphen; custom element names remain unaffected by the
+built-in exclusions.
+
+The type and runtime reject the same host names: known void tags such as `input`, `img`,
+and `br`; the foreign-content roots `svg` and `math`; the text-only `textarea` and
+`title`; and `template`. They also reject `script` because its children are inert,
+`head`, `body`, and `html` because browsers hoist them out of the containing scope, and
+`keygen` because it cannot survive SSR. All other `SemanticHost` values remain accepted.
 
 Replacing a `RootKnockoutProvider` or `KnockoutScope` `viewModel` reapplies its
 Knockout bindings. Both components dispose their bindings when replaced or
@@ -431,6 +432,12 @@ const items = useKoValue(vm.items) ?? []
 This change applies only to `ko.ObservableArray` sources. The non-array
 overloads are unchanged, and nullish array values continue to pass through
 unchanged at runtime.
+
+The `textarea`, `title`, `template`, `script`, `head`, `body`, `html`, and `keygen`
+names also no longer type-check as semantic hosts. This makes the public type match the
+runtime guard; known void elements and the `svg` and `math` roots were already excluded
+from `SemanticHost`. Use a plain element such as `div` or `span` as the host and place
+the restricted element inside the scope instead.
 
 ---
 
