@@ -77,6 +77,13 @@ describe('pull-request presentation', () => {
       .toEqual({ category: 'Compatibility', area: 'scope components' })
   })
 
+  it('treats only consumer-resolved manifest sections as Compatibility', () => {
+    expect(classify('fix: widen peerDependencies', ['src/react-ko/package.json']))
+      .toEqual({ category: 'Compatibility', area: 'Other' })
+    expect(classify('chore: update devDependencies', ['src/react-ko/package.json']).category)
+      .not.toBe('Compatibility')
+  })
+
   it('sorts tooling-only commits into Project Operations', () => {
     expect(classify('chore: retune the loop', ['orchestration/ts/src/loop.ts']))
       .toEqual({ category: 'Project Operations', area: 'Orchestration' })
@@ -98,7 +105,33 @@ describe('pull-request presentation', () => {
     expect(risks.some((risk) => risk.startsWith('Touches the React or Knockout'))).toBe(true)
     expect(risks.some((risk) => risk.startsWith('Changes Knockout binding-handler'))).toBe(true)
     expect(risks.some((risk) => risk.startsWith('Deletes test files'))).toBe(true)
-    expect(risks.some((risk) => risk.startsWith('Changes a package manifest'))).toBe(false)
+    expect(risks.some((risk) => risk.startsWith('Changes package dependency'))).toBe(false)
+  })
+
+  it('raises a manifest risk only for consumer-resolved sections', () => {
+    const peerRisks = reactKoProject.pullRequest.detectRisks({
+      files: ['src/react-ko/package.json'],
+      deletedFiles: [],
+      diff: () => [
+        '   "peerDependencies": {',
+        '-    "react": "^18.0.0",',
+        '+    "react": "^18.0.0 || ^19.0.0",',
+        '   },',
+      ].join('\n'),
+    })
+    expect(peerRisks.some((risk) => risk.startsWith('Changes package dependency'))).toBe(true)
+
+    const devRisks = reactKoProject.pullRequest.detectRisks({
+      files: ['src/react-ko/package.json'],
+      deletedFiles: [],
+      diff: () => [
+        '   "devDependencies": {',
+        '-    "vitest": "^4.0.0"',
+        '+    "vitest": "^4.1.0"',
+        '   }',
+      ].join('\n'),
+    })
+    expect(devRisks).toEqual([])
   })
 
   it('reports an export change only when the public entry points move', () => {

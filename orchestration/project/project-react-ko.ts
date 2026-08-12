@@ -120,6 +120,7 @@ export const reactKoProject: ProjectAdapter = {
       const area = areaOfCommit(files)
 
       if (COMPATIBILITY_SUBJECTS.test(subject)
+        || (files.some(isPackageManifest) && COMPATIBILITY_MANIFEST_SUBJECTS.test(subject))
         || files.some((file) => COMPATIBILITY_PATHS.test(file))) {
         return { category: 'Compatibility', area }
       }
@@ -135,8 +136,9 @@ export const reactKoProject: ProjectAdapter = {
     detectRisks({ files, deletedFiles, diff }: PullRequestChanges): string[] {
       const risks: string[] = []
 
-      if (files.some((file) => file === 'package.json' || file === 'src/react-ko/package.json')) {
-        risks.push('Changes a package manifest; peer ranges and published entry points reach consumers directly')
+      if (files.some(isPackageManifest)
+        && changesConsumerResolution(diff(['package.json', 'src/react-ko/package.json']))) {
+        risks.push('Changes package dependency or engine constraints; consumers may resolve a different supported environment')
       }
       if (files.some((file) => COMPATIBILITY_PATHS.test(file))) {
         risks.push('Touches the React or Knockout integration surface; re-check both supported React majors, not only the local one')
@@ -162,8 +164,42 @@ export const reactKoProject: ProjectAdapter = {
 }
 
 const COMPATIBILITY_PATHS =
-  /src\/react-ko\/src\/components\/scope\/|src\/react-ko\/src\/hooks\/|package\.json$/
+  /src\/react-ko\/src\/components\/scope\/|src\/react-ko\/src\/hooks\//
 const COMPATIBILITY_SUBJECTS = /react 1[89]|knockout|peer|ssr|hydrat|ownership|binding/i
+const COMPATIBILITY_MANIFEST_SUBJECTS = /\b(?:dependencies|engines?)\b/i
+const CONSUMER_RESOLUTION_SECTIONS = new Set(['dependencies', 'engines', 'peerDependencies'])
+
+function isPackageManifest(file: string): boolean {
+  return file === 'package.json' || file === 'src/react-ko/package.json'
+}
+
+/** Whether a package-manifest patch changes a section consumers resolve against. */
+function changesConsumerResolution(patch: string): boolean {
+  let section: string | undefined
+
+  for (const line of patch.split(/\r?\n/)) {
+    if (line.startsWith('diff --git ') || line.startsWith('@@')) {
+      section = undefined
+      continue
+    }
+
+    const prefix = line[0]
+    if (prefix !== ' ' && prefix !== '+' && prefix !== '-') continue
+    if (line.startsWith('+++') || line.startsWith('---')) continue
+
+    const topLevelProperty = /^  "([^"]+)":/.exec(line.slice(1))
+    if (topLevelProperty !== null) {
+      section = topLevelProperty[1]
+      if (prefix !== ' ' && CONSUMER_RESOLUTION_SECTIONS.has(section)) return true
+      continue
+    }
+
+    if (prefix !== ' ' && section !== undefined
+      && CONSUMER_RESOLUTION_SECTIONS.has(section)) return true
+  }
+
+  return false
+}
 
 /** Estimate which part of the library a commit changed from the files it touched. */
 function areaOfCommit(files: readonly string[]): string {
