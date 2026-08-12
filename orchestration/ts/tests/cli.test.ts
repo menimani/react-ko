@@ -5,13 +5,37 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { recordIssueForTask } from '../src/issueQueue.ts'
-import { branchName, orchPaths, worktreeDir } from '../src/paths.ts'
+import { branchName, orchPaths, statusFile, worktreeDir } from '../src/paths.ts'
 import { writeStatus } from '../src/status.ts'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const CLI = join(HERE, '..', 'src', 'cli.ts')
+
+// Several of these run `cli.ts loop` and rely on the loop deciding to exit — a
+// burst-failure cap, an exhausted cycle cap, a rejected PID lock. When a condition stops
+// holding, a synchronous spawn becomes a permanent block: `spawnSync` cannot be
+// interrupted by vitest's test timeout, so the worker freezes with no failure and no
+// output. That happened inside a merge gate twice, and each attempt sat for fifty minutes
+// before anyone thought to look at the process list. A bound turns it into a failed test.
+const CLI_TIMEOUT_MS = 120_000
+
+// The loop reads its settings from the environment, so inheriting the caller's is enough
+// to change what the CLI under test does. An operator running the suite in a checkout
+// where a loop is started with `CORE_AUTO_UPDATE=false` made a test asserting
+// `auto-update on` fail, which then blocked every merge in that repository until the
+// variable was noticed. Only the settings a test sets deliberately may reach the child.
+const INHERITED_ENV = Object.fromEntries(
+  Object.entries(process.env).filter(([name]) => !isLoopSetting(name)),
+)
+
+function isLoopSetting(name: string): boolean {
+  return name === 'PROJECT' || name === 'PROJECT_ADAPTER' || name === 'FORGE'
+    || name === 'RUNNER' || name === 'UPSTREAM_REMOTE' || name === 'UPSTREAM_BRANCH'
+    || /^(CORE_|MAX_|SCAN_|TASK_|REVIEW_|ISSUE_|CI_|AUTO_|POLL_)/.test(name)
+}
+
 const CORE_ENV = {
-  ...process.env,
+  ...INHERITED_ENV,
   PROJECT: 'shiora',
   PROJECT_ADAPTER: join(HERE, 'fixtures', 'project-loader-fixture.ts'),
 }
@@ -54,18 +78,30 @@ async function waitUntil(predicate: () => boolean, message: string): Promise<voi
   }
 }
 
+function pidIsAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+
 describe('command registry', () => {
   it('lists deploy as an available command', () => {
     const result = spawnSync(process.execPath, [CLI, 'unknown'], {
       cwd: repoRoot,
       encoding: 'utf8',
       windowsHide: true,
+      timeout: CLI_TIMEOUT_MS,
     })
 
     expect(result.status).toBe(1)
     expect(result.stderr).toContain('deploy')
     expect(result.stderr).toContain('ci-wait')
     expect(result.stderr).toContain('report-upstream')
+    expect(result.stderr).toContain('init')
+    expect(result.stderr).toContain('verify-setup')
   })
 
   it('refuses to start a worker without a base ref', () => {
@@ -73,6 +109,7 @@ describe('command registry', () => {
       cwd: repoRoot,
       encoding: 'utf8',
       windowsHide: true,
+      timeout: CLI_TIMEOUT_MS,
     })
 
     expect(result.status).toBe(1)
@@ -90,11 +127,65 @@ describe('command registry', () => {
       },
       encoding: 'utf8',
       windowsHide: true,
+      timeout: CLI_TIMEOUT_MS,
     })
 
     expect(result.status).toBe(1)
     expect(result.stderr).toContain("TASK_EFFORT must be minimal, low, medium or high, got 'maximum'")
     expect(readFileSync(CLI, 'utf8')).not.toMatch(/CODEX_(?:EFFORT|MODEL)/)
+  })
+})
+
+describe('report-upstream arguments', () => {
+  it('prints command usage for --help without loading the forge', () => {
+    const result = spawnSync(process.execPath, [CLI, 'report-upstream', '--help'], {
+      cwd: repoRoot,
+      env: { ...process.env, FORGE: 'missing' },
+      encoding: 'utf8',
+      windowsHide: true,
+      timeout: CLI_TIMEOUT_MS,
+    })
+
+    expect(result.status).toBe(0)
+    expect(result.stdout).toContain('Usage: report-upstream [--dry-run] "<description>"')
+    expect(result.stderr).not.toContain('Unknown FORGE')
+  })
+
+  it('rejects an unrecognised flag without loading the forge', () => {
+    const result = spawnSync(
+      process.execPath,
+      [CLI, 'report-upstream', '--anything', 'This must not become issue text.'],
+      {
+        cwd: repoRoot,
+        env: { ...process.env, FORGE: 'missing' },
+        encoding: 'utf8',
+        windowsHide: true,
+        timeout: CLI_TIMEOUT_MS,
+      },
+    )
+
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('ERROR: unknown option: --anything')
+    expect(result.stderr).not.toContain('Unknown FORGE')
+  })
+
+  it('prints a report for --dry-run without loading the forge', () => {
+    const result = spawnSync(
+      process.execPath,
+      [CLI, 'report-upstream', '--dry-run', 'A safely previewed defect.'],
+      {
+        cwd: repoRoot,
+        env: { ...process.env, FORGE: 'missing' },
+        encoding: 'utf8',
+        windowsHide: true,
+        timeout: CLI_TIMEOUT_MS,
+      },
+    )
+
+    expect(result.status).toBe(0)
+    expect(result.stdout).toContain('Title:\nCore defect reported by ')
+    expect(result.stdout).toContain('Body:\n## Requirement\n\nA safely previewed defect.')
+    expect(result.stderr).not.toContain('Unknown FORGE')
   })
 })
 
@@ -108,6 +199,7 @@ describe('logs', () => {
       cwd: repoRoot,
       encoding: 'utf8',
       windowsHide: true,
+      timeout: CLI_TIMEOUT_MS,
     })
 
     expect(result.status).toBe(1)
@@ -139,6 +231,7 @@ describe('manual merge', () => {
       env: CORE_ENV,
       encoding: 'utf8',
       windowsHide: true,
+      timeout: CLI_TIMEOUT_MS,
     })
 
     expect(result.status).toBe(0)
@@ -178,6 +271,7 @@ describe('manual merge', () => {
       env: CORE_ENV,
       encoding: 'utf8',
       windowsHide: true,
+      timeout: CLI_TIMEOUT_MS,
     })
 
     expect(result.status).toBe(1)
@@ -196,9 +290,10 @@ describe('manually promoted run ending', () => {
 
     const result = spawnSync(process.execPath, [CLI, 'shipped', '322'], {
       cwd: repoRoot,
-      env: { ...process.env, MAX_SCAN_CYCLES: '3' },
+      env: { ...INHERITED_ENV, MAX_SCAN_CYCLES: '3' },
       encoding: 'utf8',
       windowsHide: true,
+      timeout: CLI_TIMEOUT_MS,
     })
 
     expect(result.status).toBe(0)
@@ -216,9 +311,10 @@ describe('manually promoted run ending', () => {
 
     const result = spawnSync(process.execPath, [CLI, 'shipped', '323'], {
       cwd: repoRoot,
-      env: { ...process.env, MAX_SCAN_CYCLES: '8' },
+      env: { ...INHERITED_ENV, MAX_SCAN_CYCLES: '8' },
       encoding: 'utf8',
       windowsHide: true,
+      timeout: CLI_TIMEOUT_MS,
     })
 
     expect(result.status).toBe(0)
@@ -232,6 +328,7 @@ describe('manually promoted run ending', () => {
       cwd: repoRoot,
       encoding: 'utf8',
       windowsHide: true,
+      timeout: CLI_TIMEOUT_MS,
     })
 
     expect(result.status).toBe(1)
@@ -240,6 +337,53 @@ describe('manually promoted run ending', () => {
 })
 
 describe('loop daemon ownership', () => {
+  it('refuses startup while a task status names a foreign live PID', async () => {
+    const paths = orchPaths(repoRoot)
+    const taskId = '20260812_010203_040_auto-foreign-task'
+    writeFileSync(statusFile(paths, taskId), JSON.stringify({
+      task_id: taskId,
+      status: 'running',
+      pid: process.pid,
+    }))
+
+    const result = spawnSync(process.execPath, [CLI, 'loop'], {
+      cwd: repoRoot,
+      env: { ...CORE_ENV, ISSUE_QUEUE_ENABLED: 'false' },
+      encoding: 'utf8',
+      windowsHide: true,
+      timeout: CLI_TIMEOUT_MS,
+    })
+
+    expect(result.status).toBe(1)
+    expect(result.stdout).toContain(taskId)
+    expect(result.stdout).toContain(`foreign live process tree PID ${process.pid}`)
+    expect(result.stdout).toContain('terminate or adopt the foreign task before starting')
+    expect(existsSync(daemonFile('loop.pid'))).toBe(false)
+    expect(existsSync(daemonFile('cycle-cap.txt'))).toBe(false)
+  })
+
+  it('refuses startup for a worktree with no task state and gives a holder diagnostic', () => {
+    const paths = orchPaths(repoRoot)
+    const orphan = join(paths.worktreesDir, 'orphan-without-status')
+    mkdirSync(orphan, { recursive: true })
+
+    const result = spawnSync(process.execPath, [CLI, 'loop'], {
+      cwd: repoRoot,
+      env: { ...CORE_ENV, ISSUE_QUEUE_ENABLED: 'false' },
+      encoding: 'utf8',
+      windowsHide: true,
+      timeout: CLI_TIMEOUT_MS,
+    })
+
+    expect(result.status).toBe(1)
+    const displayedOrphan = join('orchestration', 'worktrees', 'orphan-without-status')
+    expect(result.stdout).toContain(displayedOrphan)
+    expect(result.stdout).toContain('has no task status')
+    expect(result.stdout).toContain('something may still hold')
+    expect(result.stdout).toMatch(process.platform === 'win32' ? /handle\.exe/ : /lsof \+D/)
+    expect(existsSync(daemonFile('loop.pid'))).toBe(false)
+  })
+
   it('allows only one of concurrent starts to acquire the PID lock', async () => {
     const wrapper = join(repoRoot, 'start-loop.mjs')
     const cliUrl = pathToFileURL(CLI).href
@@ -269,6 +413,7 @@ describe('loop daemon ownership', () => {
       },
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
+      timeout: CLI_TIMEOUT_MS,
     }))
     const completions = children.map(childCompletion)
 
@@ -326,6 +471,7 @@ describe('loop daemon ownership', () => {
       },
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
+      timeout: CLI_TIMEOUT_MS,
     }))
     const completions = children.map(childCompletion)
 
@@ -370,6 +516,7 @@ describe('loop daemon ownership', () => {
       },
       encoding: 'utf8',
       windowsHide: true,
+      timeout: CLI_TIMEOUT_MS,
     })
 
     expect(result.status).toBe(0)
@@ -402,6 +549,7 @@ describe('loop daemon ownership', () => {
         },
         encoding: 'utf8',
         windowsHide: true,
+        timeout: CLI_TIMEOUT_MS,
       },
     )
 
@@ -423,6 +571,7 @@ describe('loop daemon ownership', () => {
       env: { ...CORE_ENV, FORGE: 'missing', ISSUE_QUEUE_ENABLED: 'true' },
       encoding: 'utf8',
       windowsHide: true,
+      timeout: CLI_TIMEOUT_MS,
     })
 
     expect(result.status).toBe(1)
@@ -446,6 +595,7 @@ describe('loop daemon ownership', () => {
       },
       encoding: 'utf8',
       windowsHide: true,
+      timeout: CLI_TIMEOUT_MS,
     })
 
     expect(result.status).toBe(0)
@@ -461,15 +611,88 @@ describe('loop daemon ownership', () => {
       env: {
         ...CORE_ENV,
         AUTO_PR: 'false',
+        AUTO_REVIEW: 'false',
         CORE_AUTO_UPDATE: 'false',
         ISSUE_QUEUE_ENABLED: 'false',
         MAX_SCAN_CYCLES: '0',
+        SCAN_ENABLED: 'true',
       },
       encoding: 'utf8',
       windowsHide: true,
+      timeout: CLI_TIMEOUT_MS,
     })
 
     expect(result.status).toBe(0)
     expect(result.stdout).toContain('Mode       core        auto-update off')
+  })
+})
+
+describe('stop', () => {
+  it('terminates a running task process tree and reports the task and PID', async () => {
+    const paths = orchPaths(repoRoot)
+    const taskId = '20260812_010203_041_auto-stop-tree'
+    const childPidFile = join(repoRoot, 'child.pid')
+    const parent = spawn(process.execPath, ['-e', [
+      "const { spawn } = require('node:child_process')",
+      "const { writeFileSync } = require('node:fs')",
+      "const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' })",
+      `writeFileSync(${JSON.stringify(childPidFile)}, String(child.pid))`,
+      'setInterval(() => {}, 1000)',
+    ].join(';')], {
+      detached: true,
+      stdio: 'ignore',
+      windowsHide: true,
+    })
+    const parentPid = parent.pid
+    expect(parentPid).toBeTypeOf('number')
+    parent.unref()
+
+    let childPid = 0
+    try {
+      await waitUntil(() => existsSync(childPidFile), 'task child did not publish its PID')
+      childPid = Number(readFileSync(childPidFile, 'utf8'))
+      expect(pidIsAlive(parentPid as number)).toBe(true)
+      expect(pidIsAlive(childPid)).toBe(true)
+      await writeStatus(paths, taskId, 'running', parentPid)
+
+      const result = spawnSync(process.execPath, [CLI, 'stop'], {
+        cwd: repoRoot,
+        encoding: 'utf8',
+        windowsHide: true,
+        timeout: CLI_TIMEOUT_MS,
+      })
+
+      expect(result.status).toBe(0)
+      expect(result.stdout).toContain(`Stopped ${taskId}`)
+      expect(result.stdout).toContain(`process tree PID ${parentPid}`)
+      await waitUntil(
+        () => !pidIsAlive(parentPid as number) && !pidIsAlive(childPid),
+        'stop left a task process or its child running',
+      )
+    } finally {
+      if (typeof parentPid === 'number' && pidIsAlive(parentPid)) {
+        if (process.platform === 'win32') {
+          spawnSync('taskkill', ['/PID', String(parentPid), '/T', '/F'], { windowsHide: true })
+        } else {
+          try { process.kill(-parentPid, 'SIGKILL') } catch { /* already gone */ }
+        }
+      }
+      if (childPid > 0 && pidIsAlive(childPid)) {
+        try { process.kill(childPid, 'SIGKILL') } catch { /* already gone */ }
+      }
+    }
+  })
+
+  it('reports when there are no live task process trees to terminate', () => {
+    const result = spawnSync(process.execPath, [CLI, 'stop'], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+      windowsHide: true,
+      timeout: CLI_TIMEOUT_MS,
+    })
+
+    expect(result.status).toBe(0)
+    expect(result.stdout).toContain('Stopped tasks')
+    expect(result.stdout).toContain('no live process trees')
   })
 })

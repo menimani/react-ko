@@ -105,6 +105,8 @@ export interface ProjectAdapter {
   ciChecksExpected?: boolean
   /** Per-merge verification, selected from the paths the worktree touched. */
   mergeChecks(taskGate: 'full' | 'light'): MergeCheck[]
+  /** Fast checks run by the core-owned pre-commit hook against staged paths. */
+  preCommitChecks: MergeCheck[]
   /** The full suites the cycle gate runs against the branch tip under light task gates. */
   cycleSuite(): SuiteStep[]
   /** Repository-specific probe used when a cycle suite step needs Docker. */
@@ -117,20 +119,114 @@ export interface ProjectAdapter {
   pullRequest: PullRequestPresentation
 }
 
-function isProjectAdapter(value: unknown, name?: string): value is ProjectAdapter {
-  if (typeof value !== 'object' || value === null) return false
+interface ProjectAdapterValidation {
+  candidate: boolean
+  problem?: string
+}
+
+interface RequiredMemberBase {
+  name: string
+  expected: string
+  valid: (value: unknown) => boolean
+}
+
+type RequiredMember = RequiredMemberBase & (
+  | { scaffoldValue: string; children?: never }
+  | { scaffoldValue?: never; children: RequiredMember[] }
+)
+
+// This is both the runtime contract and the scaffold source. Adding a required member
+// here therefore changes validation and every adapter generated after that change.
+const PROJECT_ADAPTER_CONTRACT: RequiredMember[] = [
+  {
+    name: 'mergeChecks',
+    expected: 'a function',
+    valid: (value) => typeof value === 'function',
+    scaffoldValue: '() => []',
+  },
+  {
+    name: 'preCommitChecks',
+    expected: 'an array',
+    valid: Array.isArray,
+    scaffoldValue: '[]',
+  },
+  {
+    name: 'cycleSuite',
+    expected: 'a function',
+    valid: (value) => typeof value === 'function',
+    scaffoldValue: '() => []',
+  },
+  {
+    name: 'pullRequest',
+    expected: 'an object',
+    valid: (value) => typeof value === 'object' && value !== null,
+    children: [
+      {
+        name: 'categories', expected: 'an array', valid: Array.isArray,
+        scaffoldValue: "[{ label: 'Changes', title: { singular: 'change', plural: 'changes' } }]",
+      },
+      {
+        name: 'titleFallback', expected: 'a string',
+        valid: (value) => typeof value === 'string', scaffoldValue: "'tooling only'",
+      },
+      {
+        name: 'classifyCommit', expected: 'a function',
+        valid: (value) => typeof value === 'function',
+        scaffoldValue: "() => ({ category: 'Changes' })",
+      },
+      {
+        name: 'detectRisks', expected: 'a function',
+        valid: (value) => typeof value === 'function', scaffoldValue: '() => []',
+      },
+    ],
+  },
+]
+
+function requiredMemberProblem(
+  owner: Record<string, unknown>,
+  members: RequiredMember[],
+): string | undefined {
+  for (const member of members) {
+    if (!(member.name in owner)) return `is missing required member '${member.name}'`
+    const value = owner[member.name]
+    if (!member.valid(value)) {
+      return `has invalid required member '${member.name}' (expected ${member.expected})`
+    }
+    if (member.children !== undefined) {
+      const childProblem = requiredMemberProblem(value as Record<string, unknown>, member.children)
+      if (childProblem !== undefined) return childProblem
+    }
+  }
+  return undefined
+}
+
+export function renderProjectAdapter(projectName: string, typeImport: string): string {
+  const renderMember = (member: RequiredMember, indent: string): string => {
+    if (member.children === undefined) {
+      return `${indent}${member.name}: ${member.scaffoldValue},`
+    }
+    const children = member.children.map((child) => renderMember(child, `${indent}  `)).join('\n')
+    return `${indent}${member.name}: {\n${children}\n${indent}},`
+  }
+  const members = PROJECT_ADAPTER_CONTRACT.map((member) => renderMember(member, '  ')).join('\n\n')
+  return `import type { ProjectAdapter } from '${typeImport}'
+
+export const project: ProjectAdapter = {
+  name: ${JSON.stringify(projectName)},
+
+${members}
+}
+`
+}
+
+function validateProjectAdapter(value: unknown, name?: string): ProjectAdapterValidation {
+  if (typeof value !== 'object' || value === null) return { candidate: false }
   const candidate = value as Partial<ProjectAdapter>
-  return typeof candidate.name === 'string'
-    && candidate.name !== ''
-    && (name === undefined || candidate.name === name)
-    && typeof candidate.mergeChecks === 'function'
-    && typeof candidate.cycleSuite === 'function'
-    && typeof candidate.pullRequest === 'object'
-    && candidate.pullRequest !== null
-    && Array.isArray(candidate.pullRequest.categories)
-    && typeof candidate.pullRequest.titleFallback === 'string'
-    && typeof candidate.pullRequest.classifyCommit === 'function'
-    && typeof candidate.pullRequest.detectRisks === 'function'
+  if (typeof candidate.name !== 'string' || candidate.name === '') return { candidate: false }
+  if (name !== undefined && candidate.name !== name) return { candidate: false }
+
+  const topLevel = candidate as Record<string, unknown>
+  return { candidate: true, problem: requiredMemberProblem(topLevel, PROJECT_ADAPTER_CONTRACT) }
 }
 
 function discoverProjectAdapter(orchestrationRoot: string): { path: string; name: string } {
@@ -180,8 +276,18 @@ export async function loadProject(
   }
 
   const mod = await import(pathToFileURL(adapterPath).href) as Record<string, unknown>
+  let matchingProblem: string | undefined
   for (const value of Object.values(mod)) {
-    if (isProjectAdapter(value, name)) return value
+    const validation = validateProjectAdapter(value, name)
+    if (!validation.candidate) continue
+    if (validation.problem === undefined) return value as ProjectAdapter
+    matchingProblem ??= validation.problem
+  }
+  if (matchingProblem !== undefined) {
+    const projectName = name ?? 'the matching project'
+    throw new Error(
+      `Project adapter '${adapterPath}' exports project '${projectName}' but ${matchingProblem}`,
+    )
   }
   const expected = name === undefined ? 'a project adapter' : `project '${name}'`
   throw new Error(`Project adapter '${adapterPath}' does not export ${expected}`)
