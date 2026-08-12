@@ -122,6 +122,12 @@ React-rendered descendants mounted after the initial binding pass are also bound
 automatically to the nearest root or scope, before their layout effects run. When
 mounted below an existing Knockout `using` or `let` binding, they retain that
 binding's descendant context.
+React portals rendered within a root or scope follow the same rule, even when their
+target is elsewhere in the document or inside another scope's DOM. Ownership follows
+the React tree, so nested portals and portals from nested scopes use the view model the
+author placed them under. Portal content outside every root or scope remains unbound.
+Portal bindings are disposed with their owning scope, including on `viewModel`
+replacement, while the target container itself may remain mounted.
 Their bindings are disposed when React removes them. Errors from these late-applied
 bindings also reach the nearest React error boundary. When React changes an existing
 element's `data-bind` attribute, the previous binding is disposed and the new
