@@ -292,6 +292,31 @@ const vm = { todos: ko.observableArray<Todo>([]) }
 - `boundaryAs` と `as` は各行の2つのホストを選択します。上の例では外側の
   `li` が `ul` の有効な直接の子になり、コールバックは別の `li` ではなくその内容を返します。
 
+`select`、`tbody`、`tr` のようにスコープホストを子にできない親の下では、
+`bindingMode="element"` を明示し、各行が返す単一の組み込み HTML 要素を直接
+バインドします：
+
+```tsx
+<select>
+  <KoForeach items={vm.choices} bindingMode="element" itemKey={(choice) => choice.id}>
+    {() => <option data-bind="text: label, value: id" />}
+  </KoForeach>
+</select>
+```
+
+element モードはホストもコメント範囲も追加しません。`option` 自体が行の
+バインディングルート兼 dispose 境界になります。そのため、サーバーが描画する
+`select` の直下には `option` 要素しかなく、hydration はそれらの要素を再利用してから
+バインディングを取り付けます。返された各要素の所有者は引き続き React です。
+空の要素の内容を `text`、`html`、`component`、`options` で Knockout に所有させる
+ことはできますが、React が描画した children を制御するバインディングは、通常どおり
+descendant-controller の監査で拒否されます。
+
+このモードは明示的な opt-in であり、単一の組み込み HTML 要素を必要とします。
+`KoIf`、`KoIfNot`、`KoWith` でも利用でき、表示中または値が存在するときの child も
+同様に単一の組み込み要素でなければなりません。`boundaryAs` と `as` はデフォルトの
+hosted モード専用であり、`bindingMode="element"` とは併用できません。
+
 ネストは普通の JSX として書けます：
 
 ```tsx

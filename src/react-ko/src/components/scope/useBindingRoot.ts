@@ -297,6 +297,7 @@ export function useBindingRoot(
 
   return {
     container: containerNode,
+    bindingContainer: activateBindingHost,
     bindingCommitMarker,
     generation,
     bindingEstablished: Object.is(
