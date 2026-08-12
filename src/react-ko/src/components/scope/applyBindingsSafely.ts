@@ -5,6 +5,10 @@ import {
   ensureDescendantBindingBoundary,
 } from './descendantBindingBoundary'
 import { prepareDescendantBindingContextCapture } from './descendantBindingContexts'
+import {
+  ELEMENT_BINDING_ROOT_ATTRIBUTE,
+  isElementBindingRoot,
+} from './elementBindingRoot'
 
 const REACT_UNSAFE_BINDINGS = new Set(['if', 'ifnot', 'foreach', 'template', 'with'])
 const REACT_CHILD_UNSAFE_BINDINGS = new Set(['text', 'html', 'component', 'options'])
@@ -857,8 +861,20 @@ export function applyBindingsSafely(
   node: HTMLElement,
   descendantRoots: ReadonlySet<HTMLElement> = new Set()
 ) {
+  const effectiveDescendantRoots = new Set([
+    ...descendantRoots,
+    ...Array.from(
+      node.querySelectorAll<HTMLElement>(
+        `[${ELEMENT_BINDING_ROOT_ATTRIBUTE}]`
+      )
+    ).filter((element) => element !== node && isElementBindingRoot(element)),
+  ])
+
   function clearRecordedControllers(element: Element) {
-    if (element !== node && descendantRoots.has(element as HTMLElement)) return
+    if (
+      element !== node &&
+      effectiveDescendantRoots.has(element as HTMLElement)
+    ) return
     customDescendantControllers.delete(element)
     for (const child of element.children) clearRecordedControllers(child)
   }
@@ -873,7 +889,7 @@ export function applyBindingsSafely(
   const deferredBindings = findDehydratedSuspenseBindings(node)
   const excludedElements = new Set<Element>([
     ...deferredElements(deferredBindings),
-    ...descendantRoots,
+    ...effectiveDescendantRoots,
   ])
   const { validatedSources, assertSafeProviderBindings } =
     validateNoReactUnsafeBindings(
@@ -915,7 +931,7 @@ export function applyBindingsSafely(
       validatedSources,
       assertSafeProviderBindings,
       deferredBindings,
-      descendantRoots
+      effectiveDescendantRoots
     )
   } catch (error) {
     try {

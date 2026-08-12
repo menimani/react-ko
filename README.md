@@ -297,6 +297,31 @@ const vm = { todos: ko.observableArray<Todo>([]) }
   each outer `li` is a valid direct child of `ul`; the render callback returns
   its contents rather than another `li`.
 
+Restricted parents such as `select`, `tbody`, and `tr` do not allow those
+scope hosts. Set `bindingMode="element"` explicitly to bind the single intrinsic
+HTML element returned for each row directly:
+
+```tsx
+<select>
+  <KoForeach items={vm.choices} bindingMode="element" itemKey={(choice) => choice.id}>
+    {() => <option data-bind="text: label, value: id" />}
+  </KoForeach>
+</select>
+```
+
+Element mode adds neither hosts nor a comment range: the `option` itself is the
+row's binding root and disposal boundary. Server markup under the `select`
+therefore contains only `option` elements, and hydration reuses those elements
+before attaching their bindings. React continues to own every returned element;
+Knockout may own an empty element's contents through `text`, `html`, `component`,
+or `options`, but the usual descendant-controller audit still rejects bindings
+that would control React-rendered children.
+
+The mode is opt-in and requires exactly one intrinsic HTML element. It is also
+available on `KoIf`, `KoIfNot`, and `KoWith`; their visible/present child must
+likewise be one intrinsic element. `boundaryAs` and `as` apply only to the
+default hosted mode and cannot be combined with `bindingMode="element"`.
+
 Nesting is plain JSX:
 
 ```tsx

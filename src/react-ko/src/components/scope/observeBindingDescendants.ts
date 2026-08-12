@@ -14,6 +14,7 @@ import {
 import { hasReactKoBindingHandler } from './bindingHandlerOwnership'
 import { descendantBindingContextFor } from './descendantBindingContexts'
 import { DESCENDANT_BINDING_BOUNDARY } from './descendantBindingBoundary'
+import { isElementBindingRoot } from './elementBindingRoot'
 
 type BindingObserverState = {
   observer: MutationObserver
@@ -409,7 +410,8 @@ function prepareBindingTree(
 ) {
   if (
     element !== root &&
-    bindingRootRegistry(root).bindingRoots.has(element)
+    (bindingRootRegistry(root).bindingRoots.has(element) ||
+      isElementBindingRoot(element))
   ) {
     return
   }
@@ -452,7 +454,11 @@ function belongsToBindingRoot(node: Node, root: Node) {
 
   let ancestor = node.nodeType === Node.ELEMENT_NODE ? node : node.parentNode
   while (ancestor !== null && ancestor !== root) {
-    if (bindingRootRegistry(root).bindingRoots.has(ancestor as HTMLElement)) {
+    if (
+      bindingRootRegistry(root).bindingRoots.has(ancestor as HTMLElement) ||
+      (ancestor.nodeType === Node.ELEMENT_NODE &&
+        isElementBindingRoot(ancestor as Element))
+    ) {
       return false
     }
     ancestor = ancestor.parentNode
@@ -1013,7 +1019,8 @@ function trackBindingTree(
   if (excludedElements?.has(element)) return
   if (
     element !== ownerRoot &&
-    bindingRootRegistry(ownerRoot).bindingRoots.has(element)
+    (bindingRootRegistry(ownerRoot).bindingRoots.has(element) ||
+      isElementBindingRoot(element))
   ) {
     return
   }
