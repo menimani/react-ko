@@ -59,7 +59,9 @@ export function ElementKnockoutScope<T>({ viewModel, children }: Props<T>) {
       bindingContainer(node)
       const cleanup = setRef(childRef, node)
       return typeof cleanup === 'function'
-        /* v8 ignore next -- React 18 does not invoke callback-ref cleanups. */
+        /* v8 ignore next 4 -- React 18 never invokes callback-ref cleanups, so this
+           function cannot execute on that major and `ignore next` alone still counted
+           it against the 100% function threshold there. */
         ? () => {
             cleanup()
             bindingContainer(null)
