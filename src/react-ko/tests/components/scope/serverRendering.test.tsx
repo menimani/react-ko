@@ -22,14 +22,14 @@ type ViewModel = {
 type ScopeFactory = (
   viewModel: ViewModel,
   children: ReactNode,
-  as?: 'script'
+  as?: string
 ) => ReactElement
 
 const scopes: Array<[string, ScopeFactory]> = [
   [
     'RootKnockoutProvider',
     (viewModel, children, as) => (
-      <RootKnockoutProvider viewModel={viewModel} as={as}>
+      <RootKnockoutProvider viewModel={viewModel} as={as as never}>
         {children}
       </RootKnockoutProvider>
     ),
@@ -38,7 +38,7 @@ const scopes: Array<[string, ScopeFactory]> = [
     'KnockoutScope',
     (viewModel, children, as) => (
       <AppViewModelContext.Provider value={{}}>
-        <KnockoutScope viewModel={viewModel} as={as}>
+        <KnockoutScope viewModel={viewModel} as={as as never}>
           {children}
         </KnockoutScope>
       </AppViewModelContext.Provider>
@@ -123,38 +123,15 @@ describe.each(scopes)('%s server rendering', (_, createScope) => {
     }
   })
 
-  it.each(['script'] as const)(
-    'preserves <%s> children in server output and hydration',
-    async (hostName) => {
-      const tree = createScope(
-        { label: ko.observable('Hydrated') },
-        'Compatible host child',
-        hostName
-      )
-      const container = serverContainer(tree)
-      document.body.appendChild(container)
-      const matchingHosts = container.querySelectorAll(hostName)
-      const serverHost = matchingHosts.item(matchingHosts.length - 1)
-      const hostText = () => serverHost.textContent
-      let root: Root | undefined
+  it('rejects <script> as a semantic host during server rendering', () => {
+    const tree = createScope(
+      { label: ko.observable('Server') },
+      'Inert host child',
+      'script'
+    )
 
-      try {
-        expect(renderToString(tree)).toContain('Compatible host child')
-        expect(hostText()).toContain('Compatible host child')
-
-        await act(async () => {
-          root = hydrateRoot(container, tree)
-        })
-
-        const hydratedHosts = container.querySelectorAll(hostName)
-        expect(hydratedHosts.item(hydratedHosts.length - 1)).toBe(serverHost)
-        expect(hostText()).toContain('Compatible host child')
-      } finally {
-        if (root !== undefined) act(() => root?.unmount())
-        container.remove()
-      }
-    }
-  )
+    expect(() => renderToString(tree)).toThrow('inert children')
+  })
 
   it('defers bindings inside a dehydrated Suspense boundary', async () => {
     const viewModel = { label: ko.observable('Knockout value') }

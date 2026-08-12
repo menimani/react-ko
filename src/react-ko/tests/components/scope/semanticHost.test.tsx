@@ -145,7 +145,6 @@ describe('semantic hosts', () => {
     'noembed',
     'noframes',
     'plaintext',
-    'script',
     'style',
     'xmp',
     'frame',
@@ -300,6 +299,19 @@ describe('semantic hosts', () => {
       } finally {
         consoleError.mockRestore()
       }
+    }
+  )
+
+  it.each([
+    ['script', 'inert children'],
+    ['head', 'hoisted out of the scope'],
+    ['body', 'hoisted out of the scope'],
+    ['html', 'hoisted out of the scope'],
+    ['keygen', 'unable to survive SSR'],
+  ] as const)(
+    'rejects the JavaScript host <%s>: %s',
+    (host, message) => {
+      expect(() => semanticHostComponent(host as never)).toThrow(message)
     }
   )
 

@@ -27,11 +27,38 @@ type DeclarationMergedHostIsSemanticHost = Assert<
 type FrameIsSemanticHost = Assert<'frame' extends SemanticHost ? true : false>
 type BasefontIsSemanticHost = Assert<'basefont' extends SemanticHost ? true : false>
 type BgsoundIsSemanticHost = Assert<'bgsound' extends SemanticHost ? true : false>
-type KeygenIsSemanticHost = Assert<'keygen' extends SemanticHost ? true : false>
 type MenuitemIsSemanticHost = Assert<'menuitem' extends SemanticHost ? true : false>
-type TextareaIsSemanticHost = Assert<'textarea' extends SemanticHost ? true : false>
-type TitleIsSemanticHost = Assert<'title' extends SemanticHost ? true : false>
-type TemplateIsSemanticHost = Assert<'template' extends SemanticHost ? true : false>
+type RejectedHostsAreNotSemanticHosts = Assert<
+  Extract<
+    | 'area'
+    | 'base'
+    | 'br'
+    | 'col'
+    | 'embed'
+    | 'hr'
+    | 'img'
+    | 'input'
+    | 'link'
+    | 'meta'
+    | 'param'
+    | 'source'
+    | 'track'
+    | 'wbr'
+    | 'math'
+    | 'svg'
+    | 'textarea'
+    | 'title'
+    | 'template'
+    | 'script'
+    | 'head'
+    | 'body'
+    | 'html'
+    | 'keygen',
+    SemanticHost
+  > extends never
+    ? true
+    : false
+>
 
 void (true satisfies MarqueeIsSemanticHost)
 void (true satisfies DirIsSemanticHost)
@@ -42,8 +69,5 @@ void (true satisfies DeclarationMergedHostIsSemanticHost)
 void (true satisfies FrameIsSemanticHost)
 void (true satisfies BasefontIsSemanticHost)
 void (true satisfies BgsoundIsSemanticHost)
-void (true satisfies KeygenIsSemanticHost)
 void (true satisfies MenuitemIsSemanticHost)
-void (true satisfies TextareaIsSemanticHost)
-void (true satisfies TitleIsSemanticHost)
-void (true satisfies TemplateIsSemanticHost)
+void (true satisfies RejectedHostsAreNotSemanticHosts)

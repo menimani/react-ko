@@ -6,29 +6,35 @@ import {
   useLayoutEffect,
   useRef,
   useState,
-  useSyncExternalStore,
 } from 'react'
 import ko from 'knockout'
-import { applyBindingsSafely } from './applyBindingsSafely'
+import {
+  applyBindingsSafely,
+  assertNoReactUnsafeBindings,
+} from './applyBindingsSafely'
 import {
   observeBindingDescendants,
   prepareBindingDescendants,
   reconcileBindingDescendants,
   refreshBindingDescendantsAfterLayout,
+  registerBindingRoot,
   restoreDescendantBindingRoots,
+  unregisterBindingRoot,
 } from './observeBindingDescendants'
+import { portalBindingTargets } from './portalBindingRoots'
 
-type ActiveBinding = {
+type ActiveRootBinding = {
   node: HTMLElement
-  viewModel: unknown
-  parentGeneration: number
   stopObserving: () => void
 }
 
+type ActiveBinding = {
+  roots: ActiveRootBinding[]
+  viewModel: unknown
+  parentGeneration: number
+}
+
 const UNBOUND_BINDING = Symbol('unbound')
-const subscribeToNothing = () => () => undefined
-const getClientSnapshot = () => false
-const getServerSnapshot = () => true
 
 function BindingCommitMarker({
   onCommit,
@@ -61,11 +67,6 @@ export function useBindingRoot(
   const refreshInitialBinding = useRef(false)
   const [, setBindingEstablishedVersion] = useState(0)
   const [generation, setGeneration] = useState(0)
-  const preserveServerChildren = useSyncExternalStore(
-    subscribeToNothing,
-    getClientSnapshot,
-    getServerSnapshot
-  )
 
   function disposeBinding() {
     const active = activeBinding.current
@@ -73,27 +74,57 @@ export function useBindingRoot(
       return
     }
 
-    active.stopObserving()
-    ko.cleanNode(active.node)
     activeBinding.current = null
+    for (const root of active.roots) {
+      root.stopObserving()
+    }
+    for (const root of active.roots) {
+      ko.cleanNode(root.node)
+    }
   }
 
-  function bind(node: HTMLElement, replacing: boolean) {
-    const bindingStates = prepareBindingDescendants(node)
-    const deferredSuspenseBindings = applyBindingsSafely(viewModel, node)
-    const stopObserving = observeBindingDescendants(
-      viewModel,
-      node,
-      onError,
-      bindingStates,
-      () => pendingBindingReplacement.current,
-      deferredSuspenseBindings
-    )
+  function bindingRoots(node: HTMLElement) {
+    const { containers, roots } = portalBindingTargets(node)
+    for (const container of containers) {
+      assertNoReactUnsafeBindings(container, false, false)
+    }
+    return [node, ...roots]
+  }
+
+  function bind(nodes: HTMLElement[], replacing: boolean) {
+    for (const node of nodes) registerBindingRoot(node, viewModel)
+    const roots: ActiveRootBinding[] = []
     activeBinding.current = {
-      node,
+      roots,
       viewModel,
       parentGeneration,
-      stopObserving,
+    }
+    try {
+      for (const node of nodes) {
+        if (ko.contextFor(node) !== undefined) ko.cleanNode(node)
+        const bindingStates = prepareBindingDescendants(node)
+        const descendantRoots = new Set(
+          nodes.filter((candidate) => candidate !== node && node.contains(candidate))
+        )
+        const deferredSuspenseBindings = applyBindingsSafely(
+          viewModel,
+          node,
+          descendantRoots
+        )
+        const stopObserving = observeBindingDescendants(
+          viewModel,
+          node,
+          onError,
+          bindingStates,
+          () => pendingBindingReplacement.current,
+          deferredSuspenseBindings
+        )
+        roots.push({ node, stopObserving })
+      }
+    } catch (error) {
+      disposeBinding()
+      for (const node of nodes) unregisterBindingRoot(node)
+      throw error
     }
     if (
       notifyBindingEstablished &&
@@ -106,9 +137,71 @@ export function useBindingRoot(
     if (replacing) {
       // Cleaning an ancestor also cleans nested binding roots. Restore them now
       // so their layout effects never observe a temporarily unbound subtree.
-      restoreDescendantBindingRoots(node, node)
+      const activeRoots = new Set(nodes)
+      const outermostRoots = nodes.filter(
+        (node) => !nodes.some((candidate) => candidate !== node && candidate.contains(node))
+      )
+      for (const node of outermostRoots) {
+        restoreDescendantBindingRoots(node, node, activeRoots)
+      }
       replacedBinding.current = true
     }
+  }
+
+  function synchronizePortalRoots(node: HTMLElement, active: ActiveBinding) {
+    const nodes = bindingRoots(node)
+    const current = new Map(active.roots.map((root) => [root.node, root]))
+    const removed = active.roots.filter((root) => !nodes.includes(root.node))
+
+    for (const root of removed) root.stopObserving()
+    for (const root of removed) {
+      ko.cleanNode(root.node)
+    }
+
+    const added = nodes.filter((portalRoot) => !current.has(portalRoot))
+    for (const portalRoot of added) registerBindingRoot(portalRoot, viewModel)
+
+    const roots: ActiveRootBinding[] = []
+    try {
+      for (const portalRoot of nodes) {
+        const existing = current.get(portalRoot)
+        if (existing !== undefined && !removed.includes(existing)) {
+          roots.push(existing)
+          reconcileBindingDescendants(portalRoot)
+          continue
+        }
+
+        if (ko.contextFor(portalRoot) !== undefined) ko.cleanNode(portalRoot)
+        const bindingStates = prepareBindingDescendants(portalRoot)
+        const descendantRoots = new Set(
+          nodes.filter(
+            (candidate) => candidate !== portalRoot && portalRoot.contains(candidate)
+          )
+        )
+        const deferredSuspenseBindings = applyBindingsSafely(
+          viewModel,
+          portalRoot,
+          descendantRoots
+        )
+        roots.push({
+          node: portalRoot,
+          stopObserving: observeBindingDescendants(
+            viewModel,
+            portalRoot,
+            onError,
+            bindingStates,
+            () => pendingBindingReplacement.current,
+            deferredSuspenseBindings
+          ),
+        })
+      }
+    } catch (error) {
+      active.roots = roots
+      disposeBinding()
+      for (const portalRoot of added) unregisterBindingRoot(portalRoot)
+      throw error
+    }
+    active.roots = roots
   }
 
   function synchronizeBinding() {
@@ -120,24 +213,24 @@ export function useBindingRoot(
     const active = activeBinding.current
     if (active !== null) {
       if (
-        active.node === node &&
+        active.roots[0]?.node === node &&
         Object.is(active.viewModel, viewModel) &&
         active.parentGeneration === parentGeneration
       ) {
         pendingBindingReplacement.current = false
         // React has already committed data-bind changes by this phase. Retire
         // their old subscriptions before any descendant layout effect can run.
-        reconcileBindingDescendants(active.node)
+        synchronizePortalRoots(node, active)
         return
       }
 
       disposeBinding()
       pendingBindingReplacement.current = false
-      bind(node, true)
+      bind(bindingRoots(node), true)
       return
     }
 
-    bind(node, false)
+    bind(bindingRoots(node), false)
   }
 
   // The inert template precedes the binding host inside the structural
@@ -190,7 +283,9 @@ export function useBindingRoot(
     refreshInitialBinding.current = false
     const node = containerNode.current
     if (node === null) return
-    refreshBindingDescendantsAfterLayout(node)
+    for (const root of activeBinding.current?.roots ?? []) {
+      refreshBindingDescendantsAfterLayout(root.node)
+    }
   })
 
   useLayoutEffect(
@@ -208,6 +303,5 @@ export function useBindingRoot(
       bindingEstablishedIdentity.current,
       bindingIdentity
     ),
-    preserveServerChildren,
   }
 }
