@@ -30,6 +30,26 @@ export const reactKoProject: ProjectAdapter = {
     },
   ],
 
+  // What .githooks/pre-commit ran before the core owned it. The build is the type gate
+  // here — tsup fails on a type error — and the suite stays in the merge gate, because a
+  // commit that waits for it is a commit nobody makes.
+  preCommitChecks: [
+    {
+      label: 'Library builds',
+      cwd: '',
+      command: 'npm run build',
+      appliesTo: (changed) => changed.some(isLibraryFile),
+      requires: 'package.json',
+    },
+    {
+      label: 'Orchestration typechecks',
+      cwd: 'orchestration/ts',
+      command: 'npm run typecheck',
+      appliesTo: (changed) => changed.some((file) => file.startsWith('orchestration/')),
+      requires: 'orchestration/ts/package.json',
+    },
+  ],
+
   mergeChecks(taskGate: 'full' | 'light'): MergeCheck[] {
     return [
       {
