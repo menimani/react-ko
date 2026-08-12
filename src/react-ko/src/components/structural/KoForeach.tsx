@@ -1,7 +1,12 @@
 import * as React from 'react'
 import type * as ko from 'knockout'
 import { KnockoutScope, useKoValue } from '@/index'
-import type { SemanticHostProps } from '@/components/scope/semanticHost'
+import { ElementKnockoutScope } from '@/components/scope/ElementKnockoutScope'
+import type {
+  ElementBindingProps,
+  ElementChild,
+  HostedBindingProps,
+} from './bindingMode'
 
 type NullableItems<T> =
   | ko.Observable<T[] | null | undefined>
@@ -12,7 +17,7 @@ type NullableItems<T> =
   | null
   | undefined
 
-type Props<T> = SemanticHostProps & {
+type CommonProps<T> = {
   items:
     | ko.ObservableArray<T>
     | ko.Observable<T[]>
@@ -20,9 +25,17 @@ type Props<T> = SemanticHostProps & {
     | ko.Computed<T[]>
     | ko.Computed<readonly T[]>
     | NullableItems<T>
-  children: (item: T, index: number) => React.ReactNode
   itemKey?: (item: T, index: number) => React.Key
 }
+
+type Props<T> = CommonProps<T> & (
+  | (HostedBindingProps & {
+      children: (item: T, index: number) => React.ReactNode
+    })
+  | (ElementBindingProps & {
+      children: (item: T, index: number) => ElementChild
+    })
+)
 
 // Auto-assigned keys: object items get a stable identity-and-occurrence key
 // so their rows survive reorders and repeated references remain distinct;
@@ -57,12 +70,12 @@ function defaultItemKey(
  * Iteration is owned by React: `$data`, `$index`, and `$parent` are
  * replaced by the function arguments and closures.
  */
-export function KoForeach<T>({ items, children, itemKey, boundaryAs, as }: Props<T>) {
+export function KoForeach<T>(props: Props<T>) {
   // Knockout subscribables are invariant, so normalize the mutable and
   // readonly source variants after Props has checked the public input.
   const array =
     useKoValue<readonly T[] | null | undefined>(
-      items as unknown as
+      props.items as unknown as
         | ko.Observable<readonly T[] | null | undefined>
         | ko.Computed<readonly T[] | null | undefined>
         | readonly T[]
@@ -73,16 +86,26 @@ export function KoForeach<T>({ items, children, itemKey, boundaryAs, as }: Props
 
   return (
     <>
-      {array.map((item, index) => (
-        <KnockoutScope
-          key={itemKey ? itemKey(item, index) : defaultItemKey(item, index, occurrences)}
-          viewModel={item}
-          boundaryAs={boundaryAs}
-          as={as}
-        >
-          {children(item, index)}
-        </KnockoutScope>
-      ))}
+      {array.map((item, index) => {
+        const key = props.itemKey
+          ? props.itemKey(item, index)
+          : defaultItemKey(item, index, occurrences)
+
+        return props.bindingMode === 'element' ? (
+          <ElementKnockoutScope key={key} viewModel={item}>
+            {props.children(item, index)}
+          </ElementKnockoutScope>
+        ) : (
+          <KnockoutScope
+            key={key}
+            viewModel={item}
+            boundaryAs={props.boundaryAs}
+            as={props.as}
+          >
+            {props.children(item, index)}
+          </KnockoutScope>
+        )
+      })}
     </>
   )
 }
