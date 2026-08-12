@@ -152,7 +152,6 @@ describe('semantic hosts', () => {
     'basefont',
     'bgsound',
     'iframe',
-    'template',
   ] as const)(
     'renders and binds the v2 runtime-compatible <%s> semantic host',
     (host) => {
@@ -280,6 +279,23 @@ describe('semantic hosts', () => {
       try {
         expect(() => renderWithJavaScriptHost(hostProp, host)).toThrow(
           `cannot use <${host}> as a semantic host because scope hosts require an HTML element that preserves its child element subtree`
+        )
+      } finally {
+        consoleError.mockRestore()
+      }
+    }
+  )
+
+  it.each([
+    ['as', 'template'],
+    ['boundaryAs', 'template'],
+  ] as const)(
+    'rejects the JavaScript %s value <%s> because its children leave the document tree',
+    (hostProp, host) => {
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+      try {
+        expect(() => renderWithJavaScriptHost(hostProp, host)).toThrow(
+          `cannot use <${host}> as a semantic host because a scope host must keep its children in the document tree, but a <template>'s children live in its content fragment`
         )
       } finally {
         consoleError.mockRestore()

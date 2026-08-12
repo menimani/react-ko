@@ -38,7 +38,7 @@ npx degit menimani/react-ko/starter/js my-app-js
 ## サンプルコード
 
 ```tsx
-const itemCount = useKoValue(vm.list).length
+const itemCount = (useKoValue(vm.list) ?? []).length
 
 <ul>
   <KoForeach items={vm.list} itemKey={(todo) => todo.id} boundaryAs="li" as="div">

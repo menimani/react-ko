@@ -22,6 +22,11 @@ function ObjectProbe({ source }: { source: ko.Observable<{ label: string }> }) {
   return <span data-testid="value">{value.label}</span>
 }
 
+function ArrayProbe({ source }: { source: ko.ObservableArray<string> }) {
+  const value = useKoValue(source)
+  return <span data-testid="value">{String(value)}</span>
+}
+
 describe('useKoValue', () => {
   it('returns the current value of an observable', () => {
     const name = ko.observable('Hello')
@@ -68,6 +73,22 @@ describe('useKoValue', () => {
     })
 
     expect(screen.getByTestId('value').textContent).toBe('A,B')
+  })
+
+  it('passes nullish observableArray values through unchanged', () => {
+    const items = ko.observableArray(['A'])
+
+    render(<ArrayProbe source={items} />)
+
+    act(() => {
+      Reflect.apply(items, undefined, [null])
+    })
+    expect(screen.getByTestId('value').textContent).toBe('null')
+
+    act(() => {
+      Reflect.apply(items, undefined, [undefined])
+    })
+    expect(screen.getByTestId('value').textContent).toBe('undefined')
   })
 
   it('passes plain values through unchanged', () => {

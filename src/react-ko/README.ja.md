@@ -98,8 +98,10 @@ const viewModel = {
 ハイフンは不要です。型境界とランタイム境界の両方で利用できます。`input`、`img`、
 `br` などの既知の void 要素と、`svg` などの外来コンテンツのルートはランタイムで
 拒否されます。バインディングのサブツリーを保持できないテキスト専用要素の `textarea` と
-`title` も拒否されます。この拒否は意図的なバグ修正です。それ以外の `SemanticHost` 値は、
-v2 互換性のためランタイムでも引き続き受け付けます。ホストに対する制限の強化は、将来の
+`title` も拒否されます。`template` 要素も拒否されます。スコープホストは子要素をドキュメント
+ツリー内に保持する必要がありますが、`template` は子要素を自身の `content` フラグメント内に
+保持するためです。これらの拒否は意図的なバグ修正です。それ以外の `SemanticHost` 値は、v2
+互換性のためランタイムでも引き続き受け付けます。ホストに対する制限の強化は、将来の
 メジャーリリースまで延期されます。
 
 `RootKnockoutProvider` または `KnockoutScope` の `viewModel` を置き換えると、
@@ -406,6 +408,24 @@ optional なソースは形を保ちます: `ko.Observable<string> | undefined` 
 プロパティに `useKoValue` を使うと `string | undefined` が返ります。
 Knockout の遅延更新モード（`ko.options.deferUpdates = true`）はライブラリ
 全体でサポートされており、値は遅延通知の実行時に反映されます。
+
+---
+
+## v2 からの移行
+
+v3 では、配列ソースの宣言上の戻り値型を従来からの実行時動作に合わせました。
+`useKoValue(ko.ObservableArray<T>)` は `T[] | null | undefined` を返すように
+なったため、直ちに `.length` を読んだり `.map()` を呼んだりして、必ず配列で
+あると仮定するコードは型チェックを通らなくなります。空配列をフォールバックに
+したい場合は、呼び出し箇所で次のようにガードしてください：
+
+```tsx
+const items = useKoValue(vm.items) ?? []
+```
+
+この変更は `ko.ObservableArray` ソースだけに適用されます。配列以外の
+オーバーロードは変更されず、nullish な配列値は実行時に従来どおりそのまま
+返されます。
 
 ---
 

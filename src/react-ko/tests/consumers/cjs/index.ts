@@ -145,7 +145,7 @@ ReactKo.KoWith({ value: selected, children: (row: string) => row })
 expectType<number>(ReactKo.useKoValue(1))
 expectType<number>(ReactKo.useKoValue(viewModel.count))
 expectType<number>(ReactKo.useKoValue(ko.pureComputed(() => viewModel.count())))
-expectType<Row[]>(ReactKo.useKoValue(observableRows))
+expectType<Row[] | null | undefined>(ReactKo.useKoValue(observableRows))
 // @ts-expect-error An explicit result type must agree with the source.
 ReactKo.useKoValue<number>('not a number')
 

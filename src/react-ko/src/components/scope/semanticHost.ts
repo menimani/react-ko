@@ -65,7 +65,6 @@ type SemanticHostComponentProps = {
   style: React.CSSProperties
   ref?: React.Ref<HTMLElement>
   'data-bind'?: string
-  suppressHydrationWarning?: boolean
 }
 
 export function semanticHostComponent(host: SemanticHost) {
@@ -88,6 +87,12 @@ export function semanticHostComponent(host: SemanticHost) {
   if (TEXT_CONTENT_HOSTS.has(normalizedHost)) {
     throw new Error(
       `react-ko cannot use <${String(host)}> as a semantic host because scope hosts require an HTML element that preserves its child element subtree.`
+    )
+  }
+
+  if (normalizedHost === 'template') {
+    throw new Error(
+      `react-ko cannot use <${String(host)}> as a semantic host because a scope host must keep its children in the document tree, but a <template>'s children live in its content fragment.`
     )
   }
 

@@ -99,9 +99,11 @@ Additional non-void names added through `HTMLElementTagNameMap` declaration merg
 are supported at both the type and runtime boundaries and do not need a hyphen.
 Known void tags such as `input`, `img`, and `br`, and foreign-content roots such as
 `svg`, are rejected at runtime. The text-only `textarea` and `title` elements are also
-rejected because they cannot preserve the binding subtree. This rejection is an
-intentional bug fix. All other `SemanticHost` values remain accepted at runtime for v2
-compatibility; tighter host restrictions are deferred to a future major release.
+rejected because they cannot preserve the binding subtree. The `template` element is
+rejected because a scope host must keep its children in the document tree, while a
+`template` keeps them in its `content` fragment. These rejections are intentional bug
+fixes. All other `SemanticHost` values remain accepted at runtime for v2 compatibility;
+tighter host restrictions are deferred to a future major release.
 
 Replacing a `RootKnockoutProvider` or `KnockoutScope` `viewModel` reapplies its
 Knockout bindings. Both components dispose their bindings when replaced or
@@ -411,6 +413,24 @@ An optional source keeps its shape: `useKoValue` of a
 Knockout's deferred-updates mode (`ko.options.deferUpdates = true`) is
 supported throughout the library; values arrive when the deferred
 notification runs.
+
+---
+
+## Migrating from v2
+
+v3 makes the declared return type for array sources match the existing runtime
+behavior. `useKoValue(ko.ObservableArray<T>)` now returns
+`T[] | null | undefined`, so code that immediately reads `.length`, calls
+`.map()`, or otherwise assumes an array no longer type-checks. Guard the value
+at the call site when an empty array is the desired fallback:
+
+```tsx
+const items = useKoValue(vm.items) ?? []
+```
+
+This change applies only to `ko.ObservableArray` sources. The non-array
+overloads are unchanged, and nullish array values continue to pass through
+unchanged at runtime.
 
 ---
 
