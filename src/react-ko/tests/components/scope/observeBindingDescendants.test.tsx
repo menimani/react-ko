@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { render, screen, act, fireEvent, waitFor } from '@testing-library/react'
 import { Component, type ReactNode, useLayoutEffect, useRef, useState } from 'react'
 import ko from 'knockout'
-import { RootKnockoutProvider, KnockoutScope } from '@/index'
+import { BindingHost } from '../../fixtures/bindingHost'
 
 class ErrorBoundary extends Component<
   { children: ReactNode; onError?: (error: unknown) => void },
@@ -25,11 +25,11 @@ class ErrorBoundary extends Component<
 
 function Host({ vm }: { vm: unknown }) {
   return (
-    <RootKnockoutProvider viewModel={{}}>
-      <KnockoutScope viewModel={vm}>
+    <BindingHost viewModel={{}}>
+      <BindingHost viewModel={vm}>
         <div data-testid="host" />
-      </KnockoutScope>
-    </RootKnockoutProvider>
+      </BindingHost>
+    </BindingHost>
   )
 }
 
@@ -38,7 +38,7 @@ function LocalClassBinding({ vm }: { vm: unknown }) {
   const [bound, setBound] = useState(true)
 
   return (
-    <RootKnockoutProvider viewModel={vm}>
+    <BindingHost viewModel={vm}>
       <>
         <span
           data-testid="class-owner"
@@ -48,7 +48,7 @@ function LocalClassBinding({ vm }: { vm: unknown }) {
         <button onClick={() => setClassName('react-updated')}>Update class</button>
         <button onClick={() => setBound(false)}>Retire class</button>
       </>
-    </RootKnockoutProvider>
+    </BindingHost>
   )
 }
 
@@ -57,7 +57,7 @@ function LocalVisibilityBinding({ binding, vm }: { binding: 'visible' | 'hidden'
   const [bound, setBound] = useState(true)
 
   return (
-    <RootKnockoutProvider viewModel={vm}>
+    <BindingHost viewModel={vm}>
       <>
         <span
           data-testid={`${binding}-owner`}
@@ -67,7 +67,7 @@ function LocalVisibilityBinding({ binding, vm }: { binding: 'visible' | 'hidden'
         <button onClick={() => setDisplay('flex')}>Update {binding} display</button>
         <button onClick={() => setBound(false)}>Retire {binding}</button>
       </>
-    </RootKnockoutProvider>
+    </BindingHost>
   )
 }
 
@@ -76,7 +76,7 @@ function LocalSvgAttributeBinding({ vm }: { vm: unknown }) {
   const [bound, setBound] = useState(true)
 
   return (
-    <RootKnockoutProvider viewModel={vm}>
+    <BindingHost viewModel={vm}>
       <>
         <svg>
           <line
@@ -88,7 +88,7 @@ function LocalSvgAttributeBinding({ vm }: { vm: unknown }) {
         <button onClick={() => setStrokeWidth(3)}>Update stroke width</button>
         <button onClick={() => setBound(false)}>Retire stroke width</button>
       </>
-    </RootKnockoutProvider>
+    </BindingHost>
   )
 }
 
@@ -96,7 +96,7 @@ function LocalNamespacedSvgAttributeBinding({ vm }: { vm: unknown }) {
   const [phase, setPhase] = useState(0)
 
   return (
-    <RootKnockoutProvider viewModel={vm}>
+    <BindingHost viewModel={vm}>
       <>
         <svg xmlnsXlink="http://www.w3.org/1999/xlink">
           <use
@@ -114,7 +114,7 @@ function LocalNamespacedSvgAttributeBinding({ vm }: { vm: unknown }) {
           Advance namespaced props
         </button>
       </>
-    </RootKnockoutProvider>
+    </BindingHost>
   )
 }
 
@@ -131,7 +131,7 @@ function LocalPanoseSvgAttributeBinding({ vm }: { vm: unknown }) {
   }, [reactPanose])
 
   return (
-    <RootKnockoutProvider viewModel={vm}>
+    <BindingHost viewModel={vm}>
       <>
         <svg
           ref={owner}
@@ -143,7 +143,7 @@ function LocalPanoseSvgAttributeBinding({ vm }: { vm: unknown }) {
           Advance panose prop
         </button>
       </>
-    </RootKnockoutProvider>
+    </BindingHost>
   )
 }
 
@@ -172,14 +172,14 @@ describe('observeBindingDescendants', () => {
     function Harness({ showChild }: { showChild: boolean }) {
       return (
         <ErrorBoundary>
-          <RootKnockoutProvider viewModel={{ removeChildren }}>
+          <BindingHost viewModel={{ removeChildren }}>
             <section
               data-testid="custom-controller"
               data-bind={`${binding}: removeChildren`}
             >
               {showChild ? <LateChild /> : null}
             </section>
-          </RootKnockoutProvider>
+          </BindingHost>
         </ErrorBoundary>
       )
     }
@@ -207,9 +207,9 @@ describe('observeBindingDescendants', () => {
 
       return (
         <ErrorBoundary>
-          <RootKnockoutProvider viewModel={viewModel}>
+          <BindingHost viewModel={viewModel}>
             <div dangerouslySetInnerHTML={{ __html: markup }} />
-          </RootKnockoutProvider>
+          </BindingHost>
         </ErrorBoundary>
       )
     }
@@ -228,12 +228,12 @@ describe('observeBindingDescendants', () => {
     function Harness({ bound }: { bound: boolean }) {
       return (
         <ErrorBoundary>
-          <RootKnockoutProvider viewModel={{ handle }}>
+          <BindingHost viewModel={{ handle }}>
             <button
               data-testid="click-owner"
               data-bind={bound ? 'click: handle, clickBubble: false' : undefined}
             />
-          </RootKnockoutProvider>
+          </BindingHost>
         </ErrorBoundary>
       )
     }
@@ -255,7 +255,7 @@ describe('observeBindingDescendants', () => {
     function Harness({ replaced }: { replaced: boolean }) {
       return (
         <ErrorBoundary>
-          <RootKnockoutProvider viewModel={{ handle, label: 'Replacement' }}>
+          <BindingHost viewModel={{ handle, label: 'Replacement' }}>
             <button
               data-testid="event-owner"
               data-bind={
@@ -264,7 +264,7 @@ describe('observeBindingDescendants', () => {
                   : 'event: { mouseover: handle }, mouseoverBubble: false'
               }
             />
-          </RootKnockoutProvider>
+          </BindingHost>
         </ErrorBoundary>
       )
     }
@@ -363,11 +363,11 @@ describe('observeBindingDescendants', () => {
       markup: ko.observable('<span data-bind="text: label">Initial markup</span>'),
     }
     render(
-      <RootKnockoutProvider viewModel={{}}>
-        <KnockoutScope viewModel={vm}>
+      <BindingHost viewModel={{}}>
+        <BindingHost viewModel={vm}>
           <div data-testid="html-owner" data-bind="html: markup" />
-        </KnockoutScope>
-      </RootKnockoutProvider>
+        </BindingHost>
+      </BindingHost>
     )
 
     const owner = screen.getByTestId('html-owner')
@@ -445,10 +445,10 @@ describe('observeBindingDescendants', () => {
 
       return (
         <ErrorBoundary onError={caught}>
-          <RootKnockoutProvider viewModel={vm}>
+          <BindingHost viewModel={vm}>
             <span data-bind="text: label" />
             <span ref={owner} data-bind="attr: { title: title }" />
-          </RootKnockoutProvider>
+          </BindingHost>
         </ErrorBoundary>
       )
     }
@@ -620,8 +620,8 @@ describe('observeBindingDescendants', () => {
     const first = await import('@/index')
     vi.resetModules()
     const second = await import('@/index')
-    const OuterRoot = first.RootKnockoutProvider
-    const InnerRoot = second.RootKnockoutProvider
+    const OuterRoot = first.BindingHost
+    const InnerRoot = second.BindingHost
     const outerViewModel = { label: 'Outer provider' }
     const innerViewModel = { label: 'Inner provider' }
 

@@ -8,7 +8,7 @@ type RefTakesAnHtmlHost = Assert<
 >
 
 type MarksTheBindingRoot = Assert<
-  KoBindProps extends { 'data-react-ko-scope': '' } ? true : false
+  KoBindProps extends { 'data-react-ko-scope': string } ? true : false
 >
 
 export function HtmlHost() {

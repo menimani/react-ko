@@ -5,16 +5,7 @@ import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 
 const expectedExports = [
-  'AppViewModelContext',
-  'KnockoutScope',
   'KoForeach',
-  'KoIf',
-  'KoIfNot',
-  'KoScope',
-  'KoWith',
-  'RootKnockoutProvider',
-  'createAppViewModelContext',
-  'useAppViewModel',
   'useKoBind',
   'useKoValue'
 ]

@@ -293,6 +293,24 @@ export function useBindingRoot(
     onActivate: activateBindingHost,
   })
 
+  // What the commit marker announces for a root that renders one: this binding is being
+  // replaced, so the descendant observer must leave the subtree alone rather than rebind
+  // a child against the view model on its way out. A root whose host comes from a
+  // caller's ref renders no marker, and an effect is already too late -- the observer
+  // reaches a child added by this commit first, and binds it against the outgoing view
+  // model. Rendering happens before any of that, so the announcement is made here, and
+  // withdrawn at the end of the commit -- see the layout effect below.
+  {
+    const active = activeBinding.current
+    if (
+      active !== null &&
+      (!Object.is(active.viewModel, viewModel) ||
+        active.parentGeneration !== parentGeneration)
+    ) {
+      pendingBindingReplacement.current = true
+    }
+  }
+
   // On updates, refs are already attached and insertion effects run before all
   // layout effects. The layout pass remains as a fallback for the host ref and
   // for commits where the first-child marker did not attach.
@@ -308,6 +326,19 @@ export function useBindingRoot(
 
   useLayoutEffect(() => {
     synchronizeBinding()
+
+    // The announcement raised during render covers this commit only. A replacement that
+    // was rendered but never applied -- interrupted by Suspense, and still rendered on
+    // every commit after -- would otherwise keep the observer muted for good, leaving a
+    // child that arrives later unbound. Withdrawing it is not enough on its own: the
+    // observer has already passed over that child, so the binding it skipped is taken up
+    // here, against the view model the root is still bound to.
+    if (pendingBindingReplacement.current) {
+      pendingBindingReplacement.current = false
+      for (const root of activeBinding.current?.roots ?? []) {
+        reconcileBindingDescendants(root.node)
+      }
+    }
 
     if (replacedBinding.current) {
       replacedBinding.current = false

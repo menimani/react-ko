@@ -1,4 +1,2 @@
-export * from './context'
-export * from './components/scope'
-export * from './components/structural'
-export * from './hooks'
+export { KoForeach } from './components/structural'
+export { useKoBind, useKoValue, type KoBindProps } from './hooks'

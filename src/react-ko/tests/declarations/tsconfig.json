@@ -12,9 +12,7 @@
   },
   "files": [
     "../../dist/index.d.ts",
-    "app-view-model-context.ts",
     "ko-foreach.ts",
-    "semantic-host.ts",
     "use-ko-bind.tsx",
     "use-ko-value.ts"
   ]
