@@ -1,3 +1,10 @@
+---
+layout: default
+lang: ja
+title: react-ko
+description: React コンポーネントの中で Knockout.js を使うための最小のブリッジ
+---
+
 # react-ko
 
 [English](../) | 日本語
@@ -15,6 +22,7 @@ React コンポーネントの中で Knockout.js を使うための最小のブ�
 - [サーバーレンダリングと hydration](#サーバーレンダリングと-hydration)
 - [Knockout が所有してよいもの・いけないもの](#knockout-が所有してよいものいけないもの)
 - [v2 からの移行](#v2-からの移行)
+{: .toc}
 
 ---
 

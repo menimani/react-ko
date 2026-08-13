@@ -1,3 +1,10 @@
+---
+layout: default
+lang: en
+title: react-ko
+description: A minimal bridge to use Knockout.js inside React components
+---
+
 # react-ko
 
 en English | [ja Japanese](./ja/)
@@ -15,6 +22,7 @@ every element in it.
 - [Server rendering and hydration](#server-rendering-and-hydration)
 - [What Knockout may and may not own](#what-knockout-may-and-may-not-own)
 - [Migrating from v2](#migrating-from-v2)
+{: .toc}
 
 ---
 
