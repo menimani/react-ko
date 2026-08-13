@@ -19,6 +19,7 @@ e2e/playwright-report/
 !.github/
 !.github/workflows/
 !.github/workflows/react-compatibility.yml
+!.github/workflows/pages.yml
 
 # Workspace build output and per-package installs stay untracked.
 src/react-ko/dist/
