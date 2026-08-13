@@ -412,7 +412,7 @@ function Title() {
 ```
 
 対応する Provider がない場合、フックは例外をスローします。従来の
-`useAppViewModel<T>()` と `AppViewModelContext.Provider` は v2 でも利用できますが、
+`useAppViewModel<T>()` と `AppViewModelContext.Provider` は v3 でも利用できますが、
 フックのジェネリック型は未検査の型アサーションであり、非推奨です。指定した ViewModel は
 そのまま返され、`T` に含めれば `null` と `undefined` も有効な値として扱われます。
 

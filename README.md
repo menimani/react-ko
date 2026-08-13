@@ -417,7 +417,7 @@ function Title() {
 ```
 
 The matched hook throws if its matching Provider is absent. The legacy
-`useAppViewModel<T>()` and `AppViewModelContext.Provider` remain available in v2, but
+`useAppViewModel<T>()` and `AppViewModelContext.Provider` remain available in v3, but
 the hook's generic is an unchecked assertion and is deprecated. The supplied ViewModel
 is returned unchanged; `null` and `undefined` are valid values when included in `T`.
 
