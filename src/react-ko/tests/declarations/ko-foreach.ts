@@ -17,6 +17,20 @@ KoForeach({
   children: (row) => React.createElement('option', null, row.label),
 })
 
+// @ts-expect-error Element mode rejects the SVG foreign-content root.
+KoForeach({
+  items: rows,
+  bindingMode: 'element',
+  children: () => React.createElement('svg'),
+})
+
+// @ts-expect-error Element mode rejects the MathML foreign-content root.
+KoForeach({
+  items: rows,
+  bindingMode: 'element',
+  children: () => React.createElement('math'),
+})
+
 KoForeach({
   items: rows,
   bindingMode: 'element',

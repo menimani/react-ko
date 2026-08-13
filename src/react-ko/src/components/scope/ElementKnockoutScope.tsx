@@ -6,7 +6,26 @@ import { ScopeBindGenerationContext } from '@/context/ScopeBindGenerationContext
 import { ELEMENT_BINDING_ROOT_ATTRIBUTE } from './elementBindingRoot'
 import { useBindingRoot } from './useBindingRoot'
 
-export type BindableElement = React.ReactElement<any, string>
+const FOREIGN_CONTENT_ROOTS = {
+  math: true,
+  svg: true,
+} as const
+
+type ForeignContentRoot = keyof typeof FOREIGN_CONTENT_ROOTS
+
+type IntrinsicHtmlElementName = Exclude<
+  {
+    [Name in keyof React.JSX.IntrinsicElements]:
+      React.JSX.IntrinsicElements[Name] extends React.ClassAttributes<infer Element>
+        ? Element extends HTMLElement
+          ? Name
+          : never
+        : never
+  }[keyof React.JSX.IntrinsicElements],
+  ForeignContentRoot
+>
+
+export type BindableElement = React.ReactElement<any, IntrinsicHtmlElementName>
 
 type Props<T> = {
   viewModel: T
@@ -34,7 +53,13 @@ function setRef(
 
 /** Binds one React-owned host element without adding a DOM host or range. */
 export function ElementKnockoutScope<T>({ viewModel, children }: Props<T>) {
-  if (!React.isValidElement(children) || typeof children.type !== 'string') {
+  if (
+    !React.isValidElement(children) ||
+    typeof children.type !== 'string' ||
+    FOREIGN_CONTENT_ROOTS[
+      children.type.toLowerCase() as ForeignContentRoot
+    ] === true
+  ) {
     throw new Error(
       'react-ko element binding mode requires one intrinsic HTML element as its child.'
     )

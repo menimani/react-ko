@@ -317,10 +317,11 @@ Knockout may own an empty element's contents through `text`, `html`, `component`
 or `options`, but the usual descendant-controller audit still rejects bindings
 that would control React-rendered children.
 
-The mode is opt-in and requires exactly one intrinsic HTML element. It is also
-available on `KoIf`, `KoIfNot`, and `KoWith`; their visible/present child must
-likewise be one intrinsic element. `boundaryAs` and `as` apply only to the
-default hosted mode and cannot be combined with `bindingMode="element"`.
+The mode is opt-in and requires exactly one intrinsic HTML element; the
+foreign-content roots `svg` and `math` are rejected. It is also available on
+`KoIf`, `KoIfNot`, and `KoWith`; their visible/present child must likewise be one
+intrinsic HTML element. `boundaryAs` and `as` apply only to the default hosted
+mode and cannot be combined with `bindingMode="element"`.
 
 Nesting is plain JSX:
 
