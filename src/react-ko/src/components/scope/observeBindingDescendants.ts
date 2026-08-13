@@ -32,6 +32,14 @@ type BindingRootRegistry = {
   bindingObservers: Map<HTMLElement, BindingObserverState>
   reconcilingRoots: Set<HTMLElement>
   scheduledPropertyRoots: Set<HTMLElement>
+  /**
+   * Roots whose host is in the document but which are waiting for a root above them
+   * to bind first. Knockout refuses a pass that reaches an already-bound element, and
+   * refuses it before any of this library's exclusions are consulted, so an ancestor
+   * has to bind before the roots inside it. React attaches refs from the bottom up,
+   * which is the opposite order, and this is where that is put right.
+   */
+  pendingRoots: Map<HTMLElement, () => void>
 }
 type AttributeInterceptor = {
   owners: Map<InterceptorOwner, number>
@@ -104,6 +112,7 @@ function createBindingRootRegistry(): BindingRootRegistry {
     bindingObservers: new Map(),
     reconcilingRoots: new Set(),
     scheduledPropertyRoots: new Set(),
+    pendingRoots: new Map(),
   }
 }
 
@@ -116,6 +125,60 @@ function bindingRootRegistry(node: Node) {
   if (view === null) return detachedBindingRoots
   const registry = interceptorRegistry(view)
   return (registry.bindingRoots ??= createBindingRootRegistry())
+}
+
+/**
+ * Whether a root above this host is in the document but has not bound yet.
+ *
+ * Only hosts marked as element binding roots are considered. A scope component binds
+ * from a marker rendered before its host, which is early enough that it is already
+ * bound by the time anything inside it attaches a ref, so it never has to be waited on.
+ */
+function unboundAncestorRoot(host: HTMLElement) {
+  const registry = bindingRootRegistry(host)
+  let ancestor = host.parentElement
+  while (ancestor !== null) {
+    if (isElementBindingRoot(ancestor) && !registry.bindingRoots.has(ancestor)) {
+      return ancestor
+    }
+    ancestor = ancestor.parentElement
+  }
+  return undefined
+}
+
+/**
+ * Holds a root back while a root above it is still waiting to bind, and reports
+ * whether it was held. The caller binds immediately when it was not.
+ */
+export function deferBindingUntilAncestorBinds(host: HTMLElement, bind: () => void) {
+  if (unboundAncestorRoot(host) === undefined) return false
+  bindingRootRegistry(host).pendingRoots.set(host, bind)
+  return true
+}
+
+/** Stops waiting: the host is gone, or its own root is being disposed. */
+export function cancelPendingBinding(host: HTMLElement) {
+  bindingRootRegistry(host).pendingRoots.delete(host)
+}
+
+/**
+ * Binds the roots that were waiting inside this one, outermost first. Their own
+ * descendants are picked up as each of them binds and releases the next level.
+ */
+export function bindPendingDescendantRoots(root: HTMLElement) {
+  const registry = bindingRootRegistry(root)
+  for (;;) {
+    const ready = [...registry.pendingRoots.keys()].filter(
+      (host) => root.contains(host) && unboundAncestorRoot(host) === undefined
+    )
+    if (ready.length === 0) return
+    ready.sort((left, right) => (left.contains(right) ? -1 : right.contains(left) ? 1 : 0))
+    for (const host of ready) {
+      const bind = registry.pendingRoots.get(host)
+      registry.pendingRoots.delete(host)
+      bind?.()
+    }
+  }
 }
 
 function registeredDescendantRoots(element: HTMLElement) {
@@ -1002,6 +1065,11 @@ export function restoreDescendantBindingRoots(
   })
 
   for (const [bindingRoot, viewModel] of descendantRoots) {
+    // The ancestor's pass marks every root inside it as a boundary, which leaves a
+    // context on the node even though its own bindings are gone. Knockout refuses a
+    // second pass over a node that holds one, so the mark is cleared first -- the same
+    // thing a root does before binding a host it finds already carrying a context.
+    if (ko.contextFor(bindingRoot) !== undefined) ko.cleanNode(bindingRoot)
     applyBindingsSafely(
       viewModel,
       bindingRoot,
