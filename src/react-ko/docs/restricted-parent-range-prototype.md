@@ -27,14 +27,14 @@ its cleanup.
 
 The resulting contract adds no host, delimiter, portal, or alternate React
 container. The server/hydration and remove/reorder/reinsert coverage is in
-`tests/components/structural/restrictedParent.test.tsx`. The prototype cases
-below remain executable because they document why the delimited-range approach
-is still closed.
+`tests/components/structural/restrictedParent.test.tsx`. The standalone React
+prototype cases were removed from the Vitest suite because they import no
+react-ko code and should not gate releases. Their findings remain documented
+below because they explain why the delimited-range approach is still closed.
 
 ## Prototype: `Option` under `select`
 
-The executable cases are in
-`tests/components/structural/restrictedParent.prototype.test.tsx`.
+These cases were originally explored as standalone React experiments.
 
 ### Raw Fragment
 
