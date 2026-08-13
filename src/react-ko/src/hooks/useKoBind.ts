@@ -1,4 +1,4 @@
-import { useCallback, useContext, useRef, useState } from 'react'
+import { useCallback, useContext, useId, useInsertionEffect, useRef, useState } from 'react'
 import { ScopeBindGenerationContext } from '@/context/ScopeBindGenerationContext'
 import { ELEMENT_BINDING_ROOT_ATTRIBUTE } from '@/components/scope/elementBindingRoot'
 import { useBindingRoot } from '@/components/scope/useBindingRoot'
@@ -10,7 +10,16 @@ import { useBindingRoot } from '@/components/scope/useBindingRoot'
  */
 export type KoBindProps = {
   ref: (node: HTMLElement | null) => void
-  [ELEMENT_BINDING_ROOT_ATTRIBUTE]: ''
+  [ELEMENT_BINDING_ROOT_ATTRIBUTE]: string
+}
+
+/**
+ * The value is quoted inside the selector, so only the quote and the escape character
+ * can end it early. `CSS.escape` is absent from some environments this runs in, and
+ * escaping the two characters that matter needs no polyfill.
+ */
+function hostSelector(id: string) {
+  return `[${ELEMENT_BINDING_ROOT_ATTRIBUTE}="${id.replace(/["\\]/g, '\\$&')}"]`
 }
 
 /**
@@ -21,14 +30,8 @@ export type KoBindProps = {
  * The element belongs to the caller. Nothing is added to the DOM, which is what
  * separates this from a component that has to render a host of its own.
  *
- * One thing a scope component gave that this cannot: React attaches refs from the
- * bottom up, so the host is bound after its own descendants have run their layout
- * effects. A descendant layout effect that writes to Knockout-owned DOM in the first
- * commit -- setting an input's value and dispatching the event, say -- acts on a
- * subtree nothing is watching yet, and that event is lost. Everything after that first
- * commit is unaffected: the post-layout refresh and the descendant observer cover it.
- * Closing the gap needs the engine's "an ancestor root binds before the roots inside
- * it" ordering to be revisited, which is tracked as accepted for now.
+ * The host is bound before anything inside it runs a layout effect, so a descendant
+ * that writes to Knockout-owned DOM on mount acts on a subtree that is already bound.
  *
  * A nullish view model binds nothing, so an element rendered only while a value
  * exists can hold the props unconditionally:
@@ -57,6 +60,25 @@ export function useKoBind<T>(viewModel: T | null | undefined): KoBindProps {
 
   const boundHost = useRef<HTMLElement | null>(null)
   const bindable = viewModel !== null && viewModel !== undefined
+  const hostId = useId()
+
+  // React attaches refs from the bottom up, so a host taken from a ref is bound after
+  // its own descendants have run their layout effects -- late enough for one of them to
+  // write to Knockout-owned DOM that nothing is watching yet. The scope components
+  // solved this with an inert element rendered before the host, which a hook cannot do.
+  // The attribute is the marker instead: insertion effects run in the mutation phase,
+  // with the host already in the document and every layout effect still ahead. Binding
+  // a root inside another one first is what the binding root's own ordering handles.
+  useInsertionEffect(() => {
+    if (!bindable || boundHost.current !== null) return
+    const host = document.querySelector<HTMLElement>(hostSelector(hostId))
+    // A host rendered into another document, or into a container React has not put in
+    // one yet, is not reachable from here. Its ref still arrives in the layout phase.
+    if (host === null) return
+    boundHost.current = host
+    bindingContainer(host)
+  })
+
   const ref = useCallback(
     (node: HTMLElement | null) => {
       if (node === null) {
@@ -85,5 +107,5 @@ export function useKoBind<T>(viewModel: T | null | undefined): KoBindProps {
 
   if (failure !== null) throw failure.error
 
-  return { ref, [ELEMENT_BINDING_ROOT_ATTRIBUTE]: '' }
+  return { ref, [ELEMENT_BINDING_ROOT_ATTRIBUTE]: hostId }
 }

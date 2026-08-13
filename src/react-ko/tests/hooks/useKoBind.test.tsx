@@ -263,7 +263,7 @@ describe('useKoBind', () => {
 
     const html = renderToString(<Host />)
 
-    expect(html).toContain('data-react-ko-scope=""')
+    expect(html).toMatch(/data-react-ko-scope="[^"]+"/)
     // Server rendering never runs a ref, so the child keeps the markup it was given.
     expect(html).toContain('<span data-bind="text: label"></span>')
   })

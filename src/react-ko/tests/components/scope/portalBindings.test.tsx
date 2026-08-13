@@ -10,7 +10,8 @@ import {
 } from 'react'
 import { createPortal } from 'react-dom'
 import ko from 'knockout'
-import { KnockoutScope, RootKnockoutProvider } from '@/index'
+import { KnockoutScope } from '@/index'
+import { BindingHost } from '../../fixtures/bindingHost'
 
 const portalTargets: HTMLElement[] = []
 
@@ -50,18 +51,18 @@ describe('portal bindings', () => {
     const scope = { label: ko.observable('Scope') }
 
     render(
-      <RootKnockoutProvider viewModel={root}>
+      <BindingHost viewModel={root}>
         {createPortal(
           <span data-testid="root-portal" data-bind="text: label" />,
           rootTarget
         )}
-        <KnockoutScope viewModel={scope}>
+        <BindingHost viewModel={scope}>
           {createPortal(
             <span data-testid="scope-portal" data-bind="text: label" />,
             scopeTarget
           )}
-        </KnockoutScope>
-      </RootKnockoutProvider>
+        </BindingHost>
+      </BindingHost>
     )
 
     expect(screen.getByTestId('root-portal')).toHaveProperty('textContent', 'Root')
@@ -88,17 +89,17 @@ describe('portal bindings', () => {
     const inner = { label: ko.observable('Inner') }
 
     render(
-      <RootKnockoutProvider viewModel={{}}>
-        <KnockoutScope viewModel={outer}>
+      <BindingHost viewModel={{}}>
+        <BindingHost viewModel={outer}>
           <div ref={(node) => node?.appendChild(target)} />
-        </KnockoutScope>
-        <KnockoutScope viewModel={inner}>
+        </BindingHost>
+        <BindingHost viewModel={inner}>
           {createPortal(
             <span data-testid="cross-scope-portal" data-bind="text: label" />,
             target
           )}
-        </KnockoutScope>
-      </RootKnockoutProvider>
+        </BindingHost>
+      </BindingHost>
     )
 
     expect(screen.getByTestId('cross-scope-portal')).toHaveProperty(
@@ -113,7 +114,7 @@ describe('portal bindings', () => {
     const vm = { label: ko.observable('Nested') }
 
     render(
-      <RootKnockoutProvider viewModel={vm}>
+      <BindingHost viewModel={vm}>
         {createPortal(
           createPortal(
             <span data-testid="nested-portal" data-bind="text: label" />,
@@ -121,7 +122,7 @@ describe('portal bindings', () => {
           ),
           firstTarget
         )}
-      </RootKnockoutProvider>
+      </BindingHost>
     )
 
     expect(screen.getByTestId('nested-portal')).toHaveProperty(
@@ -136,14 +137,14 @@ describe('portal bindings', () => {
     const inner = { label: ko.observable('Inner') }
 
     render(
-      <RootKnockoutProvider viewModel={outer}>
+      <BindingHost viewModel={outer}>
         {createPortal(
-          <KnockoutScope viewModel={inner}>
+          <BindingHost viewModel={inner}>
             <span data-testid="portal-nested-scope" data-bind="text: label" />
-          </KnockoutScope>,
+          </BindingHost>,
           target
         )}
-      </RootKnockoutProvider>
+      </BindingHost>
     )
 
     expect(screen.getByTestId('portal-nested-scope')).toHaveProperty(
@@ -162,12 +163,12 @@ describe('portal bindings', () => {
     try {
       render(
         <ErrorBoundary>
-          <RootKnockoutProvider viewModel={{ label: ko.observable('Knockout') }}>
+          <BindingHost viewModel={{ label: ko.observable('Knockout') }}>
             {createPortal(
               <span>React child</span>,
               target
             )}
-          </RootKnockoutProvider>
+          </BindingHost>
         </ErrorBoundary>
       )
 
@@ -205,9 +206,9 @@ describe('portal bindings', () => {
 
     try {
       const { unmount } = render(
-        <RootKnockoutProvider viewModel={{}}>
+        <BindingHost viewModel={{}}>
           {createPortal(<PortalChild />, target)}
-        </RootKnockoutProvider>
+        </BindingHost>
       )
 
       unmount()
@@ -225,14 +226,14 @@ describe('portal bindings', () => {
 
     function Harness({ viewModel }: { viewModel: typeof first }) {
       return (
-        <RootKnockoutProvider viewModel={{}}>
-          <KnockoutScope viewModel={viewModel}>
+        <BindingHost viewModel={{}}>
+          <BindingHost viewModel={viewModel}>
             {createPortal(
               <input data-testid="replacement-portal" data-bind="value: label" />,
               target
             )}
-          </KnockoutScope>
-        </RootKnockoutProvider>
+          </BindingHost>
+        </BindingHost>
       )
     }
 
@@ -260,7 +261,7 @@ describe('portal bindings', () => {
         setTarget(node)
       }, [])
       return (
-        <RootKnockoutProvider viewModel={viewModel}>
+        <BindingHost viewModel={viewModel}>
           <div ref={attachTarget} />
           {target === null
             ? null
@@ -268,7 +269,7 @@ describe('portal bindings', () => {
                 <span data-testid="contained-portal" data-bind="text: label" />,
                 target
               )}
-        </RootKnockoutProvider>
+        </BindingHost>
       )
     }
 
@@ -310,9 +311,9 @@ describe('portal bindings', () => {
 
     function Harness({ visible }: { visible: boolean }) {
       return (
-        <RootKnockoutProvider viewModel={vm}>
+        <KnockoutScope viewModel={vm}>
           {visible ? createPortal(<LatePortalInput />, target) : null}
-        </RootKnockoutProvider>
+        </KnockoutScope>
       )
     }
 

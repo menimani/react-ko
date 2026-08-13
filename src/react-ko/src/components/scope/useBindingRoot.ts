@@ -37,8 +37,6 @@ type ActiveBinding = {
   parentGeneration: number
 }
 
-const UNBOUND_BINDING = Symbol('unbound')
-
 function BindingCommitMarker({
   onCommit,
   onActivate,
@@ -57,18 +55,14 @@ function BindingCommitMarker({
 export function useBindingRoot(
   viewModel: unknown,
   parentGeneration: number,
-  onError: (error: unknown) => void,
-  notifyBindingEstablished = false,
-  bindingIdentity: unknown = undefined
+  onError: (error: unknown) => void
 ) {
   const containerNode = useRef<HTMLElement | null>(null)
   const activeBinding = useRef<ActiveBinding | null>(null)
   const pendingBindingReplacement = useRef(false)
   const replacedBinding = useRef(false)
-  const bindingEstablishedIdentity = useRef<unknown>(UNBOUND_BINDING)
   const synchronizeBindingForCommit = useRef(synchronizeBinding)
   const refreshInitialBinding = useRef(false)
-  const [, setBindingEstablishedVersion] = useState(0)
   const [generation, setGeneration] = useState(0)
 
   function disposeBinding() {
@@ -134,14 +128,6 @@ export function useBindingRoot(
       for (const node of nodes) unregisterBindingRoot(node)
       throw error
     }
-    if (
-      notifyBindingEstablished &&
-      !Object.is(bindingEstablishedIdentity.current, bindingIdentity)
-    ) {
-      bindingEstablishedIdentity.current = bindingIdentity
-      setBindingEstablishedVersion((current) => current + 1)
-    }
-
     if (replacing) {
       // Cleaning an ancestor also cleans nested binding roots. Restore them now
       // so their layout effects never observe a temporarily unbound subtree.
@@ -344,9 +330,5 @@ export function useBindingRoot(
     bindingContainer: activateBindingHost,
     bindingCommitMarker,
     generation,
-    bindingEstablished: Object.is(
-      bindingEstablishedIdentity.current,
-      bindingIdentity
-    ),
   }
 }

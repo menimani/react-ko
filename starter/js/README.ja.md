@@ -27,11 +27,11 @@ npx degit menimani/react-ko/starter/ts my-app-ts
 
 - React + Vite（公式テンプレート）
 - Knockout.js と react-ko インストール済み
-- `RootKnockoutProvider` でバインドするアプリレベルの ViewModel
-- 対応関係が保証された `createAppViewModelContext` の Provider と `useAppViewModel` フック
-- ネストしたスコープによる双方向の `data-bind`
-- `KoIf` / `KoIfNot`、キー付き `KoForeach` 行、nullable な `KoWith` 詳細表示で
-  作った動作する todo リスト
+- 利用側の要素に `useKoBind` を展開してバインドするアプリレベルの ViewModel
+- その ViewModel をどこからでも取得するための、素の React context とフック
+- ネストしたバインディングルートによる双方向の `data-bind`
+- キー付き `KoForeach` 行、素の JSX による条件分岐、選択中アイテムにバインドした
+  詳細表示で作った動作する todo リスト
 - `observableArray` のインプレース更新を React の表示につなぐ `useKoValue`
 - 余計な構成なし — `npm install` してすぐ開発可能
 

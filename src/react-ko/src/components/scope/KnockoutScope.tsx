@@ -1,74 +1,63 @@
 import * as React from 'react'
 import { useCallback, useContext, useState } from 'react'
-import { useAppViewModel } from '@/index'
-import { ScopeViewModelContext } from '@/context/ScopeViewModelContext'
 import { ScopeBindGenerationContext } from '@/context/ScopeBindGenerationContext'
 import { DESCENDANT_BINDING_BOUNDARY } from './descendantBindingBoundary'
 import { useBindingRoot } from './useBindingRoot'
-import { semanticHostComponent, type SemanticHostProps } from './semanticHost'
 
-type Props<T> = SemanticHostProps & {
+type Props<T> = {
   viewModel: T
   children: React.ReactNode
 }
 
 /**
- * Binds its children to the given view model with its own
- * `ko.applyBindings` call, so scopes mounted after the initial render
- * (rows of a KoForeach, children of a KoIf) are still bound, and unbinds
- * them with `ko.cleanNode` on unmount so subscriptions do not leak.
+ * Binds its children to the given view model, in the cases `useKoBind` cannot serve.
+ *
+ * The hook is the ordinary way to bind, and it adds nothing to the DOM. What it cannot
+ * do is render: React attaches refs from the bottom up and runs a component's own
+ * effects after its subtree's mutations, so a root taken from the caller's ref learns
+ * about its subtree last. This component renders an inert marker before its host, and a
+ * first child's ref and effects run before its siblings' -- which is what lets it bind an
+ * element that arrives after it, and apply a replacement view model before the observer
+ * reaches a child the same commit changed.
+ *
+ * Reach for it when children arrive later or the view model is replaced alongside them,
+ * and for anything else prefer the hook. The hosts are plain divs with
+ * `display: contents`: an element that has to be something else -- a row of a table, an
+ * option of a select -- is the caller's own, through `useKoBind`.
  */
 export const KnockoutScope = React.memo(function KnockoutScope<T>({
   viewModel,
   children,
-  boundaryAs = 'div',
-  as = 'div',
 }: Props<T>) {
-  const BoundaryHost = semanticHostComponent(boundaryAs)
-  const BindingHost = semanticHostComponent(as)
-  const hostIdentity = `${boundaryAs}\0${as}`
-  const committedHostIdentity = React.useRef(hostIdentity)
-  const replacingHost = committedHostIdentity.current !== hostIdentity
-  useAppViewModel()
-
   const parentGeneration = useContext(ScopeBindGenerationContext)
   const [bindingFailure, setBindingFailure] = useState<{ error: unknown } | null>(null)
   const handleBindingError = useCallback((error: unknown) => {
     setBindingFailure({ error })
   }, [])
-  const {
-    container,
-    bindingCommitMarker,
-    generation,
-    bindingEstablished,
-  } = useBindingRoot(
+  const { container, bindingCommitMarker, generation } = useBindingRoot(
     viewModel,
     parentGeneration,
-    handleBindingError,
-    true,
-    hostIdentity
+    handleBindingError
   )
-
-  React.useLayoutEffect(() => {
-    committedHostIdentity.current = hostIdentity
-  }, [hostIdentity])
 
   if (bindingFailure !== null) {
     throw bindingFailure.error
   }
 
   return (
-    <ScopeViewModelContext.Provider value={viewModel}>
-      <ScopeBindGenerationContext.Provider value={generation}>
-        <BoundaryHost data-bind={`${DESCENDANT_BINDING_BOUNDARY}: true`} style={{ display: 'contents' }}>
-          {bindingCommitMarker}
-          <BindingHost ref={container} style={{ display: 'contents' }}>
-            {(!replacingHost || bindingEstablished)
-              ? children
-              : null}
-          </BindingHost>
-        </BoundaryHost>
-      </ScopeBindGenerationContext.Provider>
-    </ScopeViewModelContext.Provider>
+    <ScopeBindGenerationContext.Provider value={generation}>
+      <div
+        data-bind={`${DESCENDANT_BINDING_BOUNDARY}: true`}
+        style={{ display: 'contents' }}
+      >
+        {bindingCommitMarker}
+        <div
+          ref={container as React.RefObject<HTMLDivElement>}
+          style={{ display: 'contents' }}
+        >
+          {children}
+        </div>
+      </div>
+    </ScopeBindGenerationContext.Provider>
   )
-})
+}) as <T>(props: Props<T>) => React.ReactElement

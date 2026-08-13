@@ -10,7 +10,9 @@ import {
   type ReactNode,
 } from 'react'
 import ko from 'knockout'
-import { KnockoutScope, RootKnockoutProvider, useAppViewModel } from '@/index'
+import { useAppViewModel } from '@/index'
+import { KnockoutScope } from '@/index'
+import { BindingHost } from '../../fixtures/bindingHost'
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
   state = { failed: false }
@@ -43,14 +45,14 @@ class ErrorMessageBoundary extends Component<
   }
 }
 
-describe('RootKnockoutProvider', () => {
+describe('BindingHost', () => {
   it('binds direct children to the root view model', () => {
     const vm = { label: ko.observable('Initial') }
 
     render(
-      <RootKnockoutProvider viewModel={vm}>
+      <BindingHost viewModel={vm}>
         <span data-bind="text: label" />
-      </RootKnockoutProvider>
+      </BindingHost>
     )
 
     expect(screen.getByText('Initial')).toBeDefined()
@@ -85,7 +87,7 @@ describe('RootKnockoutProvider', () => {
       const children = renderChildren()
 
       render(
-        <RootKnockoutProvider viewModel={vm}>
+        <BindingHost viewModel={vm}>
           {kind === 'options' ? (
             <select data-testid="no-output-owner" data-bind={binding}>
               {children}
@@ -95,7 +97,7 @@ describe('RootKnockoutProvider', () => {
               {children}
             </div>
           )}
-        </RootKnockoutProvider>
+        </BindingHost>
       )
 
       const owner = screen.getByTestId('no-output-owner')
@@ -122,9 +124,9 @@ describe('RootKnockoutProvider', () => {
 
     function Harness({ show }: { show: boolean }) {
       return (
-        <RootKnockoutProvider viewModel={vm}>
+        <BindingHost viewModel={vm}>
           {show ? <span data-bind="text: label" /> : null}
-        </RootKnockoutProvider>
+        </BindingHost>
       )
     }
 
@@ -154,11 +156,11 @@ describe('RootKnockoutProvider', () => {
 
     function Harness({ show }: { show: boolean }) {
       return (
-        <RootKnockoutProvider viewModel={{ shown }}>
+        <KnockoutScope viewModel={{ shown }}>
           {show ? (
             <span data-testid="late-preprocessed" data-bind={`${binding}: shown`} />
           ) : null}
-        </RootKnockoutProvider>
+        </KnockoutScope>
       )
     }
 
@@ -199,9 +201,9 @@ describe('RootKnockoutProvider', () => {
     }
 
     render(
-      <RootKnockoutProvider viewModel={vm}>
+      <BindingHost viewModel={vm}>
         <LocalStateOwner />
-      </RootKnockoutProvider>
+      </BindingHost>
     )
 
     act(() => showInput())
@@ -226,9 +228,9 @@ describe('RootKnockoutProvider', () => {
     }
 
     render(
-      <RootKnockoutProvider viewModel={vm}>
+      <BindingHost viewModel={vm}>
         <ChangeInLayout />
-      </RootKnockoutProvider>
+      </BindingHost>
     )
 
     expect(vm.name()).toBe('Changed in layout')
@@ -240,11 +242,11 @@ describe('RootKnockoutProvider', () => {
 
     function Harness({ show }: { show: boolean }) {
       return (
-        <RootKnockoutProvider viewModel={vm}>
+        <BindingHost viewModel={vm}>
           <div data-bind="let: { alias: label }">
             {show ? <span data-bind="text: alias" /> : null}
           </div>
-        </RootKnockoutProvider>
+        </BindingHost>
       )
     }
 
@@ -265,11 +267,11 @@ describe('RootKnockoutProvider', () => {
 
     function Harness({ show }: { show: boolean }) {
       return (
-        <RootKnockoutProvider viewModel={vm}>
+        <BindingHost viewModel={vm}>
           <div data-bind="using: current">
             {show ? <span data-bind="text: label" /> : null}
           </div>
-        </RootKnockoutProvider>
+        </BindingHost>
       )
     }
 
@@ -297,11 +299,11 @@ describe('RootKnockoutProvider', () => {
 
     function Harness({ show }: { show: boolean }) {
       return (
-        <RootKnockoutProvider viewModel={vm}>
+        <BindingHost viewModel={vm}>
           <div data-bind={`${binding}: scoped`}>
             {show ? <span data-bind="text: label" /> : null}
           </div>
-        </RootKnockoutProvider>
+        </BindingHost>
       )
     }
 
@@ -372,11 +374,11 @@ describe('RootKnockoutProvider', () => {
 
       function Harness({ show }: { show: boolean }) {
         return (
-          <RootKnockoutProvider viewModel={vm}>
+          <BindingHost viewModel={vm}>
             <div data-provider-scope="">
               {show ? <span data-bind={`text: ${descendantName}`} /> : null}
             </div>
-          </RootKnockoutProvider>
+          </BindingHost>
         )
       }
 
@@ -402,9 +404,9 @@ describe('RootKnockoutProvider', () => {
     function Harness({ show }: { show: boolean }) {
       return (
         <ErrorBoundary>
-          <RootKnockoutProvider viewModel={vm}>
+          <BindingHost viewModel={vm}>
             {show ? <span data-bind="text: missing.value" /> : null}
-          </RootKnockoutProvider>
+          </BindingHost>
         </ErrorBoundary>
       )
     }
@@ -424,9 +426,9 @@ describe('RootKnockoutProvider', () => {
 
     function Harness({ show }: { show: boolean }) {
       return (
-        <RootKnockoutProvider viewModel={vm}>
+        <BindingHost viewModel={vm}>
           {show ? <span data-bind="text: label" /> : null}
-        </RootKnockoutProvider>
+        </BindingHost>
       )
     }
 
@@ -446,9 +448,9 @@ describe('RootKnockoutProvider', () => {
 
     function Harness({ binding }: { binding: 'first' | 'second' }) {
       return (
-        <RootKnockoutProvider viewModel={vm}>
+        <BindingHost viewModel={vm}>
           <span data-bind={`text: ${binding}`} />
-        </RootKnockoutProvider>
+        </BindingHost>
       )
     }
 
@@ -486,9 +488,9 @@ describe('RootKnockoutProvider', () => {
       function Harness({ dataBind }: { dataBind: string | undefined }) {
         return (
           <ErrorMessageBoundary>
-            <RootKnockoutProvider viewModel={vm}>
+            <BindingHost viewModel={vm}>
               <span data-bind={dataBind} />
-            </RootKnockoutProvider>
+            </BindingHost>
           </ErrorMessageBoundary>
         )
       }
@@ -523,14 +525,14 @@ describe('RootKnockoutProvider', () => {
     function Harness({ bound }: { bound: boolean }) {
       return (
         <ErrorMessageBoundary>
-          <RootKnockoutProvider viewModel={viewModel}>
+          <BindingHost viewModel={viewModel}>
             <span
               data-testid="overridden-visible"
               data-bind={bound ? 'visible: shown' : undefined}
             >
               React child
             </span>
-          </RootKnockoutProvider>
+          </BindingHost>
         </ErrorMessageBoundary>
       )
     }
@@ -583,7 +585,7 @@ describe('RootKnockoutProvider', () => {
         const dataBind = bound ? source : undefined
         return (
           <ErrorMessageBoundary>
-            <RootKnockoutProvider viewModel={viewModel}>
+            <BindingHost viewModel={viewModel}>
               {binding === 'checked' ? (
                 <input type="radio" data-testid="delegated-binding" data-bind={dataBind} />
               ) : binding === 'click' ? (
@@ -593,7 +595,7 @@ describe('RootKnockoutProvider', () => {
               ) : (
                 <span data-testid="delegated-binding" data-bind={dataBind} />
               )}
-            </RootKnockoutProvider>
+            </BindingHost>
           </ErrorMessageBoundary>
         )
       }
@@ -634,7 +636,7 @@ describe('RootKnockoutProvider', () => {
 
     function Harness({ next }: { next: boolean }) {
       return (
-        <RootKnockoutProvider viewModel={vm}>
+        <BindingHost viewModel={vm}>
           <input
             className="react-owned"
             data-testid="changed-dom-binding"
@@ -644,7 +646,7 @@ describe('RootKnockoutProvider', () => {
                 : 'css: { old: first }, style: { color: color }, attr: { title: title }, disable: disabled'
             }
           />
-        </RootKnockoutProvider>
+        </BindingHost>
       )
     }
 
@@ -679,7 +681,7 @@ describe('RootKnockoutProvider', () => {
 
     function Harness({ next }: { next: boolean }) {
       return (
-        <RootKnockoutProvider viewModel={vm}>
+        <BindingHost viewModel={vm}>
           <input
             readOnly
             className={next ? 'react-next' : 'react-old'}
@@ -693,7 +695,7 @@ describe('RootKnockoutProvider', () => {
                 : 'css: { old: oldClass }, style: { color: color }, attr: { title: title }, value: value'
             }
           />
-        </RootKnockoutProvider>
+        </BindingHost>
       )
     }
 
@@ -726,7 +728,7 @@ describe('RootKnockoutProvider', () => {
 
     function Harness({ next }: { next: boolean | null }) {
       return (
-        <RootKnockoutProvider viewModel={vm}>
+        <BindingHost viewModel={vm}>
           <input
             readOnly
             className={next === null ? undefined : next ? 'react-next' : 'react-old'}
@@ -738,7 +740,7 @@ describe('RootKnockoutProvider', () => {
             data-testid="unchanged-binding-ownership"
             data-bind={binding}
           />
-        </RootKnockoutProvider>
+        </BindingHost>
       )
     }
 
@@ -774,7 +776,7 @@ describe('RootKnockoutProvider', () => {
 
     function Harness({ next }: { next: boolean }) {
       return (
-        <RootKnockoutProvider viewModel={vm}>
+        <BindingHost viewModel={vm}>
           <input
             type="checkbox"
             readOnly
@@ -783,7 +785,7 @@ describe('RootKnockoutProvider', () => {
             data-testid="form-property-ownership"
             data-bind="checked: checked, enable: enabled"
           />
-        </RootKnockoutProvider>
+        </BindingHost>
       )
     }
 
@@ -830,9 +832,9 @@ describe('RootKnockoutProvider', () => {
     }
 
     render(
-      <RootKnockoutProvider viewModel={vm}>
+      <BindingHost viewModel={vm}>
         <LocalOwner />
-      </RootKnockoutProvider>
+      </BindingHost>
     )
     const value = screen.getByTestId('local-value-ownership') as HTMLInputElement
     const checked = screen.getByTestId('local-checked-ownership') as HTMLInputElement
@@ -853,11 +855,11 @@ describe('RootKnockoutProvider', () => {
 
     function Harness({ binding }: { binding: 'firstAlias' | 'secondAlias' }) {
       return (
-        <RootKnockoutProvider viewModel={vm}>
+        <BindingHost viewModel={vm}>
           <div data-bind="let: { firstAlias: first, secondAlias: second }">
             <span data-bind={`text: ${binding}`} />
           </div>
-        </RootKnockoutProvider>
+        </BindingHost>
       )
     }
 
@@ -880,9 +882,9 @@ describe('RootKnockoutProvider', () => {
     function Harness({ show }: { show: boolean }) {
       return (
         <ErrorBoundary>
-          <RootKnockoutProvider viewModel={vm}>
+          <BindingHost viewModel={vm}>
             <div data-bind="text: label">{show ? <button>React child</button> : null}</div>
-          </RootKnockoutProvider>
+          </BindingHost>
         </ErrorBoundary>
       )
     }
@@ -916,13 +918,13 @@ describe('RootKnockoutProvider', () => {
         const nextContent = content(show)
         return (
           <ErrorBoundary>
-            <RootKnockoutProvider viewModel={vm}>
+            <BindingHost viewModel={vm}>
               {typeof nextContent === 'object' && nextContent !== null ? (
                 <div data-bind="text: label" {...nextContent} />
               ) : (
                 <div data-bind="text: label">{nextContent}</div>
               )}
-            </RootKnockoutProvider>
+            </BindingHost>
           </ErrorBoundary>
         )
       }
@@ -946,11 +948,11 @@ describe('RootKnockoutProvider', () => {
     function Harness({ show }: { show: boolean }) {
       return (
         <ErrorBoundary>
-          <RootKnockoutProvider viewModel={vm}>
+          <BindingHost viewModel={vm}>
             <div data-bind="text: label">
               {show ? (123n as unknown as ReactNode) : null}
             </div>
-          </RootKnockoutProvider>
+          </BindingHost>
         </ErrorBoundary>
       )
     }
@@ -1004,7 +1006,7 @@ describe('RootKnockoutProvider', () => {
       function Harness() {
         return (
           <ErrorBoundary>
-            <RootKnockoutProvider viewModel={{ value }}>
+            <BindingHost viewModel={{ value }}>
               {kind === 'options' ? (
                 <select data-testid="bigint-content-owner" data-bind={binding}>
                   {bigint}
@@ -1014,7 +1016,7 @@ describe('RootKnockoutProvider', () => {
                   {bigint}
                 </div>
               )}
-            </RootKnockoutProvider>
+            </BindingHost>
           </ErrorBoundary>
         )
       }
@@ -1048,9 +1050,9 @@ describe('RootKnockoutProvider', () => {
     function Harness({ addContent }: { addContent: boolean }) {
       return (
         <ErrorMessageBoundary>
-          <RootKnockoutProvider viewModel={vm}>
+          <BindingHost viewModel={vm}>
             <div data-bind="text: label" {...(addContent ? content : {})} />
-          </RootKnockoutProvider>
+          </BindingHost>
         </ErrorMessageBoundary>
       )
     }
@@ -1084,13 +1086,13 @@ describe('RootKnockoutProvider', () => {
     function Harness({ removeContent }: { removeContent: boolean }) {
       return (
         <ErrorMessageBoundary>
-          <RootKnockoutProvider viewModel={vm}>
+          <BindingHost viewModel={vm}>
             <div
               data-testid="empty-content-removal"
               data-bind="text: label"
               {...(removeContent ? {} : content)}
             />
-          </RootKnockoutProvider>
+          </BindingHost>
         </ErrorMessageBoundary>
       )
     }
@@ -1125,12 +1127,12 @@ describe('RootKnockoutProvider', () => {
 
     function Harness({ bound }: { bound: boolean }) {
       return (
-        <RootKnockoutProvider viewModel={vm}>
+        <BindingHost viewModel={vm}>
           <div
             data-testid="react-content-handoff"
             {...(bound ? { 'data-bind': 'text: label' } : content)}
           />
-        </RootKnockoutProvider>
+        </BindingHost>
       )
     }
 
@@ -1161,12 +1163,12 @@ describe('RootKnockoutProvider', () => {
 
     function Harness({ bound, viewModel }: { bound: boolean; viewModel: typeof first }) {
       return (
-        <RootKnockoutProvider viewModel={viewModel}>
+        <BindingHost viewModel={viewModel}>
           <div
             data-testid="react-text-view-model-handoff"
             {...(bound ? { 'data-bind': 'text: label' } : { children: 'React text' })}
           />
-        </RootKnockoutProvider>
+        </BindingHost>
       )
     }
 
@@ -1209,9 +1211,9 @@ describe('RootKnockoutProvider', () => {
     try {
       render(
         <ErrorBoundary>
-          <RootKnockoutProvider viewModel={vm}>
+          <BindingHost viewModel={vm}>
             <BindingOwner />
-          </RootKnockoutProvider>
+          </BindingHost>
         </ErrorBoundary>
       )
       act(() => showChild())
@@ -1258,9 +1260,9 @@ describe('RootKnockoutProvider', () => {
     try {
       render(
         <ErrorBoundary>
-          <RootKnockoutProvider viewModel={vm}>
+          <BindingHost viewModel={vm}>
             <BindingOwner />
-          </RootKnockoutProvider>
+          </BindingHost>
         </ErrorBoundary>
       )
       act(() => showChild())
@@ -1310,9 +1312,9 @@ describe('RootKnockoutProvider', () => {
     try {
       render(
         <ErrorBoundary>
-          <RootKnockoutProvider viewModel={vm}>
+          <BindingHost viewModel={vm}>
             <BindingOwner />
-          </RootKnockoutProvider>
+          </BindingHost>
         </ErrorBoundary>
       )
       act(() => showText())
@@ -1339,13 +1341,13 @@ describe('RootKnockoutProvider', () => {
 
     function Harness({ bound }: { bound: boolean }) {
       return (
-        <RootKnockoutProvider viewModel={vm}>
+        <BindingHost viewModel={vm}>
           {kind === 'options' ? (
             <select data-testid="content-owner" data-bind={bound ? source : undefined} />
           ) : (
             <div data-testid="content-owner" data-bind={bound ? source : undefined} />
           )}
-        </RootKnockoutProvider>
+        </BindingHost>
       )
     }
 
@@ -1367,12 +1369,12 @@ describe('RootKnockoutProvider', () => {
 
     function Harness({ bound }: { bound: boolean }) {
       return (
-        <RootKnockoutProvider viewModel={vm}>
+        <BindingHost viewModel={vm}>
           <div
             data-testid="component-owner"
             data-bind={bound ? `component: '${componentName}'` : undefined}
           />
-        </RootKnockoutProvider>
+        </BindingHost>
       )
     }
 
@@ -1394,12 +1396,12 @@ describe('RootKnockoutProvider', () => {
 
     function Harness({ contentBinding }: { contentBinding: boolean }) {
       return (
-        <RootKnockoutProvider viewModel={vm}>
+        <BindingHost viewModel={vm}>
           <span
             data-testid="replaced-binding"
             data-bind={contentBinding ? 'text: label' : 'attr: { title: title }'}
           />
-        </RootKnockoutProvider>
+        </BindingHost>
       )
     }
 
@@ -1421,11 +1423,11 @@ describe('RootKnockoutProvider', () => {
 
     function Harness({ bound, childLabel }: { bound: boolean; childLabel: string }) {
       return (
-        <RootKnockoutProvider viewModel={vm}>
+        <BindingHost viewModel={vm}>
           <span data-testid="react-child-owner" data-bind={bound ? 'text: label' : undefined}>
             {bound ? null : <button onClick={handleClick}>{childLabel}</button>}
           </span>
-        </RootKnockoutProvider>
+        </BindingHost>
       )
     }
 
@@ -1474,9 +1476,9 @@ describe('RootKnockoutProvider', () => {
     }
 
     render(
-      <RootKnockoutProvider viewModel={vm}>
+      <BindingHost viewModel={vm}>
         <BindingOwner />
-      </RootKnockoutProvider>
+      </BindingHost>
     )
     act(() => retireBinding())
 
@@ -1499,11 +1501,11 @@ describe('RootKnockoutProvider', () => {
 
       function Harness({ established, show }: { established: boolean; show: boolean }) {
         return (
-          <RootKnockoutProvider viewModel={vm}>
+          <BindingHost viewModel={vm}>
             <div data-bind={established ? source : undefined}>
               {show ? <span data-bind={descendantSource} /> : null}
             </div>
-          </RootKnockoutProvider>
+          </BindingHost>
         )
       }
 
@@ -1526,13 +1528,13 @@ describe('RootKnockoutProvider', () => {
 
     function Harness({ binding }: { binding: 'first' | 'second' }) {
       return (
-        <RootKnockoutProvider viewModel={root}>
+        <BindingHost viewModel={root}>
           <section data-bind={`attr: { title: ${binding} }`}>
-            <KnockoutScope viewModel={nested}>
+            <BindingHost viewModel={nested}>
               <span data-bind="text: second" />
-            </KnockoutScope>
+            </BindingHost>
           </section>
-        </RootKnockoutProvider>
+        </BindingHost>
       )
     }
 
@@ -1555,13 +1557,13 @@ describe('RootKnockoutProvider', () => {
 
     function Harness({ show }: { show: boolean }) {
       return (
-        <RootKnockoutProvider viewModel={root}>
+        <BindingHost viewModel={root}>
           {show ? (
-            <KnockoutScope viewModel={nested}>
+            <BindingHost viewModel={nested}>
               <span data-bind="text: label" />
-            </KnockoutScope>
+            </BindingHost>
           ) : null}
-        </RootKnockoutProvider>
+        </BindingHost>
       )
     }
 
@@ -1579,18 +1581,18 @@ describe('RootKnockoutProvider', () => {
     const second = { label: ko.observable('Second') }
 
     const { rerender } = render(
-      <RootKnockoutProvider viewModel={first}>
+      <BindingHost viewModel={first}>
         <span data-bind="text: label" />
-      </RootKnockoutProvider>
+      </BindingHost>
     )
 
     expect(screen.getByText('First')).toBeDefined()
     expect(first.label.getSubscriptionsCount()).toBeGreaterThan(0)
 
     rerender(
-      <RootKnockoutProvider viewModel={second}>
+      <BindingHost viewModel={second}>
         <span data-bind="text: label" />
-      </RootKnockoutProvider>
+      </BindingHost>
     )
 
     expect(screen.getByText('Second')).toBeDefined()
@@ -1617,9 +1619,9 @@ describe('RootKnockoutProvider', () => {
 
     function Harness({ viewModel, value }: { viewModel: typeof first; value: string | null }) {
       return (
-        <RootKnockoutProvider viewModel={viewModel}>
+        <BindingHost viewModel={viewModel}>
           <ChangeInLayout value={value} />
-        </RootKnockoutProvider>
+        </BindingHost>
       )
     }
 
@@ -1637,12 +1639,12 @@ describe('RootKnockoutProvider', () => {
 
     function Harness({ viewModel }: { viewModel: typeof firstRoot }) {
       return (
-        <RootKnockoutProvider viewModel={viewModel}>
+        <BindingHost viewModel={viewModel}>
           <span data-bind="text: label" />
-          <KnockoutScope viewModel={nested}>
+          <BindingHost viewModel={nested}>
             <span data-bind="text: label" />
-          </KnockoutScope>
-        </RootKnockoutProvider>
+          </BindingHost>
+        </BindingHost>
       )
     }
 
@@ -1665,12 +1667,12 @@ describe('RootKnockoutProvider', () => {
     const inner = { label: ko.observable('Inner') }
 
     const { unmount } = render(
-      <RootKnockoutProvider viewModel={outer}>
+      <BindingHost viewModel={outer}>
         <span data-bind="text: label" />
-        <RootKnockoutProvider viewModel={inner}>
+        <BindingHost viewModel={inner}>
           <span data-bind="text: label" />
-        </RootKnockoutProvider>
-      </RootKnockoutProvider>
+        </BindingHost>
+      </BindingHost>
     )
 
     expect(screen.getByText('Outer')).toBeDefined()
@@ -1689,14 +1691,14 @@ describe('RootKnockoutProvider', () => {
     const inner = { label: ko.observable('Inner root') }
 
     render(
-      <RootKnockoutProvider viewModel={{}}>
-        <KnockoutScope viewModel={scope}>
+      <BindingHost viewModel={{}}>
+        <BindingHost viewModel={scope}>
           <span data-bind="text: label" />
-          <RootKnockoutProvider viewModel={inner}>
+          <BindingHost viewModel={inner}>
             <span data-bind="text: label" />
-          </RootKnockoutProvider>
-        </KnockoutScope>
-      </RootKnockoutProvider>
+          </BindingHost>
+        </BindingHost>
+      </BindingHost>
     )
 
     expect(screen.getByText('Scope')).toBeDefined()
@@ -1710,13 +1712,13 @@ describe('RootKnockoutProvider', () => {
 
     function Harness({ scope }: { scope: typeof firstScope }) {
       return (
-        <RootKnockoutProvider viewModel={{}}>
-          <KnockoutScope viewModel={scope}>
-            <RootKnockoutProvider viewModel={inner}>
+        <BindingHost viewModel={{}}>
+          <BindingHost viewModel={scope}>
+            <BindingHost viewModel={inner}>
               <span data-bind="text: label" />
-            </RootKnockoutProvider>
-          </KnockoutScope>
-        </RootKnockoutProvider>
+            </BindingHost>
+          </BindingHost>
+        </BindingHost>
       )
     }
 
@@ -1737,9 +1739,9 @@ describe('RootKnockoutProvider', () => {
     const vm = { label: ko.observable('Mounted') }
 
     const { unmount } = render(
-      <RootKnockoutProvider viewModel={vm}>
+      <BindingHost viewModel={vm}>
         <span data-bind="text: label" />
-      </RootKnockoutProvider>
+      </BindingHost>
     )
 
     expect(vm.label.getSubscriptionsCount()).toBeGreaterThan(0)
@@ -1756,10 +1758,10 @@ describe('RootKnockoutProvider', () => {
     try {
       render(
         <ErrorBoundary>
-          <RootKnockoutProvider viewModel={vm}>
+          <BindingHost viewModel={vm}>
             <span data-bind="text: label" />
             <span data-bind="text: missing.value" />
-          </RootKnockoutProvider>
+          </BindingHost>
         </ErrorBoundary>
       )
     } finally {
@@ -1775,9 +1777,9 @@ describe('RootKnockoutProvider', () => {
 
     const { unmount } = render(
       <StrictMode>
-        <RootKnockoutProvider viewModel={vm}>
+        <BindingHost viewModel={vm}>
           <span data-bind="text: label" />
-        </RootKnockoutProvider>
+        </BindingHost>
       </StrictMode>
     )
 
@@ -1789,30 +1791,12 @@ describe('RootKnockoutProvider', () => {
     expect(vm.label.getSubscriptionsCount()).toBe(0)
   })
 
-  it('returns the root view model from useAppViewModel', () => {
-    const viewModel = {}
-    let result: unknown
-
-    function ViewModelConsumer() {
-      result = useAppViewModel<unknown>()
-      return null
-    }
-
-    render(
-      <RootKnockoutProvider viewModel={viewModel}>
-        <ViewModelConsumer />
-      </RootKnockoutProvider>
-    )
-
-    expect(result).toBe(viewModel)
-  })
-
   it('surfaces a binding error raised by a late non-React descendant', async () => {
     render(
       <ErrorBoundary>
-        <RootKnockoutProvider viewModel={{}}>
+        <BindingHost viewModel={{}}>
           <div data-testid="root-host" />
-        </RootKnockoutProvider>
+        </BindingHost>
       </ErrorBoundary>
     )
     const host = screen.getByTestId('root-host')
@@ -1831,12 +1815,12 @@ describe('RootKnockoutProvider', () => {
 
     render(
       <ErrorBoundary>
-        <RootKnockoutProvider viewModel={vm}>
+        <BindingHost viewModel={vm}>
           <div
             data-bind="text: label"
             dangerouslySetInnerHTML={{ __html: '<span>markup</span>' }}
           />
-        </RootKnockoutProvider>
+        </BindingHost>
       </ErrorBoundary>
     )
 
@@ -1848,11 +1832,11 @@ describe('RootKnockoutProvider', () => {
 
     render(
       <ErrorBoundary>
-        <RootKnockoutProvider viewModel={vm}>
+        <BindingHost viewModel={vm}>
           <div data-bind="text: label">
             <span>React child</span>
           </div>
-        </RootKnockoutProvider>
+        </BindingHost>
       </ErrorBoundary>
     )
 
@@ -1864,11 +1848,11 @@ describe('RootKnockoutProvider', () => {
 
     const { unmount } = render(
       <ErrorBoundary>
-        <RootKnockoutProvider viewModel={vm}>
+        <BindingHost viewModel={vm}>
           <div data-bind="if: visible">
             <span />
           </div>
-        </RootKnockoutProvider>
+        </BindingHost>
       </ErrorBoundary>
     )
 
@@ -1890,9 +1874,9 @@ describe('RootKnockoutProvider', () => {
 
       function Harness({ dataBind }: { dataBind: string | undefined }) {
         return (
-          <RootKnockoutProvider viewModel={vm}>
+          <BindingHost viewModel={vm}>
             <button data-testid="listener-owner" data-bind={dataBind} />
-          </RootKnockoutProvider>
+          </BindingHost>
         )
       }
 
@@ -1918,9 +1902,9 @@ describe('RootKnockoutProvider', () => {
       const handle = vi.fn()
       const vm = { handle }
       const root = (
-        <RootKnockoutProvider viewModel={vm}>
+        <BindingHost viewModel={vm}>
           <button data-testid="listener-owner" data-bind={source} />
-        </RootKnockoutProvider>
+        </BindingHost>
       )
 
       const { unmount } = render(strict ? <StrictMode>{root}</StrictMode> : root)
@@ -1943,12 +1927,12 @@ describe('RootKnockoutProvider', () => {
 
     function Harness({ bound }: { bound: boolean }) {
       return (
-        <RootKnockoutProvider viewModel={vm}>
+        <BindingHost viewModel={vm}>
           <form
             data-testid="listener-owner"
             data-bind={bound ? 'submit: handle' : undefined}
           />
-        </RootKnockoutProvider>
+        </BindingHost>
       )
     }
 
@@ -1968,13 +1952,13 @@ describe('RootKnockoutProvider', () => {
 
     function Harness({ bound }: { bound: boolean }) {
       return (
-        <RootKnockoutProvider viewModel={vm}>
+        <BindingHost viewModel={vm}>
           <input
             data-testid="text-input-owner"
             defaultValue="React value"
             data-bind={bound ? 'textInput: name' : undefined}
           />
-        </RootKnockoutProvider>
+        </BindingHost>
       )
     }
 
@@ -1994,14 +1978,14 @@ describe('RootKnockoutProvider', () => {
 
     function Harness({ bound }: { bound: boolean }) {
       return (
-        <RootKnockoutProvider viewModel={vm}>
+        <BindingHost viewModel={vm}>
           <input
             type="checkbox"
             data-testid="checked-value-owner"
             defaultValue="React value"
             data-bind={bound ? 'checkedValue: choice' : undefined}
           />
-        </RootKnockoutProvider>
+        </BindingHost>
       )
     }
 
@@ -2033,9 +2017,9 @@ describe('RootKnockoutProvider', () => {
     }
 
     render(
-      <RootKnockoutProvider viewModel={{}}>
+      <BindingHost viewModel={{}}>
         <LocallyUpdatedInput />
-      </RootKnockoutProvider>
+      </BindingHost>
     )
     const input = screen.getByTestId('default-checked-owner') as HTMLInputElement
     expect(input.hasAttribute('checked')).toBe(false)
@@ -2066,9 +2050,9 @@ describe('RootKnockoutProvider', () => {
     }
 
     render(
-      <RootKnockoutProvider viewModel={{}}>
+      <BindingHost viewModel={{}}>
         <LocallyUpdatedInput />
-      </RootKnockoutProvider>
+      </BindingHost>
     )
     const input = screen.getByTestId(
       'retired-default-checked-owner'
@@ -2103,9 +2087,9 @@ describe('RootKnockoutProvider', () => {
     }
 
     render(
-      <RootKnockoutProvider viewModel={vm}>
+      <BindingHost viewModel={vm}>
         <LocallyUpdatedInput />
-      </RootKnockoutProvider>
+      </BindingHost>
     )
     const input = screen.getByTestId('default-value-owner') as HTMLInputElement
     expect(input.value).toBe('Knockout value')
@@ -2122,7 +2106,7 @@ describe('RootKnockoutProvider', () => {
 
     function Harness({ bound }: { bound: boolean }) {
       return (
-        <RootKnockoutProvider viewModel={vm}>
+        <BindingHost viewModel={vm}>
           <select
             multiple
             data-testid="selected-options-owner"
@@ -2132,7 +2116,7 @@ describe('RootKnockoutProvider', () => {
             <option value="react">React choice</option>
             <option value="knockout">Knockout choice</option>
           </select>
-        </RootKnockoutProvider>
+        </BindingHost>
       )
     }
 
@@ -2151,9 +2135,9 @@ describe('RootKnockoutProvider', () => {
     const vm = { focused: ko.observable(true), label: 'Bound' }
 
     render(
-      <RootKnockoutProvider viewModel={vm}>
+      <BindingHost viewModel={vm}>
         <div data-testid="focus-host" />
-      </RootKnockoutProvider>
+      </BindingHost>
     )
 
     const input = document.createElement('input')
@@ -2203,9 +2187,9 @@ describe('RootKnockoutProvider', () => {
     }
 
     render(
-      <RootKnockoutProvider viewModel={vm}>
+      <BindingHost viewModel={vm}>
         <LocallyUpdatedElement />
-      </RootKnockoutProvider>
+      </BindingHost>
     )
     const element = screen.getByTestId('simultaneous-baseline')
 
@@ -2252,9 +2236,9 @@ describe('RootKnockoutProvider', () => {
     }
 
     render(
-      <RootKnockoutProvider viewModel={vm}>
+      <BindingHost viewModel={vm}>
         <LocallyUpdatedElements />
-      </RootKnockoutProvider>
+      </BindingHost>
     )
     const download = screen.getByTestId('download-owner')
     const capture = screen.getByTestId('capture-owner')
@@ -2306,9 +2290,9 @@ describe('RootKnockoutProvider', () => {
     }
 
     render(
-      <RootKnockoutProvider viewModel={vm}>
+      <BindingHost viewModel={vm}>
         <LocallyUpdatedElements />
-      </RootKnockoutProvider>
+      </BindingHost>
     )
     const inert = screen.getByTestId('inert-owner')
     const media = screen.getByTestId('media-boolean-owner')
@@ -2357,9 +2341,9 @@ describe('RootKnockoutProvider', () => {
     }
 
     render(
-      <RootKnockoutProvider viewModel={vm}>
+      <BindingHost viewModel={vm}>
         <LocallyUpdatedElements />
-      </RootKnockoutProvider>
+      </BindingHost>
     )
     const charset = screen.getByTestId('accept-charset-owner')
     const equivalent = screen.getByTestId('http-equiv-owner')
@@ -2399,9 +2383,9 @@ describe('RootKnockoutProvider', () => {
     }
 
     render(
-      <RootKnockoutProvider viewModel={vm}>
+      <BindingHost viewModel={vm}>
         <LocallyUpdatedSelect />
-      </RootKnockoutProvider>
+      </BindingHost>
     )
     const select = screen.getByTestId('controlled-selected-options') as HTMLSelectElement
 
@@ -2431,9 +2415,9 @@ describe('RootKnockoutProvider', () => {
     }
 
     render(
-      <RootKnockoutProvider viewModel={vm}>
+      <BindingHost viewModel={vm}>
         <LateOptionSelect />
-      </RootKnockoutProvider>
+      </BindingHost>
     )
     const select = screen.getByTestId('late-selected-options') as HTMLSelectElement
 
@@ -2462,9 +2446,9 @@ describe('RootKnockoutProvider', () => {
     }
 
     render(
-      <RootKnockoutProvider viewModel={vm}>
+      <BindingHost viewModel={vm}>
         <ChangingOptionSelect />
-      </RootKnockoutProvider>
+      </BindingHost>
     )
     const select = screen.getByTestId('late-value-option') as HTMLSelectElement
 
@@ -2495,9 +2479,9 @@ describe('RootKnockoutProvider', () => {
     }
 
     render(
-      <RootKnockoutProvider viewModel={vm}>
+      <BindingHost viewModel={vm}>
         <RemovedOptionSelect />
-      </RootKnockoutProvider>
+      </BindingHost>
     )
     const select = screen.getByTestId('removed-value-option') as HTMLSelectElement
 
@@ -2516,13 +2500,13 @@ describe('RootKnockoutProvider', () => {
     }
 
     render(
-      <RootKnockoutProvider viewModel={vm}>
+      <BindingHost viewModel={vm}>
         <select
           multiple
           data-testid="knockout-owned-options"
           data-bind="options: choices, selectedOptions: selected, optionsAfterRender: afterRender"
         />
-      </RootKnockoutProvider>
+      </BindingHost>
     )
     const select = screen.getByTestId('knockout-owned-options') as HTMLSelectElement
 
@@ -2552,13 +2536,13 @@ describe('RootKnockoutProvider', () => {
     }
 
     render(
-      <RootKnockoutProvider viewModel={vm}>
+      <BindingHost viewModel={vm}>
         <select
           multiple
           data-testid="same-batch-knockout-options"
           data-bind="options: choices, selectedOptions: selected, optionsAfterRender: afterRender"
         />
-      </RootKnockoutProvider>
+      </BindingHost>
     )
     const select = screen.getByTestId(
       'same-batch-knockout-options'
@@ -2604,9 +2588,9 @@ describe('RootKnockoutProvider', () => {
     }
 
     render(
-      <RootKnockoutProvider viewModel={vm}>
+      <BindingHost viewModel={vm}>
         <ChangingOptionTextSelect />
-      </RootKnockoutProvider>
+      </BindingHost>
     )
     const select = screen.getByTestId('text-selected-options') as HTMLSelectElement
 
@@ -2638,9 +2622,9 @@ describe('RootKnockoutProvider', () => {
     }
 
     render(
-      <RootKnockoutProvider viewModel={vm}>
+      <BindingHost viewModel={vm}>
         <ChangingOptionTextSelect />
-      </RootKnockoutProvider>
+      </BindingHost>
     )
     const select = screen.getByTestId('text-value-option') as HTMLSelectElement
 
@@ -2671,9 +2655,9 @@ describe('RootKnockoutProvider', () => {
     }
 
     render(
-      <RootKnockoutProvider viewModel={vm}>
+      <BindingHost viewModel={vm}>
         <EmptyOptionTextSelect />
-      </RootKnockoutProvider>
+      </BindingHost>
     )
     const select = screen.getByTestId(
       'empty-text-selected-options'
@@ -2707,9 +2691,9 @@ describe('RootKnockoutProvider', () => {
     }
 
     render(
-      <RootKnockoutProvider viewModel={vm}>
+      <BindingHost viewModel={vm}>
         <EmptyOptionTextSelect />
-      </RootKnockoutProvider>
+      </BindingHost>
     )
     const select = screen.getByTestId(
       'empty-text-value-option'
@@ -2743,9 +2727,9 @@ describe('RootKnockoutProvider', () => {
     }
 
     render(
-      <RootKnockoutProvider viewModel={vm}>
+      <BindingHost viewModel={vm}>
         <RemovedArrayOptionTextSelect />
-      </RootKnockoutProvider>
+      </BindingHost>
     )
     const select = screen.getByTestId(
       'removed-array-selected-options'
@@ -2777,9 +2761,9 @@ describe('RootKnockoutProvider', () => {
     }
 
     render(
-      <RootKnockoutProvider viewModel={vm}>
+      <BindingHost viewModel={vm}>
         <RemovedArrayOptionTextSelect />
-      </RootKnockoutProvider>
+      </BindingHost>
     )
     const select = screen.getByTestId(
       'removed-array-value-option'
@@ -2826,9 +2810,9 @@ describe('RootKnockoutProvider', () => {
       }
 
       render(
-        <RootKnockoutProvider viewModel={vm}>
+        <BindingHost viewModel={vm}>
           <LocallyUpdatedInput />
-        </RootKnockoutProvider>
+        </BindingHost>
       )
       const input = screen.getByTestId(
         `controlled-${property}-retirement`

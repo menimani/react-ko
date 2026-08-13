@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { KnockoutScope, KoForeach, KoIf, KoIfNot, KoWith, useKoValue } from 'react-ko'
+import { KoForeach, useKoBind, useKoValue } from 'react-ko'
 import ko from 'knockout'
 
 import styles from '../css/TodoForm.module.css'
@@ -33,30 +33,30 @@ export function TodoForm() {
 
   const [vm] = useState(() => new ViewModel())
   const itemCount = (useKoValue(vm.list) ?? []).length
+  const selected = useKoValue(vm.selectedTodo)
+  const bind = useKoBind(vm)
+  const bindSelected = useKoBind(selected)
 
   return (
-    <KnockoutScope viewModel={vm}>
-      <div className={styles.formContainer}>
-        <h2>Todo list</h2>
-        <form data-bind="submit: add">
-          <input
-            className={styles.inputField}
-            data-bind="value: input, valueUpdate: 'input'"
-            placeholder="Add item"
-          />
-          <button className={styles.addButton} type="submit">Add</button>
-        </form>
+    <div {...bind} className={styles.formContainer}>
+      <h2>Todo list</h2>
+      <form data-bind="submit: add">
+        <input
+          className={styles.inputField}
+          data-bind="value: input, valueUpdate: 'input'"
+          placeholder="Add item"
+        />
+        <button className={styles.addButton} type="submit">Add</button>
+      </form>
 
-        <p>{itemCount} {itemCount === 1 ? 'item' : 'items'} (rendered by React)</p>
+      <p>{itemCount} {itemCount === 1 ? 'item' : 'items'} (rendered by React)</p>
 
-        <KoIfNot condition={itemCount > 0}>
-          <p>Add your first todo.</p>
-        </KoIfNot>
-        <KoIf condition={itemCount > 0}>
+      {itemCount === 0 ? <p>Add your first todo.</p> : null}
+      {itemCount > 0 ? (
           <ul className={styles.list}>
             <KoForeach items={vm.list} itemKey={(todo) => todo.id}>
-              {(todo, index, bind) => (
-                <li {...bind} className={styles.item}>
+              {(todo, index, rowBind) => (
+                <li {...rowBind} className={styles.item}>
                   <span>{index + 1}. </span>
                   <input type="checkbox" data-bind="checked: done" />
                   <span data-bind="text: title, css: { completed: done }" />
@@ -66,19 +66,16 @@ export function TodoForm() {
               )}
             </KoForeach>
           </ul>
-        </KoIf>
+      ) : null}
 
-        <KoWith value={vm.selectedTodo}>
-          {(todo) => (
-            <aside className={styles.details}>
-              <h3>Selected todo</h3>
-              <input data-bind="value: title, valueUpdate: 'input'" />
-              <button type="button" onClick={() => vm.selectedTodo(null)}>Close</button>
-              <p>Todo #{todo.id} is bound in its own Knockout scope.</p>
-            </aside>
-          )}
-        </KoWith>
-      </div>
-    </KnockoutScope>
+      {selected ? (
+          <aside {...bindSelected} className={styles.details}>
+            <h3>Selected todo</h3>
+            <input data-bind="value: title, valueUpdate: 'input'" />
+            <button type="button" onClick={() => vm.selectedTodo(null)}>Close</button>
+            <p>Todo #{selected.id} is bound in its own Knockout scope.</p>
+          </aside>
+      ) : null}
+    </div>
   )
 }

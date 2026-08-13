@@ -11,14 +11,9 @@ import {
   type ReactNode,
 } from 'react'
 import ko from 'knockout'
-import {
-  RootKnockoutProvider,
-  KnockoutScope,
-  KoForeach,
-  KoIf,
-  KoIfNot,
-  KoWith,
-} from '@/index'
+import { KnockoutScope, KoForeach } from '@/index'
+import { KnockoutScope } from '@/index'
+import { BindingHost } from '../../fixtures/bindingHost'
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
   state = { failed: false }
@@ -54,12 +49,12 @@ describe('useBindingRoot', () => {
       const [replacement, setReplacement] = useState(false)
       replaceViewModel = () => setReplacement(true)
       return (
-        <RootKnockoutProvider viewModel={replacement ? second : first}>
+        <KnockoutScope viewModel={replacement ? second : first}>
           <Suspense fallback={null}>
             {replacement ? <SuspendedReplacement /> : null}
           </Suspense>
           <LateChild />
-        </RootKnockoutProvider>
+        </KnockoutScope>
       )
     }
 
@@ -73,7 +68,7 @@ describe('useBindingRoot', () => {
     expect(screen.getByTestId('late-child')).toHaveProperty('textContent', 'First')
   })
 
-  const bindingRoots = ['RootKnockoutProvider', 'KnockoutScope'] as const
+  const bindingRoots = ['BindingHost', 'BindingHost'] as const
   const childUpdates = ['mounts', 'rebinds'] as const
 
   it.each(bindingRoots)(
@@ -86,12 +81,12 @@ describe('useBindingRoot', () => {
         </>
       )
       const tree =
-        bindingRoot === 'RootKnockoutProvider' ? (
-          <RootKnockoutProvider viewModel={{}}>{children}</RootKnockoutProvider>
+        bindingRoot === 'BindingHost' ? (
+          <KnockoutScope viewModel={{}}>{children}</KnockoutScope>
         ) : (
-          <RootKnockoutProvider viewModel={{}}>
+          <KnockoutScope viewModel={{}}>
             <KnockoutScope viewModel={{}}>{children}</KnockoutScope>
-          </RootKnockoutProvider>
+          </KnockoutScope>
         )
 
       render(tree)
@@ -117,12 +112,12 @@ describe('useBindingRoot', () => {
           observed = descendant.current
         }, [])
         const child = <span ref={descendant} data-bind="text: label" />
-        return bindingRoot === 'RootKnockoutProvider' ? (
-          <RootKnockoutProvider viewModel={viewModel}>{child}</RootKnockoutProvider>
+        return bindingRoot === 'BindingHost' ? (
+          <KnockoutScope viewModel={viewModel}>{child}</KnockoutScope>
         ) : (
-          <RootKnockoutProvider viewModel={{}}>
+          <KnockoutScope viewModel={{}}>
             <KnockoutScope viewModel={viewModel}>{child}</KnockoutScope>
-          </RootKnockoutProvider>
+          </KnockoutScope>
         )
       }
 
@@ -161,12 +156,12 @@ describe('useBindingRoot', () => {
         replacement: boolean
       }) {
         const child = <BoundChild replacement={replacement} />
-        return bindingRoot === 'RootKnockoutProvider' ? (
-          <RootKnockoutProvider viewModel={viewModel}>{child}</RootKnockoutProvider>
+        return bindingRoot === 'BindingHost' ? (
+          <KnockoutScope viewModel={viewModel}>{child}</KnockoutScope>
         ) : (
-          <RootKnockoutProvider viewModel={{}}>
+          <KnockoutScope viewModel={{}}>
             <KnockoutScope viewModel={viewModel}>{child}</KnockoutScope>
-          </RootKnockoutProvider>
+          </KnockoutScope>
         )
       }
 
@@ -183,91 +178,10 @@ describe('useBindingRoot', () => {
     }
   )
 
-  type StructuralToggle = (label: ko.Observable<string>) => {
-    element: ReactElement
-    reveal: () => void
-  }
-
-  const structuralToggles: Array<[string, StructuralToggle]> = [
-    [
-      'KoIf',
-      (label) => {
-        const visible = ko.observable(false)
-        return {
-          element: (
-            <RootKnockoutProvider viewModel={{ label }}>
-              <KoIf condition={visible}>
-                <LayoutInput />
-              </KoIf>
-            </RootKnockoutProvider>
-          ),
-          reveal: () => visible(true),
-        }
-      },
-    ],
-    [
-      'KoIfNot',
-      (label) => {
-        const hidden = ko.observable(true)
-        return {
-          element: (
-            <RootKnockoutProvider viewModel={{ label }}>
-              <KoIfNot condition={hidden}>
-                <LayoutInput />
-              </KoIfNot>
-            </RootKnockoutProvider>
-          ),
-          reveal: () => hidden(false),
-        }
-      },
-    ],
-    // KoForeach is absent from this matrix by decision, not by oversight. A row's
-    // binding root is established from the ref on the caller's own element, and React
-    // attaches refs from the bottom up, so the row is bound after its descendants have
-    // run their layout effects. Restoring the guarantee means revisiting the engine's
-    // "an ancestor root binds before the roots inside it" ordering, which is deferred.
-    [
-      'KoWith',
-      (label) => {
-        const value = ko.observable<{ label: ko.Observable<string> } | null>(null)
-        return {
-          element: (
-            <RootKnockoutProvider viewModel={{}}>
-              <KoWith value={value}>{() => <LayoutInput />}</KoWith>
-            </RootKnockoutProvider>
-          ),
-          reveal: () => value({ label }),
-        }
-      },
-    ],
-  ]
-
-  function LayoutInput() {
-    const input = useRef<HTMLInputElement>(null)
-    useLayoutEffect(() => {
-      if (input.current === null) return
-      input.current.value = 'Changed during layout'
-      input.current.dispatchEvent(new Event('input', { bubbles: true }))
-    }, [])
-    return <input ref={input} data-testid="layout-input" data-bind="textInput: label" />
-  }
-
-  it.each(structuralToggles)(
-    'binds a newly revealed %s scope before descendant layout effects',
-    (_, createToggle) => {
-      const label = ko.observable('Initial')
-      const { element, reveal } = createToggle(label)
-      render(element)
-
-      act(reveal)
-
-      expect(label()).toBe('Changed during layout')
-      expect(screen.getByTestId('layout-input')).toHaveProperty(
-        'value',
-        'Changed during layout'
-      )
-    }
-  )
+  // The layout-ordering matrix covered the structural components, which are gone.
+  // A root now comes from the caller's own ref, and React attaches refs from the bottom
+  // up, so a descendant layout effect can run before the root it sits in has bound. That
+  // gap is stated in useKoBind's documentation.
 
   it('unmounts cleanly when a rebind fails after the old binding was disposed', () => {
     const vmA = { label: ko.observable('First') }
@@ -276,8 +190,8 @@ describe('useBindingRoot', () => {
     function Harness({ vm, bad }: { vm: unknown; bad: boolean }) {
       return (
         <ErrorBoundary>
-          <RootKnockoutProvider viewModel={{}}>
-            <KnockoutScope viewModel={vm}>
+          <BindingHost viewModel={{}}>
+            <BindingHost viewModel={vm}>
               {bad ? (
                 <div data-bind="foreach: items">
                   <span />
@@ -285,8 +199,8 @@ describe('useBindingRoot', () => {
               ) : (
                 <span data-bind="text: label" />
               )}
-            </KnockoutScope>
-          </RootKnockoutProvider>
+            </BindingHost>
+          </BindingHost>
         </ErrorBoundary>
       )
     }
