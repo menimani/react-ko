@@ -317,6 +317,84 @@ describe('RootKnockoutProvider', () => {
     }
   })
 
+  it.each([
+    ['using', 'getBindingAccessors', 'label'],
+    ['let', 'getBindings', 'alias'],
+  ] as const)(
+    'preserves a provider-supplied %s context from %s for children mounted later',
+    async (binding, method, descendantName) => {
+      const originalProvider = ko.bindingProvider.instance
+      const provider = Object.create(originalProvider) as ko.IBindingProvider
+      Object.defineProperty(provider, 'nodeHasBindings', {
+        configurable: true,
+        value: (node: Node) =>
+          (node.nodeType === Node.ELEMENT_NODE &&
+            (node as Element).hasAttribute('data-provider-scope')) ||
+          originalProvider.nodeHasBindings.call(originalProvider, node),
+      })
+      if (method === 'getBindingAccessors') {
+        Object.defineProperty(provider, method, {
+          configurable: true,
+          value: (node: Node, context: ko.BindingContext) =>
+            node.nodeType === Node.ELEMENT_NODE &&
+            (node as Element).hasAttribute('data-provider-scope')
+              ? binding === 'using'
+                ? { using: () => context.$data.scoped }
+                : { let: () => ({ alias: context.$data.scoped.label }) }
+              : originalProvider.getBindingAccessors?.call(
+                  originalProvider,
+                  node,
+                  context,
+                ),
+        })
+      } else {
+        Object.defineProperty(provider, 'getBindingAccessors', {
+          configurable: true,
+          value: undefined,
+        })
+        Object.defineProperty(provider, method, {
+          configurable: true,
+          value: (node: Node, context: ko.BindingContext) =>
+            node.nodeType === Node.ELEMENT_NODE &&
+            (node as Element).hasAttribute('data-provider-scope')
+              ? binding === 'using'
+                ? { using: context.$data.scoped }
+                : { let: { alias: context.$data.scoped.label } }
+              : originalProvider.getBindings?.call(originalProvider, node, context),
+        })
+      }
+      ko.bindingProvider.instance = provider
+
+      const vm = {
+        label: 'Root context',
+        scoped: { label: 'Provider context' },
+      }
+
+      function Harness({ show }: { show: boolean }) {
+        return (
+          <RootKnockoutProvider viewModel={vm}>
+            <div data-provider-scope="">
+              {show ? <span data-bind={`text: ${descendantName}`} /> : null}
+            </div>
+          </RootKnockoutProvider>
+        )
+      }
+
+      try {
+        const { container, rerender } = render(<Harness show={false} />)
+        expect(container.querySelector('span')).toBeNull()
+
+        rerender(<Harness show />)
+
+        await waitFor(() =>
+          expect(screen.getByText('Provider context')).toBeDefined(),
+        )
+      } finally {
+        ko.bindingProvider.instance = originalProvider
+      }
+    },
+  )
+
   it('sends a late binding error to a React error boundary with a stable view model', async () => {
     const vm = {}
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)

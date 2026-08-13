@@ -4,7 +4,11 @@ import {
   DESCENDANT_BINDING_BOUNDARY,
   ensureDescendantBindingBoundary,
 } from './descendantBindingBoundary'
-import { prepareDescendantBindingContextCapture } from './descendantBindingContexts'
+import {
+  descendantBindingContextCaptureBindings,
+  isDescendantBindingContextCaptureMarker,
+  prepareDescendantBindingContextCapture,
+} from './descendantBindingContexts'
 import {
   ELEMENT_BINDING_ROOT_ATTRIBUTE,
   isElementBindingRoot,
@@ -551,7 +555,11 @@ function applyValidatedBindings(
   validatedSources: ValidatedBindingSources,
   assertSafeProviderBindings: (element: Element, names: Set<string>) => void,
   deferredBindings: readonly DeferredSuspenseBinding[],
-  descendantRoots: ReadonlySet<HTMLElement>
+  descendantRoots: ReadonlySet<HTMLElement>,
+  captureProviderBindings: (
+    element: Element,
+    bindingNames: Iterable<string>
+  ) => void
 ) {
   const provider = ko.bindingProvider.instance
   const getBindingAccessors = provider.getBindingAccessors
@@ -573,6 +581,7 @@ function applyValidatedBindings(
   Object.defineProperty(validatingProvider, 'nodeHasBindings', {
     configurable: true,
     value: (bindingNode: Node) =>
+      isDescendantBindingContextCaptureMarker(bindingNode) ||
       isDescendantRoot(bindingNode) ||
       provider.nodeHasBindings.call(provider, bindingNode),
     writable: true,
@@ -593,7 +602,9 @@ function applyValidatedBindings(
           ? (bindingNode.parentNode as Element)
           : undefined
     if (element !== undefined && bindings !== null && bindings !== undefined) {
-      assertSafeProviderBindings(element, new Set(Object.keys(bindings)))
+      const names = new Set(Object.keys(bindings))
+      assertSafeProviderBindings(element, names)
+      captureProviderBindings(element, names)
     }
     return bindings
   }
@@ -611,6 +622,9 @@ function applyValidatedBindings(
     Object.defineProperty(validatingProvider, 'getBindingAccessors', {
       configurable: true,
       value: (bindingNode: Node, bindingContext: ko.BindingContext) => {
+        if (isDescendantBindingContextCaptureMarker(bindingNode)) {
+          return descendantBindingContextCaptureBindings(true)
+        }
         if (isDescendantRoot(bindingNode)) {
           return {
             // The boundary handler intentionally never reads its value.
@@ -653,6 +667,9 @@ function applyValidatedBindings(
     Object.defineProperty(validatingProvider, 'getBindings', {
       configurable: true,
       value: (bindingNode: Node, bindingContext: ko.BindingContext) => {
+        if (isDescendantBindingContextCaptureMarker(bindingNode)) {
+          return descendantBindingContextCaptureBindings(false)
+        }
         if (isDescendantRoot(bindingNode)) {
           return { [DESCENDANT_BINDING_BOUNDARY]: true }
         }
@@ -931,7 +948,8 @@ export function applyBindingsSafely(
       validatedSources,
       assertSafeProviderBindings,
       deferredBindings,
-      effectiveDescendantRoots
+      effectiveDescendantRoots,
+      removeContextMarkers.captureProviderBindings
     )
   } catch (error) {
     try {
