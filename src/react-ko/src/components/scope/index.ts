@@ -1,1 +1,1 @@
-export {}
+export { KnockoutScope } from './KnockoutScope'

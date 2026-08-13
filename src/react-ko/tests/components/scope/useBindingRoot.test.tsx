@@ -11,7 +11,8 @@ import {
   type ReactNode,
 } from 'react'
 import ko from 'knockout'
-import { KoForeach } from '@/index'
+import { KnockoutScope, KoForeach } from '@/index'
+import { KnockoutScope } from '@/index'
 import { BindingHost } from '../../fixtures/bindingHost'
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
@@ -48,12 +49,12 @@ describe('useBindingRoot', () => {
       const [replacement, setReplacement] = useState(false)
       replaceViewModel = () => setReplacement(true)
       return (
-        <BindingHost viewModel={replacement ? second : first}>
+        <KnockoutScope viewModel={replacement ? second : first}>
           <Suspense fallback={null}>
             {replacement ? <SuspendedReplacement /> : null}
           </Suspense>
           <LateChild />
-        </BindingHost>
+        </KnockoutScope>
       )
     }
 
@@ -81,11 +82,11 @@ describe('useBindingRoot', () => {
       )
       const tree =
         bindingRoot === 'BindingHost' ? (
-          <BindingHost viewModel={{}}>{children}</BindingHost>
+          <KnockoutScope viewModel={{}}>{children}</KnockoutScope>
         ) : (
-          <BindingHost viewModel={{}}>
-            <BindingHost viewModel={{}}>{children}</BindingHost>
-          </BindingHost>
+          <KnockoutScope viewModel={{}}>
+            <KnockoutScope viewModel={{}}>{children}</KnockoutScope>
+          </KnockoutScope>
         )
 
       render(tree)
@@ -112,11 +113,11 @@ describe('useBindingRoot', () => {
         }, [])
         const child = <span ref={descendant} data-bind="text: label" />
         return bindingRoot === 'BindingHost' ? (
-          <BindingHost viewModel={viewModel}>{child}</BindingHost>
+          <KnockoutScope viewModel={viewModel}>{child}</KnockoutScope>
         ) : (
-          <BindingHost viewModel={{}}>
-            <BindingHost viewModel={viewModel}>{child}</BindingHost>
-          </BindingHost>
+          <KnockoutScope viewModel={{}}>
+            <KnockoutScope viewModel={viewModel}>{child}</KnockoutScope>
+          </KnockoutScope>
         )
       }
 
@@ -156,11 +157,11 @@ describe('useBindingRoot', () => {
       }) {
         const child = <BoundChild replacement={replacement} />
         return bindingRoot === 'BindingHost' ? (
-          <BindingHost viewModel={viewModel}>{child}</BindingHost>
+          <KnockoutScope viewModel={viewModel}>{child}</KnockoutScope>
         ) : (
-          <BindingHost viewModel={{}}>
-            <BindingHost viewModel={viewModel}>{child}</BindingHost>
-          </BindingHost>
+          <KnockoutScope viewModel={{}}>
+            <KnockoutScope viewModel={viewModel}>{child}</KnockoutScope>
+          </KnockoutScope>
         )
       }
 

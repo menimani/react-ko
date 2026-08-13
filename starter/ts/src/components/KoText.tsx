@@ -1,6 +1,6 @@
 import React from 'react'
 import ko from 'knockout'
-import { KnockoutScope, useKoValue } from 'react-ko'
+import { useKoBind, useKoValue } from 'react-ko'
 
 import styles from '../css/KoText.module.css'
 
@@ -10,12 +10,14 @@ type Props<T> = {
 }
 
 export const KoText = React.memo(function KoText<T>({ text, color }: Props<T>) {
-  const vm = { text, color }
+  const bind = useKoBind({ text, color })
 
   return (
-    <KnockoutScope viewModel={vm} boundaryAs="span" as="span">
-      <span className={styles.text} data-bind="text: text, style: { color: color }"></span>
-    </KnockoutScope>
+    <span
+      {...bind}
+      className={styles.text}
+      data-bind="text: text, style: { color: color }"
+    ></span>
   )
 })
 

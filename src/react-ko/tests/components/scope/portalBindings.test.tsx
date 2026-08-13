@@ -10,6 +10,7 @@ import {
 } from 'react'
 import { createPortal } from 'react-dom'
 import ko from 'knockout'
+import { KnockoutScope } from '@/index'
 import { BindingHost } from '../../fixtures/bindingHost'
 
 const portalTargets: HTMLElement[] = []
@@ -310,9 +311,9 @@ describe('portal bindings', () => {
 
     function Harness({ visible }: { visible: boolean }) {
       return (
-        <BindingHost viewModel={vm}>
+        <KnockoutScope viewModel={vm}>
           {visible ? createPortal(<LatePortalInput />, target) : null}
-        </BindingHost>
+        </KnockoutScope>
       )
     }
 

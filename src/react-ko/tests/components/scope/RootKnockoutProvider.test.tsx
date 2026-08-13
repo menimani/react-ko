@@ -11,6 +11,7 @@ import {
 } from 'react'
 import ko from 'knockout'
 import { useAppViewModel } from '@/index'
+import { KnockoutScope } from '@/index'
 import { BindingHost } from '../../fixtures/bindingHost'
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
@@ -155,11 +156,11 @@ describe('BindingHost', () => {
 
     function Harness({ show }: { show: boolean }) {
       return (
-        <BindingHost viewModel={{ shown }}>
+        <KnockoutScope viewModel={{ shown }}>
           {show ? (
             <span data-testid="late-preprocessed" data-bind={`${binding}: shown`} />
           ) : null}
-        </BindingHost>
+        </KnockoutScope>
       )
     }
 

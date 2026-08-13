@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { render, screen, act, fireEvent, waitFor } from '@testing-library/react'
 import { Component, type ReactNode, useLayoutEffect, useRef, useState } from 'react'
 import ko from 'knockout'
+import { KnockoutScope } from '@/index'
 import { BindingHost } from '../../fixtures/bindingHost'
 
 class ErrorBoundary extends Component<
@@ -620,8 +621,8 @@ describe('observeBindingDescendants', () => {
     const first = await import('@/index')
     vi.resetModules()
     const second = await import('@/index')
-    const OuterRoot = first.BindingHost
-    const InnerRoot = second.BindingHost
+    const OuterRoot = first.KnockoutScope
+    const InnerRoot = second.KnockoutScope
     const outerViewModel = { label: 'Outer provider' }
     const innerViewModel = { label: 'Inner provider' }
 

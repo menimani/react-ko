@@ -4,21 +4,20 @@
 
 [![npm version](https://img.shields.io/npm/v/react-ko)](https://www.npmjs.com/package/react-ko)
 
-> Knockout.js を React コンポーネント内で使うための最小限のブリッジライブラリ。Knockout のリアクティブ性と React のコンポーネント構造をクリーンに融合します
+> React コンポーネントの中で Knockout.js を使うための最小のブリッジ。Knockout のリアクティビティと React のコンポーネント設計を、素直に・スコープを保って・型安全に組み合わせます。
 
 ---
 
 ## 特長
 
 - Knockout の observable による双方向データバインディング
-- JSX / TSX 上でそのまま `data-bind="..."` を使用可能
-- `<KnockoutScope>` によるスコープ付き ViewModel
-- `<RootKnockoutProvider>` による1行ルートバインディング
+- JSX / TSX の中で `data-bind="..."` をそのまま書ける
+- `useKoBind` は自分が描画した要素をバインディングルートにする。DOM には何も追加しない
+- `useKoValue` で observable を React の state として読める
 - `<KoForeach>` の render prop による型安全なリスト描画
-- observable を React の state として読める `useKoValue`
 - `data-bind` で扱う DOM の振る舞いには、React のイベントハンドラやローカル state のボイラープレート不要
 - TypeScript / JavaScript の両対応（設定不要）
-- Knockout、React、React DOM 以外のランタイム依存なし
+- Knockout・React・React DOM 以外のランタイム依存なし
 
 ---
 
@@ -28,11 +27,11 @@
 npm install react-ko knockout
 ```
 
-> このライブラリは `react` (`^18.0.0 || ^19.0.0`)、`react-dom` (`^18.0.0 || ^19.0.0`)、`knockout` (`^3.5.1`) をピア依存としています。
+> `react`（`^18.0.0 || ^19.0.0`）、`react-dom`（`^18.0.0 || ^19.0.0`）、`knockout`（`^3.5.1`）を peer dependencies として必要とします。
 
 ---
 
-## クイックスタート（スターターテンプレート）
+## スターターテンプレートで始める
 
 ### TypeScript
 
@@ -43,8 +42,6 @@ npm install && npm run dev
 ```
 
 テンプレート: [`starter/ts`](https://github.com/menimani/react-ko/tree/main/starter/ts)
-
----
 
 ### JavaScript
 
@@ -58,206 +55,101 @@ npm install && npm run dev
 
 ---
 
-## クイック使用例（JSX / TSX）
+## API の全体
 
-```tsx
-import ko from 'knockout'
-import { RootKnockoutProvider, KnockoutScope } from 'react-ko'
+エクスポートは 4 つ。うち 2 つがブリッジ、1 つがリスト、1 つはブリッジで賄えない場合のためのものです。
 
-const viewModel = {
-  name: ko.observable('Alice')
-}
-
-<RootKnockoutProvider viewModel={{}}>
-  <KnockoutScope viewModel={viewModel}>
-    <input data-bind="value: name" />
-  </KnockoutScope>
-</RootKnockoutProvider>
-```
-
-`KoScope` も `KnockoutScope` の短い別名としてエクスポートされています。
-どちらも同じコンポーネントを参照します。
-
-スコープは、外側のバインディング境界と内側のバインディングルートという2つの
-非スタイルホスト要素をレンダーします。既定値はどちらも `div` です。`div` が有効でない
-位置では `boundaryAs` と `as` でセマンティックな HTML を選択できます。同じ prop は
-`RootKnockoutProvider`、`KoIf`、`KoIfNot`、`KoWith` でも使えます。`KoForeach` は
-自前のホストをレンダーしません。行は render prop が受け取るバインディングルートを
-通じてバインドされます。
-
-```tsx
-<button>
-  <KnockoutScope viewModel={viewModel} boundaryAs="span" as="span">
-    <span data-bind="text: name" />
-  </KnockoutScope>
-</button>
-```
-
-ホスト要素は構造用のままで、バインディング境界またはルート用 ref と
-`display: contents` 以外のスタイルや ARIA prop は受け取りません。どちらのホストも
-常に子要素を持つため、`boundaryAs` と `as` に指定できるのは、生きた子サブツリーを保持できる
-HTML 要素だけです。`HTMLElementTagNameMap` の宣言マージで追加した非 void HTML 名にも対応し、
-その名前にハイフンは不要です。型境界とランタイム境界の両方で利用でき、カスタム要素名は
-組み込み要素に対する除外の影響を受けません。
-
-型とランタイムは同じホスト名を拒否します。`input`、`img`、`br` などの既知の void 要素、
-外来コンテンツのルートである `svg` と `math`、テキスト専用の `textarea` と `title`、および
-`template` です。また、子要素が inert になる `script`、ブラウザーによって包含スコープの外へ
-移動される `head`、`body`、`html`、SSR を通過できない `keygen` も拒否します。それ以外の
-`SemanticHost` 値は引き続き受け付けます。
-
-`RootKnockoutProvider` または `KnockoutScope` の `viewModel` を置き換えると、
-Knockout バインディングが再適用されます。どちらのコンポーネントも、置き換え時と
-アンマウント時にバインディングを破棄します。バインディングツリーの適用中に例外が
-発生した場合も、それより前に作成された購読を Error Boundary に例外が届く前に破棄します。
-ルートプロバイダーとスコープは入れ子にできます。それぞれが子孫バインディングの境界に
-なるため、子要素はその境界自身の `viewModel` だけを使用し、そのバインディングルートと
-ともにクリーンアップされます。
-内部 Knockout バインディング名 `reactKoScopeBoundary` と
-`reactKoCaptureDescendantContext` は、ルートプロバイダーまたはスコープが初めて
-バインディングを適用するときに遅延登録されます。`useKoValue` だけを使う場合を含め、
-react-ko を読み込むだけでは、これらの名前で登録済みのハンドラーは変更されません。
-別のハンドラーがいずれかの名前を登録済みの場合は、バインディングルートのマウント時に
-例外が発生します。
-最初のバインディング適用後に React がマウントした子孫要素も、最も近いルートまたは
-スコープへ子孫のレイアウト効果が実行される前に自動的にバインドされます。既存の Knockout `using` または `let`
-バインディングの配下にマウントされた場合は、そのバインディングの子孫コンテキストを
-引き継ぎます。ルートまたはスコープ内でレンダーされた React ポータルにも同じ規則が適用され、
-ターゲットがドキュメント内の別の場所や別スコープの DOM 内にあっても、所有権は React ツリーに
-従います。そのため、ネストしたポータルやネストしたスコープからのポータルは、コード上で配置
-されたスコープの ViewModel を使用します。どのルートやスコープにも属さないポータルの内容は
-バインドされません。ポータルのバインディングは、ターゲットコンテナがマウントされたままでも、
-`viewModel` の置き換えを含め、所有スコープとともに破棄されます。
-React が削除した子孫要素のバインディングも自動的に破棄されます。
-後から適用されるこれらのバインディングで発生した例外も、最も近い React Error Boundary に
-届きます。React が既存要素の `data-bind` 属性を変更した場合は、以前のバインディングを破棄し、
-同じ子孫コンテキストで新しい式を適用します。`text`、`html`、`component`、`options`
-バインディングを取り除く場合は、現在のバインディングまたは React が描画した children に
-所有権を渡す前に、Knockout が作成した内容も削除します。その他のバインディングを置き換える
-場合は、新しい式を適用する前に、以前の式が所有していた属性、クラス、スタイル、フォーム
-プロパティを復元します。DOM 効果を安全に破棄できないカスタムバインディングは拒否されます。
-tooltip バインディングのように子孫を制御しないカスタムバインディングは、React が描画した
-children を持つ要素でも引き続き使用できます。その場合、カスタムバインディング側で children を
-変更せずに維持する必要があります。`controlsDescendantBindings` を返すカスタムハンドラーは、
-ネストしたバインディングが暗黙にスキップされないよう、React が描画した children を持つ要素では
-拒否されます。カスタムバインディングは、初期状態が空の要素を使い、所有する内容を初回
-バインディング時または後続の update で作成できます。後から Knockout が作成した内容もその
-子孫コントローラーの所有対象として維持され、再バインドされません。一方、後から挿入された
-React 所有の children は拒否されます。
-React の props 更新と有効な Knockout バインディングは同じ要素を共有することもできます。
-React 側の最新のクラス、インラインスタイル、属性、フォームプロパティの初期値を保持しつつ、
-有効な Knockout バインディングが宣言した DOM 効果は引き続きそのバインディングが所有します。
-React が後から `option` を挿入または削除したり、その `value` を変更したりした場合も、
-`selectedOptions` と `valueAllowUnset` を伴う `value` を再適用するため、現在の option の集合は
-observable の再通知なしで同期されます。
-`attr` バインディングを取り除くと、React の属性 props は React DOM と同じ規則で復元されます。
-これには `acceptCharset` / `httpEquiv` のような別名を持つ props、false の `inert` やメディア無効化
-props の属性削除、boolean の `download` と `capture` の空文字の存在属性が含まれます。
+| エクスポート | 役割 |
+|--------------|------|
+| `useKoBind` | React → Knockout。自分が描画した要素をバインディングルートにする |
+| `useKoValue` | Knockout → React。observable を React の state として読む |
+| `KoForeach` | アイテムごとに 1 行を描画し、その行をアイテムにバインドする |
+| `KnockoutScope` | 自前のホストを描画するスコープ。子が後から現れる場合向け |
 
 ---
 
-## カスタムコンポーネント例
-
-### JavaScript (JSX)
-
-```jsx
-import { KnockoutScope } from 'react-ko'
-
-export function KoInput({ value }) {
-  const vm = { value }
-
-  return (
-    <KnockoutScope viewModel={vm}>
-      <input data-bind="value: value" />
-    </KnockoutScope>
-  )
-}
-```
-
-### TypeScript (TSX)
+## 基本的な使い方（JSX / TSX）
 
 ```tsx
 import ko from 'knockout'
-import { KnockoutScope } from 'react-ko'
-
-type Props = {
-  value: ko.Observable<string>
-}
-
-export function KoInput({ value }: Props) {
-  const vm = { value }
-
-  return (
-    <KnockoutScope viewModel={vm}>
-      <input data-bind="value: value" />
-    </KnockoutScope>
-  )
-}
-```
-
-### コンポーネント使用例
-
-`KnockoutScope` は内部で `useAppViewModel` を呼び出すため、
-`RootKnockoutProvider` または `AppViewModelContext.Provider` の配下でレンダーする
-必要があります。ルートプロバイダーは、ネストしたスコープの外側にある
-`data-bind` 属性にもバインディングを適用します。クライアントのみでマウントする場合、
-どちらのコンポーネントも children をマウントする前にバインディングホストを確立するため、
-子孫の layout effect はすでにバインドされた DOM を操作できます。サーバーレンダリングと
-ハイドレーションでは、React がその場でハイドレートできるよう、サーバーでレンダーされた
-子サブツリーを保持します。
-
-```tsx
-import ko from 'knockout'
-import { RootKnockoutProvider } from 'react-ko'
+import { useKoBind } from 'react-ko'
 
 const vm = {
-  name: ko.observable('Alice')
+  name: ko.observable('Knockout'),
+  color: ko.pureComputed(() => 'rebeccapurple'),
 }
 
-<RootKnockoutProvider viewModel={vm}>
-  <KoInput value={vm.name} />
-</RootKnockoutProvider>
+function Greeting() {
+  const bind = useKoBind(vm)
+
+  return (
+    <section {...bind}>
+      <input data-bind="value: name, valueUpdate: 'input'" />
+      <p data-bind="text: name, style: { color: color }" />
+    </section>
+  )
+}
 ```
+
+`useKoBind` は、既にある要素に展開するための props を返します。その要素がバインディング
+ルートになり、内側のすべての `data-bind` が ViewModel に対して適用され、ViewModel の
+差し替え時には再適用され、要素が消えるときに `ko.cleanNode` で破棄されます。DOM には
+何も追加されないので、タグも属性もマークアップ上の位置も利用側のままです — `select` や
+`tbody` のようにラッパーを置けない場所でも同じです。
+
+nullish な ViewModel は何もバインドしません。これにより、条件付きでしか描画されない要素にも
+props を無条件で置けます:
+
+```tsx
+const selected = useKoValue(vm.selected)
+const bind = useKoBind(selected)
+
+return selected ? <article {...bind} data-bind="text: title" /> : null
+```
+
+`useKoBind` は 1 要素につき 1 回呼びます。1 回分の props を 2 つの要素に展開した場合は、
+黙って一方だけをバインドせずエラーとして報告します。
 
 ---
 
-## 構造コンポーネント
+## React 側で値を読む: `useKoValue`
 
-React が描画した children を制御するために、Knockout の `if`、`ifnot`、
-`foreach`、`template`、`with` の制御フローバインディングを使わないでください。
-これらのバインディングは React が所有している子 DOM ノードを削除または複製します。
-`RootKnockoutProvider` と `KnockoutScope` は、そのバインディングルート内のいずれの
-バインディングも適用する前にこれらを拒否します。これには、初回レンダー時または
-後続の置換時に `dangerouslySetInnerHTML` で挿入される、コンテナーレスの制御フローコメントも
-含まれます。安全性チェックはカスタム `preprocess` フックの実行後のバインディングを検査するため、
-カスタムエイリアスから React が描画した children に対してこれらのバインディングを追加することもできません。
-代わりに `KoIf`、`KoIfNot`、
-`KoForeach`、`KoWith` を使ってください。
+`data-bind` が扱えるのは DOM 属性になるものだけです。それ以外 — JSX 補間、React
+コンポーネントの props、effect の依存配列 — には値そのものが要ります:
 
-`text`、`html`、`component`、`options` バインディングも要素の内容を置き換えます。
-これらを使用できるのは、バインド対象の要素に React が描画した children がない場合
-だけです。children がある場合は、その DOM が切り離される前にバインディングを拒否します。
-React が直接描画するスカラーのテキストと `dangerouslySetInnerHTML` で挿入する内容も、React が描画した
-children として扱います。React 19 は `bigint` children をスカラーのテキストとして描画するため同じ制約が適用されますが、
-React 18 は何も描画しないため、`bigint` child だけならコンテンツバインディングと競合しません。
-この制約はバインディングの適用後に React が条件付きで children を
-追加した場合にも適用されます。React 要素の挿入はその子の layout effect が実行される前に
-同期的に拒否され、直接のテキストまたは HTML の挿入は後続の再調整で拒否されます。Knockout が
-内容を所有している間は、その要素を空にしてください。空文字列の children または空の
-`dangerouslySetInnerHTML` ペイロードをバインディング後に明示的に追加または削除する更新も、
-Knockout が所有する内容を消去するため拒否されます。一方、既存のテキストまたは HTML を
-削除するのと同じレンダーで内容バインディングを追加すれば、その要素の所有権を React から Knockout へ引き渡せます。
+```tsx
+import { useKoValue } from 'react-ko'
 
-### `KoForeach`
+function Greeting({ name }: { name: ko.Observable<string> }) {
+  const value = useKoValue(name) // string。変化で再描画される
+  return <p>Hello, {value}!</p>
+}
+```
 
-`KoForeach` は render prop を取ります。関数は各アイテム、そのインデックス、
-そしてそのアイテムに対するバインディングルートを受け取ります。ルートを行自身の
-要素に展開すれば、行内の `data-bind` は行アイテムを直接参照します。バインドを
-持たない行は第 3 引数を無視できます。
+渡すのは observable であって、その値ではありません。`useKoValue(vm.name)` は購読しますが、
+`vm.name()` は 1 度読むだけで以後更新されません。
+
+オプショナルなソースは形を保ちます。`ko.Observable<string> | undefined` を渡せば
+`string | undefined` が返ります。observable array は `T[] | null | undefined` を返します —
+実行時に実際そうなり得るからです。空配列にフォールバックしたい場合は呼び出し側で守ります:
+
+```tsx
+const items = useKoValue(vm.items) ?? []
+```
+
+Knockout の遅延更新モード（`ko.options.deferUpdates = true`）にも対応しています。値は
+遅延通知が走ったときに届きます。
+
+---
+
+## リスト: `KoForeach`
+
+`KoForeach` は render prop をアイテムごとに 1 回呼び、そのアイテムに対するバインディング
+ルートを渡します。行自身の要素に展開してください:
 
 ```tsx
 import ko from 'knockout'
-import { KoForeach, RootKnockoutProvider } from 'react-ko'
+import { KoForeach, useKoBind } from 'react-ko'
 
 type Todo = {
   title: ko.Observable<string>
@@ -266,224 +158,114 @@ type Todo = {
 
 const vm = { todos: ko.observableArray<Todo>([]) }
 
-<RootKnockoutProvider viewModel={vm}>
-  <ul>
-    <KoForeach items={vm.todos}>
-      {(todo, index, bind) => (
-        <li {...bind}>
-          <span>{index + 1}.</span>
-          <input type="checkbox" data-bind="checked: done" />
-          <input data-bind="value: title" />
-          <button onClick={() => vm.todos.remove(todo)}>削除</button>
-        </li>
-      )}
-    </KoForeach>
-  </ul>
-</RootKnockoutProvider>
-```
+function Todos() {
+  const bind = useKoBind(vm)
 
-- `items` は可変・読み取り専用の配列を受け付け、observable や computed
-  の配列も指定できます。素の値、observable、computed のいずれでも配列値に
-  `null` または `undefined` を指定でき、どちらも空のリストとして描画されます。
-- `$data` / `$index` / `$parent` の代わりに、関数引数とクロージャを
-  使います — 外側の変数（上の例の `vm`）はそのまま見え、行の中に React
-  コンポーネントを置けます。
-- 行のキーは `itemKey` があればそれを使い、なければオブジェクトは同一性と
-  出現順（同じ参照が複数あっても一意になります）を使い、プリミティブは
-  index にフォールバックします。行が状態を持ちアイテムがプリミティブな
-  場合は `itemKey` を渡してください。
-- 行の要素は利用側のものです。上の例では各 `li` が `ul` の有効な直接の子であり、
-  `KoForeach` はその周りに何も追加しません。
-
-`select`、`tbody`、`tr` のような制限された親の下でも、特別なモードは要りません。
-行の要素が利用側のものだからです：
-
-```tsx
-<select>
-  <KoForeach items={vm.choices} itemKey={(choice) => choice.id}>
-    {(_choice, _index, bind) => <option {...bind} data-bind="text: label, value: id" />}
-  </KoForeach>
-</select>
-```
-
-ホストもコメント範囲も追加されません。`option` 自体が行のバインディングルート兼
-dispose 境界になります。そのため、サーバーが描画する `select` の直下には `option`
-要素しかなく、hydration はそれらの要素を再利用してからバインディングを取り付けます。
-返された各要素の所有者は引き続き React です。空の要素の内容を `text`、`html`、
-`component`、`options` で Knockout に所有させることはできますが、React が描画した
-children を制御するバインディングは、通常どおり descendant-controller の監査で
-拒否されます。
-
-ネストは普通の JSX として書けます：
-
-```tsx
-<KoForeach items={vm.groups}>
-  {(group) => (
-    <section>
-      <h2 data-bind="text: name" />
-      <KoForeach items={group.items}>
-        {(item) => <Row item={item} group={group} />}
+  return (
+    <ul {...bind}>
+      <KoForeach items={vm.todos}>
+        {(todo, index, rowBind) => (
+          <li {...rowBind}>
+            <span>{index + 1}.</span>
+            <input type="checkbox" data-bind="checked: done" />
+            <input data-bind="value: title" />
+            <button onClick={() => vm.todos.remove(todo)}>Remove</button>
+          </li>
+        )}
       </KoForeach>
-    </section>
-  )}
-</KoForeach>
+    </ul>
+  )
+}
 ```
 
-### `KoIf` / `KoIfNot`
+- `items` は可変・読み取り専用の配列に加え、observable や computed も受け付けます。配列値が
+  `null` や `undefined` のときは空のリストになります。
+- バインドしない行は第 3 引数を無視できます。どちらの場合も DOM には何も追加されないので、
+  `select`・`tbody`・`tr` でも特別な扱いは要りません。
+- `$data` / `$index` / `$parent` の代わりに、関数引数とクロージャを使います。外側の変数は
+  そのまま見え、行の中に React コンポーネントを置けます。
+- 行のキーは `itemKey` があればそれを使い、なければオブジェクトは同一性と出現順（同じ参照が
+  複数あっても一意になります）、プリミティブは index にフォールバックします。行が状態を持ち
+  アイテムがプリミティブな場合は `itemKey` を渡してください。
 
-条件が true（`KoIf`）または false（`KoIfNot`）の間だけ children を描画
-します。`condition` は Knockout observable、computed、または素の boolean を
-受け付けます。children 内の `data-bind` は外側スコープの ViewModel を参照します。
-
-```tsx
-import ko from 'knockout'
-import { KoIf, RootKnockoutProvider } from 'react-ko'
-
-const vm = {
-  isVisible: ko.observable(true),
-  message: ko.observable('こんにちは')
-}
-
-<RootKnockoutProvider viewModel={vm}>
-  <KoIf condition={vm.isVisible}>
-    <p data-bind="text: message" />
-  </KoIf>
-</RootKnockoutProvider>
-```
-
-### `KoWith`
-
-nullish でない値の children を描画し、返された JSX をその値にバインドします。
-render prop が `$data` の代わりになり、外側スコープの値にはクロージャを使えます。
-`value` は observable、computed、または nullable な素の値を受け付けます。
-`false`、`0`、`''` などの falsy 値も、有効な値として扱います。
+条件分岐は普通の React です。値は `useKoValue` が既に返しているからです:
 
 ```tsx
-import ko from 'knockout'
-import { KoWith, RootKnockoutProvider } from 'react-ko'
+const visible = useKoValue(vm.visible)
 
-type Todo = { title: ko.Observable<string> }
-
-const vm = {
-  selectedTodo: ko.observable<Todo | null>({
-    title: ko.observable('ドキュメントを書く')
-  })
-}
-
-<RootKnockoutProvider viewModel={vm}>
-  <KoWith value={vm.selectedTodo}>
-    {() => (
-      <section>
-        <input data-bind="value: title" />
-        <button onClick={() => vm.selectedTodo(null)}>削除</button>
-      </section>
-    )}
-  </KoWith>
-</RootKnockoutProvider>
+return visible ? <section {...bind}>…</section> : null
 ```
 
 ---
 
-## useAppViewModel
+## 後から現れる子: `KnockoutScope`
 
-Provider と型が結びついた安全な経路には、対応する Provider とフックを一度作成します。
-ViewModel の型は作成時に固定されるため、フックの使用時に無関係な型へ置き換えられません。
+`useKoBind` は渡された要素を ref 経由でバインドします。React は ref を子から順に attach し、
+コンポーネント自身の effect は子孫の後に走るため、ref から取ったルートは自分のサブツリーを
+最後に知ることになります。ほとんどの場面では見えませんが、2 つの場合に効いてきます — 初回
+コミットで子孫の layout effect が Knockout 所有の DOM に書き込む場合と、子が現れるのと同じ
+コミットで ViewModel が差し替わる場合です。
+
+`KnockoutScope` はホストの前に不活性なマーカーを描画します。最初の子の ref と effect は
+兄弟より先に走るので、これらの場合も正しくバインドできます:
 
 ```tsx
-import { createAppViewModelContext, RootKnockoutProvider } from 'react-ko'
+import { KnockoutScope } from 'react-ko'
 
-type AppViewModel = { title: string }
-const TypedAppViewModelContext = createAppViewModelContext<AppViewModel>()
-const vm: AppViewModel = { title: 'Hello' }
-
-function Title() {
-  const vm = TypedAppViewModelContext.useAppViewModel() // AppViewModel
-  return <h1>{vm.title}</h1>
-}
-
-<TypedAppViewModelContext.Provider value={vm}>
-  <RootKnockoutProvider viewModel={vm}>
-    <Title />
-  </RootKnockoutProvider>
-</TypedAppViewModelContext.Provider>
+<KnockoutScope viewModel={vm}>
+  <LazyPanel />
+</KnockoutScope>
 ```
 
-対応する Provider がない場合、フックは例外をスローします。従来の
-`useAppViewModel<T>()` と `AppViewModelContext.Provider` は v3 でも利用できますが、
-フックのジェネリック型は未検査の型アサーションであり、非推奨です。指定した ViewModel は
-そのまま返され、`T` に含めれば `null` と `undefined` も有効な値として扱われます。
+ホストは `display: contents` を付けた素の `div` です。それ以外の要素にしたい場合は、
+`useKoBind` で利用側の要素を使ってください。
 
 ---
 
-## useKoValue
+## ViewModel をサブツリーに配る
 
-Knockout の observable / computed / 素の値を React の state として読み
-ます。現在値を返し、変更されるとコンポーネントを再レンダーします。
-Knockout の値を React の世界（JSX の補間、effect の依存配列、props への
-受け渡し）へ持ち込む唯一の正規ルートです。
+これは普通の React なので、react-ko は提供しません:
 
 ```tsx
-import type * as ko from 'knockout'
-import { useKoValue } from 'react-ko'
+import { createContext, useContext } from 'react'
 
-function Greeting({ name }: { name: ko.Observable<string> }) {
-  const value = useKoValue(name) // string 型、変更で再レンダー
-  return <p>Hello, {value}!</p>
+const AppViewModelContext = createContext<AppViewModel | null>(null)
+
+export function useAppViewModel() {
+  const viewModel = useContext(AppViewModelContext)
+  if (viewModel === null) throw new Error('Missing provider')
+  return viewModel
 }
 ```
 
-optional なソースは形を保ちます: `ko.Observable<string> | undefined` 型の
-プロパティに `useKoValue` を使うと `string | undefined` が返ります。
-Knockout の遅延更新モード（`ko.options.deferUpdates = true`）はライブラリ
-全体でサポートされており、値は遅延通知の実行時に反映されます。
+スターターに実例があります。
 
 ---
 
 ## v2 からの移行
 
-v3 では、配列ソースの宣言上の戻り値型を従来からの実行時動作に合わせました。
-`useKoValue(ko.ObservableArray<T>)` は `T[] | null | undefined` を返すように
-なったため、直ちに `.length` を読んだり `.map()` を呼んだりして、必ず配列で
-あると仮定するコードは型チェックを通らなくなります。空配列をフォールバックに
-したい場合は、呼び出し箇所で次のようにガードしてください：
+v3 はスコープコンポーネントを hook に置き換えます。原則は 1 つ — これまでコンポーネントが
+ホストを描画していた場所では、バインドしたい要素に `useKoBind` を展開します。
 
-```tsx
-const items = useKoValue(vm.items) ?? []
-```
+| v2 | v3 |
+|----|----|
+| `<RootKnockoutProvider viewModel={vm}>…</RootKnockoutProvider>` | `<div {...useKoBind(vm)}>…</div>` |
+| `<KnockoutScope viewModel={vm}>…</KnockoutScope>` | `<div {...useKoBind(vm)}>…</div>`。後から現れる子がある場合は `KnockoutScope` のまま |
+| `<KoIf condition={c}>…</KoIf>` | `useKoValue(c) ? … : null` |
+| `<KoIfNot condition={c}>…</KoIfNot>` | `useKoValue(c) ? null : …` |
+| `<KoWith value={v}>{(x) => …}</KoWith>` | `const x = useKoValue(v)` の後 `x ? <div {...useKoBind(x)}>…</div> : null` |
+| `<KoForeach>{(item, i) => …}</KoForeach>` | `<KoForeach>{(item, i, bind) => …}</KoForeach>` |
+| `boundaryAs` / `as` / `bindingMode` | 廃止。要素が利用側のものなら、そのタグも利用側のもの |
+| `SemanticHost`、`SemanticHostProps` | 上記と一緒に廃止 |
+| `createAppViewModelContext`、`useAppViewModel`、`AppViewModelContext` | 上記のとおり、素の React context |
 
-この変更は `ko.ObservableArray` ソースだけに適用されます。配列以外の
-オーバーロードは変更されず、nullish な配列値は実行時に従来どおりそのまま
-返されます。
-
-`textarea`、`title`、`template`、`script`、`head`、`body`、`html`、`keygen` も
-セマンティックホストとして型チェックを通らなくなりました。これにより公開型とランタイムの
-ガードが一致します。既知の void 要素と `svg`、`math` のルートは、すでに `SemanticHost` から
-除外されていました。代わりに `div` や `span` などの通常の要素をホストとして使い、制限対象の
-要素はスコープの内側に配置してください。
-
----
-
-## v1 からの移行
-
-v2 には破壊的変更が含まれます：
-
-- **`KoForeach` の children が関数になりました** `(item, index) => ReactNode`。
-  v1 の形式（素の JSX を Knockout の `foreach:` に委譲）は廃止です —
-  React が所有する DOM を Knockout が複製する構造だったためです。
-- **`KoIfComment` / `KoIfNotComment` / `KoForeachComment` は予告どおり
-  削除されました。** `KoIf` / `KoIfNot` / `KoForeach` を使ってください。
-- **各 `KnockoutScope` が独立したバインディングルートになりました。**
-  スコープ内の `$root` はそのスコープ自身の ViewModel を指し、`$parent`
-  はスコープ境界を越えません。props とクロージャを使ってください。
-- **`KoIf` / `KoIfNot` の children 内の `data-bind`** は外側スコープの
-  ViewModel に対して解決されるようになりました（以前は condition を
-  保持する内部ラッパーオブジェクトを参照していました）。
+`useKoValue` は変更ありません。
 
 ---
 
 ## なぜ react-ko？
 
-従来の React：
+react-ko なし（素の React）:
 
 ```tsx
 <input
@@ -493,14 +275,14 @@ v2 には破壊的変更が含まれます：
 />
 ```
 
-react-ko を使うと：
+react-ko あり:
 
 ```tsx
 <input data-bind="value: value, style: { color: color }" />
 ```
 
-`data-bind` で扱う DOM の振る舞いには、React のイベントやローカル state の記述は不要。
-Knockout の observable に任せるだけで、UI がリアクティブに更新されます。
+`data-bind` で扱う DOM の振る舞いについては、React のイベント配線もローカル state の管理も
+要りません。モダンな React の中でも、Knockout の observable に仕事をさせられます。
 
 ---
 
@@ -511,21 +293,21 @@ npm install
 npm run build
 ```
 
-リポジトリのフックはクローンごとに一度有効化してください：
+クローンごとに 1 度、リポジトリのフックを有効にしてください:
 
 ```bash
 git config core.hooksPath .githooks
 ```
 
-スターターは npm workspaces なので、ルートで install すれば公開前でも
-ローカルのライブラリを参照してそのまま動かせます：
+スターターは npm workspace です。ルートで install すれば、publish せずにローカルの
+ライブラリに対して動きます。
 
 ```bash
 npm run dev --workspace=starter/ts
 ```
 
-このリポジトリを保守する自律改善ループは `orchestration/` にあります。
-起動と再開の方法は `orchestration/CLAUDE.md` を参照してください。
+このリポジトリを保守する自律改善ループは `orchestration/` にあります。実行と再開の方法は
+`orchestration/CLAUDE.md` を参照してください。
 
 ---
 

@@ -4,7 +4,7 @@ import { hydrateRoot, type Root } from 'react-dom/client'
 import { renderToString } from 'react-dom/server'
 import ko from 'knockout'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { KoForeach, KoIf, KoIfNot, KoWith } from '@/index'
+import { KoForeach } from '@/index'
 import { BindingHost } from '../../fixtures/bindingHost'
 
 type Row = {
@@ -244,9 +244,9 @@ describe('structural element binding mode', () => {
       return (
         <ErrorBoundary>
           <BindingHost viewModel={{}}>
-            <KoIf condition bindingMode="element">
-              <div data-testid="element-scope" />
-            </KoIf>
+            <KoForeach items={[{ label: 'row' }]}>
+              {(_item, _index, bind) => <div {...bind} data-testid="element-scope" />}
+            </KoForeach>
           </BindingHost>
         </ErrorBoundary>
       )

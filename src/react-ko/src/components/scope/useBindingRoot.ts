@@ -37,8 +37,6 @@ type ActiveBinding = {
   parentGeneration: number
 }
 
-const UNBOUND_BINDING = Symbol('unbound')
-
 function BindingCommitMarker({
   onCommit,
   onActivate,
@@ -57,18 +55,14 @@ function BindingCommitMarker({
 export function useBindingRoot(
   viewModel: unknown,
   parentGeneration: number,
-  onError: (error: unknown) => void,
-  notifyBindingEstablished = false,
-  bindingIdentity: unknown = undefined
+  onError: (error: unknown) => void
 ) {
   const containerNode = useRef<HTMLElement | null>(null)
   const activeBinding = useRef<ActiveBinding | null>(null)
   const pendingBindingReplacement = useRef(false)
   const replacedBinding = useRef(false)
-  const bindingEstablishedIdentity = useRef<unknown>(UNBOUND_BINDING)
   const synchronizeBindingForCommit = useRef(synchronizeBinding)
   const refreshInitialBinding = useRef(false)
-  const [, setBindingEstablishedVersion] = useState(0)
   const [generation, setGeneration] = useState(0)
 
   function disposeBinding() {
@@ -134,14 +128,6 @@ export function useBindingRoot(
       for (const node of nodes) unregisterBindingRoot(node)
       throw error
     }
-    if (
-      notifyBindingEstablished &&
-      !Object.is(bindingEstablishedIdentity.current, bindingIdentity)
-    ) {
-      bindingEstablishedIdentity.current = bindingIdentity
-      setBindingEstablishedVersion((current) => current + 1)
-    }
-
     if (replacing) {
       // Cleaning an ancestor also cleans nested binding roots. Restore them now
       // so their layout effects never observe a temporarily unbound subtree.
@@ -293,24 +279,6 @@ export function useBindingRoot(
     onActivate: activateBindingHost,
   })
 
-  // What the commit marker announces for a root that renders one: this binding is being
-  // replaced, so the descendant observer must leave the subtree alone rather than rebind
-  // a child against the view model on its way out. A root whose host comes from a
-  // caller's ref renders no marker, and an effect is already too late -- the observer
-  // reaches a child added by this commit first, and binds it against the outgoing view
-  // model. Rendering happens before any of that, so the announcement is made here, and
-  // withdrawn at the end of the commit -- see the layout effect below.
-  {
-    const active = activeBinding.current
-    if (
-      active !== null &&
-      (!Object.is(active.viewModel, viewModel) ||
-        active.parentGeneration !== parentGeneration)
-    ) {
-      pendingBindingReplacement.current = true
-    }
-  }
-
   // On updates, refs are already attached and insertion effects run before all
   // layout effects. The layout pass remains as a fallback for the host ref and
   // for commits where the first-child marker did not attach.
@@ -326,19 +294,6 @@ export function useBindingRoot(
 
   useLayoutEffect(() => {
     synchronizeBinding()
-
-    // The announcement raised during render covers this commit only. A replacement that
-    // was rendered but never applied -- interrupted by Suspense, and still rendered on
-    // every commit after -- would otherwise keep the observer muted for good, leaving a
-    // child that arrives later unbound. Withdrawing it is not enough on its own: the
-    // observer has already passed over that child, so the binding it skipped is taken up
-    // here, against the view model the root is still bound to.
-    if (pendingBindingReplacement.current) {
-      pendingBindingReplacement.current = false
-      for (const root of activeBinding.current?.roots ?? []) {
-        reconcileBindingDescendants(root.node)
-      }
-    }
 
     if (replacedBinding.current) {
       replacedBinding.current = false
@@ -375,9 +330,5 @@ export function useBindingRoot(
     bindingContainer: activateBindingHost,
     bindingCommitMarker,
     generation,
-    bindingEstablished: Object.is(
-      bindingEstablishedIdentity.current,
-      bindingIdentity
-    ),
   }
 }

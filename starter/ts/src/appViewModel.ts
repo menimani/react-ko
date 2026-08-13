@@ -1,5 +1,5 @@
+import { createContext, useContext } from 'react'
 import ko from 'knockout'
-import { createAppViewModelContext } from 'react-ko'
 
 export class AppViewModel {
   count: ko.Observable<number> = ko.observable(0)
@@ -9,4 +9,17 @@ export class AppViewModel {
   increment = () => this.count(this.count() + 1)
 }
 
-export const AppViewModelContext = createAppViewModelContext<AppViewModel>()
+// Reaching the ViewModel from anywhere in the tree is plain React, so it is written
+// here rather than taken from react-ko: a context, and a hook that refuses to guess.
+const Context = createContext<AppViewModel | null>(null)
+
+export const AppViewModelContext = {
+  Provider: Context.Provider,
+  useAppViewModel(): AppViewModel {
+    const viewModel = useContext(Context)
+    if (viewModel === null) {
+      throw new Error('useAppViewModel must be used within its Provider.')
+    }
+    return viewModel
+  },
+}
