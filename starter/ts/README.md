@@ -42,15 +42,17 @@ npx degit menimani/react-ko/starter/js my-app-js
 const itemCount = (useKoValue(vm.list) ?? []).length
 
 <ul>
-  <KoForeach items={vm.list} itemKey={(todo) => todo.id} boundaryAs="li" as="div">
-    {(_todo, index) => <div>{index + 1}. <span data-bind="text: title" /></div>}
+  <KoForeach items={vm.list} itemKey={(todo) => todo.id}>
+    {(_todo, index, bind) => (
+      <li {...bind}>{index + 1}. <span data-bind="text: title" /></li>
+    )}
   </KoForeach>
 </ul>
 ```
 
-`boundaryAs` makes every row a semantic `li` directly under the `ul`; `as`
-selects its inner binding host. Use `boundaryAs="span" as="span"` for a scope
-inside phrasing-only content such as a `button`.
+Each row receives its own binding root as the third argument and spreads it onto
+its own element, so the row is the semantic `li` directly under the `ul` and
+nothing is added to the DOM. A row that binds nothing can ignore the argument.
 
 See [`src/components/TodoForm.tsx`](./src/components/TodoForm.tsx) for the
 full example, and the [react-ko README](https://github.com/menimani/react-ko/blob/main/README.md) for the API.

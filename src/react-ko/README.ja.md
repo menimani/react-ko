@@ -81,7 +81,9 @@ const viewModel = {
 スコープは、外側のバインディング境界と内側のバインディングルートという2つの
 非スタイルホスト要素をレンダーします。既定値はどちらも `div` です。`div` が有効でない
 位置では `boundaryAs` と `as` でセマンティックな HTML を選択できます。同じ prop は
-`RootKnockoutProvider`、`KoIf`、`KoIfNot`、`KoForeach`、`KoWith` でも使えます。
+`RootKnockoutProvider`、`KoIf`、`KoIfNot`、`KoWith` でも使えます。`KoForeach` は
+自前のホストをレンダーしません。行は render prop が受け取るバインディングルートを
+通じてバインドされます。
 
 ```tsx
 <button>
@@ -248,9 +250,10 @@ Knockout が所有する内容を消去するため拒否されます。一方�
 
 ### `KoForeach`
 
-`KoForeach` は render prop を取ります。関数は各アイテムとそのインデックスを
-受け取り、返した JSX はそのアイテムにバインドされます — 行内の `data-bind`
-は行アイテムを直接参照できます。
+`KoForeach` は render prop を取ります。関数は各アイテム、そのインデックス、
+そしてそのアイテムに対するバインディングルートを受け取ります。ルートを行自身の
+要素に展開すれば、行内の `data-bind` は行アイテムを直接参照します。バインドを
+持たない行は第 3 引数を無視できます。
 
 ```tsx
 import ko from 'knockout'
@@ -265,14 +268,14 @@ const vm = { todos: ko.observableArray<Todo>([]) }
 
 <RootKnockoutProvider viewModel={vm}>
   <ul>
-    <KoForeach items={vm.todos} boundaryAs="li" as="div">
-      {(todo, index) => (
-        <div>
+    <KoForeach items={vm.todos}>
+      {(todo, index, bind) => (
+        <li {...bind}>
           <span>{index + 1}.</span>
           <input type="checkbox" data-bind="checked: done" />
           <input data-bind="value: title" />
           <button onClick={() => vm.todos.remove(todo)}>削除</button>
-        </div>
+        </li>
       )}
     </KoForeach>
   </ul>
@@ -289,34 +292,27 @@ const vm = { todos: ko.observableArray<Todo>([]) }
   出現順（同じ参照が複数あっても一意になります）を使い、プリミティブは
   index にフォールバックします。行が状態を持ちアイテムがプリミティブな
   場合は `itemKey` を渡してください。
-- `boundaryAs` と `as` は各行の2つのホストを選択します。上の例では外側の
-  `li` が `ul` の有効な直接の子になり、コールバックは別の `li` ではなくその内容を返します。
+- 行の要素は利用側のものです。上の例では各 `li` が `ul` の有効な直接の子であり、
+  `KoForeach` はその周りに何も追加しません。
 
-`select`、`tbody`、`tr` のようにスコープホストを子にできない親の下では、
-`bindingMode="element"` を明示し、各行が返す単一の組み込み HTML 要素を直接
-バインドします：
+`select`、`tbody`、`tr` のような制限された親の下でも、特別なモードは要りません。
+行の要素が利用側のものだからです：
 
 ```tsx
 <select>
-  <KoForeach items={vm.choices} bindingMode="element" itemKey={(choice) => choice.id}>
-    {() => <option data-bind="text: label, value: id" />}
+  <KoForeach items={vm.choices} itemKey={(choice) => choice.id}>
+    {(_choice, _index, bind) => <option {...bind} data-bind="text: label, value: id" />}
   </KoForeach>
 </select>
 ```
 
-element モードはホストもコメント範囲も追加しません。`option` 自体が行の
-バインディングルート兼 dispose 境界になります。そのため、サーバーが描画する
-`select` の直下には `option` 要素しかなく、hydration はそれらの要素を再利用してから
-バインディングを取り付けます。返された各要素の所有者は引き続き React です。
-空の要素の内容を `text`、`html`、`component`、`options` で Knockout に所有させる
-ことはできますが、React が描画した children を制御するバインディングは、通常どおり
-descendant-controller の監査で拒否されます。
-
-このモードは明示的な opt-in であり、単一の組み込み HTML 要素を必要とします。
-外来コンテンツのルートである `svg` と `math` は拒否されます。`KoIf`、`KoIfNot`、
-`KoWith` でも利用でき、表示中または値が存在するときの child も同様に単一の
-組み込み HTML 要素でなければなりません。`boundaryAs` と `as` はデフォルトの hosted
-モード専用であり、`bindingMode="element"` とは併用できません。
+ホストもコメント範囲も追加されません。`option` 自体が行のバインディングルート兼
+dispose 境界になります。そのため、サーバーが描画する `select` の直下には `option`
+要素しかなく、hydration はそれらの要素を再利用してからバインディングを取り付けます。
+返された各要素の所有者は引き続き React です。空の要素の内容を `text`、`html`、
+`component`、`options` で Knockout に所有させることはできますが、React が描画した
+children を制御するバインディングは、通常どおり descendant-controller の監査で
+拒否されます。
 
 ネストは普通の JSX として書けます：
 
