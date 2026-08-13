@@ -29,6 +29,24 @@ const REJECTED_SEMANTIC_HOSTS = {
 
 type RejectedSemanticHost = keyof typeof REJECTED_SEMANTIC_HOSTS
 
+/**
+ * The names this module rejects as foreign content. Element binding mode rejects the
+ * same ones, and derives both its type and its runtime guard from here so a host is
+ * never classified in two places.
+ */
+export type ForeignContentHost = {
+  [Name in RejectedSemanticHost]: (typeof REJECTED_SEMANTIC_HOSTS)[Name] extends 'foreign-content'
+    ? Name
+    : never
+}[RejectedSemanticHost]
+
+export function isForeignContentHost(name: string) {
+  return (
+    REJECTED_SEMANTIC_HOSTS[name.toLowerCase() as RejectedSemanticHost] ===
+    'foreign-content'
+  )
+}
+
 const NON_VOID_SEMANTIC_HOST_NAMES = [
   'acronym',
   'applet',
