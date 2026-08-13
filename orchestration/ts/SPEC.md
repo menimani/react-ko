@@ -481,13 +481,3 @@ so authorship and verified ancestry must both hold.
     The shared-work label state machine is `loop:ready` → `loop:in-progress` →
     `loop:merge-ready` → closed or `loop:merge-failed`; inspections take the intentional
     `loop:in-progress` → closed shortcut.
-
-## Test parity
-
-Each bash test file maps to a vitest suite: `test-lib` → id/slug/status helpers,
-`test-loop-gate` → gate state machine (cycle flags, CI outcomes, review rounds, final
-promotion, stop conditions), `test-loop-branch-state` → run-branch bookkeeping,
-`test-pr-body` → commit classification and section building, `test-task-delegate` /
-`test-task-enqueue` / `test-task-status` / `test-task-prune` / `test-checks` → their
-namesakes. The gate suite is the load-bearing one; port it first and keep its cases
-1:1 so the state machine is proven equivalent before anything else moves.
