@@ -57,6 +57,42 @@ describe('createAppViewModelContext', () => {
     expect(received).toBe(vm)
   })
 
+  it('returns null supplied by its matching Provider', () => {
+    const NullAppViewModelContext = createAppViewModelContext<null>()
+    let received: unknown = Symbol('not captured')
+
+    function NullConsumer() {
+      received = NullAppViewModelContext.useAppViewModel()
+      return null
+    }
+
+    render(
+      <NullAppViewModelContext.Provider value={null}>
+        <NullConsumer />
+      </NullAppViewModelContext.Provider>
+    )
+
+    expect(received).toBe(null)
+  })
+
+  it('returns undefined supplied by its matching Provider', () => {
+    const UndefinedAppViewModelContext = createAppViewModelContext<undefined>()
+    let received: unknown = Symbol('not captured')
+
+    function UndefinedConsumer() {
+      received = UndefinedAppViewModelContext.useAppViewModel()
+      return null
+    }
+
+    render(
+      <UndefinedAppViewModelContext.Provider value={undefined}>
+        <UndefinedConsumer />
+      </UndefinedAppViewModelContext.Provider>
+    )
+
+    expect(received).toBe(undefined)
+  })
+
   it('throws when used outside its matching Provider', () => {
     expect(() => render(<TypedConsumer />)).toThrow(
       'useAppViewModel must be used within its matching Provider.'
