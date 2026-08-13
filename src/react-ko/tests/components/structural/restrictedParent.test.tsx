@@ -334,4 +334,26 @@ describe('structural element binding mode', () => {
       consoleError.mockRestore()
     }
   })
+
+  it.each(['svg', 'math'] as const)(
+    'rejects the foreign-content root <%s> in element mode',
+    (host) => {
+      const consoleError = vi
+        .spyOn(console, 'error')
+        .mockImplementation(() => undefined)
+      try {
+        expect(() =>
+          render(
+            <RootKnockoutProvider viewModel={{}}>
+              <KoIf condition bindingMode="element">
+                {React.createElement(host) as never}
+              </KoIf>
+            </RootKnockoutProvider>
+          )
+        ).toThrow(/requires one intrinsic HTML element/)
+      } finally {
+        consoleError.mockRestore()
+      }
+    }
+  )
 })

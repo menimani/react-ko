@@ -4,11 +4,18 @@ import { Component, type ReactNode, useLayoutEffect, useRef, useState } from 're
 import ko from 'knockout'
 import { RootKnockoutProvider, KnockoutScope } from '@/index'
 
-class ErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+class ErrorBoundary extends Component<
+  { children: ReactNode; onError?: (error: unknown) => void },
+  { failed: boolean }
+> {
   state = { failed: false }
 
   static getDerivedStateFromError() {
     return { failed: true }
+  }
+
+  componentDidCatch(error: unknown) {
+    this.props.onError?.(error)
   }
 
   render() {
@@ -412,6 +419,49 @@ describe('observeBindingDescendants', () => {
     })
 
     await waitFor(() => expect(screen.getByText('Binding failed')).toBeDefined())
+  })
+
+  it('surfaces a post-layout rebind error and cleans the failed binding root', async () => {
+    const expectedError = new Error('Post-layout binding failed')
+    const label = ko.observable('Subscribed')
+    const caught = vi.fn()
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    let failRebind = false
+    const vm = {
+      label,
+      get title() {
+        if (failRebind) throw expectedError
+        return 'Knockout title'
+      },
+    }
+
+    function Harness() {
+      const owner = useRef<HTMLSpanElement>(null)
+
+      useLayoutEffect(() => {
+        failRebind = true
+        owner.current?.setAttribute('title', 'React layout title')
+      }, [])
+
+      return (
+        <ErrorBoundary onError={caught}>
+          <RootKnockoutProvider viewModel={vm}>
+            <span data-bind="text: label" />
+            <span ref={owner} data-bind="attr: { title: title }" />
+          </RootKnockoutProvider>
+        </ErrorBoundary>
+      )
+    }
+
+    try {
+      render(<Harness />)
+
+      await waitFor(() => expect(screen.getByText('Binding failed')).toBeDefined())
+      expect(caught).toHaveBeenCalledExactlyOnceWith(expectedError)
+      expect(label.getSubscriptionsCount()).toBe(0)
+    } finally {
+      consoleError.mockRestore()
+    }
   })
 
   it('binds nodes added through insertBefore', async () => {

@@ -313,9 +313,10 @@ element モードはホストもコメント範囲も追加しません。`optio
 descendant-controller の監査で拒否されます。
 
 このモードは明示的な opt-in であり、単一の組み込み HTML 要素を必要とします。
-`KoIf`、`KoIfNot`、`KoWith` でも利用でき、表示中または値が存在するときの child も
-同様に単一の組み込み要素でなければなりません。`boundaryAs` と `as` はデフォルトの
-hosted モード専用であり、`bindingMode="element"` とは併用できません。
+外来コンテンツのルートである `svg` と `math` は拒否されます。`KoIf`、`KoIfNot`、
+`KoWith` でも利用でき、表示中または値が存在するときの child も同様に単一の
+組み込み HTML 要素でなければなりません。`boundaryAs` と `as` はデフォルトの hosted
+モード専用であり、`bindingMode="element"` とは併用できません。
 
 ネストは普通の JSX として書けます：
 
@@ -412,7 +413,7 @@ function Title() {
 ```
 
 対応する Provider がない場合、フックは例外をスローします。従来の
-`useAppViewModel<T>()` と `AppViewModelContext.Provider` は v2 でも利用できますが、
+`useAppViewModel<T>()` と `AppViewModelContext.Provider` は v3 でも利用できますが、
 フックのジェネリック型は未検査の型アサーションであり、非推奨です。指定した ViewModel は
 そのまま返され、`T` に含めれば `null` と `undefined` も有効な値として扱われます。
 
