@@ -210,6 +210,18 @@ export function useBindingRoot(
       return
     }
 
+    // A caller that renders the bound element conditionally keeps this hook mounted
+    // while the element itself leaves the document. Detaching a ref reports no reason,
+    // so the removal is recognised here instead: a disconnected host can hold no live
+    // binding, and rebinding it would leave subscriptions on a node nobody can see.
+    // Checking the node rather than the ref call also leaves a same-commit re-attach
+    // alone, where the ref is detached and reattached around a node that never left.
+    if (!node.isConnected) {
+      containerNode.current = null
+      disposeBinding()
+      return
+    }
+
     const active = activeBinding.current
     if (active !== null) {
       if (
@@ -260,7 +272,15 @@ export function useBindingRoot(
   // On updates, refs are already attached and insertion effects run before all
   // layout effects. The layout pass remains as a fallback for the host ref and
   // for commits where the first-child marker did not attach.
-  useInsertionEffect(synchronizeBinding)
+  useInsertionEffect(() => {
+    // A caller that attaches the host from a ref of its own renders no commit marker,
+    // so this is where its commit-time closure is refreshed. Insertion effects run in
+    // the mutation phase and refs attach in the layout phase, so a host attached this
+    // commit still binds against the view model this commit was rendered with rather
+    // than the one the previous commit left behind.
+    synchronizeBindingForCommit.current = synchronizeBinding
+    synchronizeBinding()
+  })
 
   useLayoutEffect(() => {
     synchronizeBinding()
