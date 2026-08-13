@@ -44,20 +44,26 @@ A daemon otherwise runs the code it started with. A dirty working tree or confli
 pull is left for the consumer to resolve: the daemon warns and starts the cycle on the
 old code instead of merging local divergence.
 
-That same boundary syncs the skills declared in `skills/manifest.json` into the
-repository root at `.claude/skills/`. Loop commands are rendered for the installed
-package location (`npm run` here, `npm run -C orchestration/ts` in the layout below).
+That same boundary syncs the skills declared in `skills/manifest.json` into every
+directory an agent working in the repository reads them from. The selected runner adapter
+supplies one — the bundled Codex adapter uses `.agents/skills/` and rewrites the sources
+into Codex's own form — and `.claude/skills/` receives them for the interactive agent a
+person drives, in the canonical form that agent already speaks. Serving only the runner
+meant that selecting Codex silently took every shared workflow away from the person, so
+one destination failing no longer costs the others theirs. Loop commands are rendered for
+the installed package location (`npm run` here, `npm run -C orchestration/ts` in the
+layout below).
 The sync tracks the exact content it generated: a consumer edit, deletion, or added
 support file is reported and retained, while repository skills absent from the manifest
-are never touched. Canonical skills live outside a nested `.claude/skills/` directory,
+are never touched. Canonical skills live outside a nested runner skill directory,
 so importing the package does not expose a second qualified copy of each shared skill.
 
 Nothing here decides that shipping is safe. Deployment stays a human action.
 
-## The three adapters
+## Consumer adapters
 
 The core knows nothing about your forge, your agent CLI, or your repository. Three seams
-carry all of that:
+carry the consumer-selected parts of that:
 
 | Adapter | Selector | Valid selector value | Bundled implementation | Replace it to… |
 |---------|----------|----------------------|------------------------|----------------|
@@ -89,6 +95,13 @@ deleted paths, and an on-demand diff reader; the adapter supplies the repository
 vocabulary and path rules. If the repository intentionally has no PR checks, it may
 explicitly declare
 `ciChecksExpected: false`; otherwise zero checks never satisfy an enabled CI gate.
+The core-owned pre-commit hook keeps its branch guard repository-neutral by reading the
+tracking remote's advertised default branch. It fails closed when that branch cannot be
+resolved, so repositories using names such as `trunk` receive the same protection without
+putting repository-specific branch names in the core.
+
+Operating-system behavior has its own internal adapter. The core detects Windows or
+POSIX once when it starts; it is not a consumer choice and has no environment selector.
 
 ## Using it
 
@@ -102,8 +115,9 @@ node orchestration/ts/src/cli.ts init <project-name>
 The subtree command is intentionally manual: it makes the imported commit visible. After
 that one deliberate import, `init` is the supported setup and repair path. It generates a
 contract-valid adapter, project templates, points `core.hooksPath` at the core-owned
-hooks, and creates missing `loop:*` labels. It is safe to repeat: existing project files
-and a deliberately different hooks setting are reported and never overwritten.
+hooks, and creates missing `loop:*` labels. It is safe to repeat: missing required adapter
+members are added with marked scaffold defaults, while declared members, other existing
+project files, and a deliberately different hooks setting are reported and never overwritten.
 
 Use the repository's `loop-setup` skill to collect the project-specific decisions, fill
 the generated adapter, and run `verify-setup`. The verifier reports the TypeScript gate,
@@ -150,6 +164,7 @@ git subtree pull --prefix=orchestration/ts \
 | `TASK_GATE` | full | `light` uses project-adapter-selected reduced checks for each merge, followed by the adapter's cycle suite once per cycle |
 | `AUTO_REVIEW` | false | Enable agent review of cycle diffs and queue the findings as fixes |
 | `REVIEW_EVERY_N_CYCLES` | 1 | With `AUTO_REVIEW=true`, review every Nth cycle and always review the final cycle |
+| `CI_GATE_ENABLED` | false | Enable polling PR checks and queueing CI-fix tasks; when false, the CI gate is skipped |
 | `ISSUE_QUEUE_ENABLED` | false | Keep the backlog in forge issues so several machines can share it |
 | `SCAN_EFFORT` / `TASK_EFFORT` / `REVIEW_EFFORT` | high / medium / high | Reasoning effort per kind of work |
 | `CORE_AUTO_UPDATE` | true | Check and pull the shared-core subtree immediately before each cycle; `false` skips the check entirely |
@@ -160,7 +175,10 @@ git subtree pull --prefix=orchestration/ts \
 
 With `ISSUE_QUEUE_ENABLED=true` the backlog moves to forge issues: findings are filed once
 per fingerprint, workers claim by self-assignment, quiet claims are reaped after a lease,
-and the merge commit closes the issue. A second machine runs execution-only with
+and the merge commit closes the issue. Ready titles naming the same primary file are claimed
+in groups of up to four; no-path titles remain singletons, and failed groups retry as
+individual findings. Each grouped requirement needs its own completion marker before the
+branch can merge and close every linked issue. A second machine runs execution-only with
 `worker <base-ref>` — it claims and executes, pushes finished branches, and never scans,
 reviews, or merges. Exactly one ordinary daemon owns the branch and adopts those pushes.
 
