@@ -13,6 +13,9 @@ import {
   assertNoReactUnsafeBindings,
 } from './applyBindingsSafely'
 import {
+  bindPendingDescendantRoots,
+  cancelPendingBinding,
+  deferBindingUntilAncestorBinds,
   observeBindingDescendants,
   prepareBindingDescendants,
   reconcileBindingDescendants,
@@ -69,6 +72,11 @@ export function useBindingRoot(
   const [generation, setGeneration] = useState(0)
 
   function disposeBinding() {
+    const host = containerNode.current
+    // A root waiting for an ancestor is dropped rather than left to bind into a tree
+    // it is no longer part of.
+    if (host !== null) cancelPendingBinding(host)
+
     const active = activeBinding.current
     if (active === null) {
       return
@@ -238,11 +246,27 @@ export function useBindingRoot(
 
       disposeBinding()
       pendingBindingReplacement.current = false
-      bind(bindingRoots(node), true)
+      bindWhenAncestorsHave(node, true)
       return
     }
 
-    bind(bindingRoots(node), false)
+    bindWhenAncestorsHave(node, false)
+  }
+
+  /**
+   * Knockout refuses a pass that reaches an already-bound element, and refuses it
+   * before this library's own exclusions are consulted, so a root inside another one
+   * cannot bind first. React attaches refs from the bottom up, which is exactly that
+   * order, so a root whose ancestor is still waiting steps aside and is bound by the
+   * ancestor once it has finished its own pass.
+   */
+  function bindWhenAncestorsHave(node: HTMLElement, replacing: boolean) {
+    const run = () => {
+      bind(bindingRoots(node), replacing)
+      bindPendingDescendantRoots(node)
+    }
+    if (deferBindingUntilAncestorBinds(node, run)) return
+    run()
   }
 
   // The inert template precedes the binding host inside the structural
