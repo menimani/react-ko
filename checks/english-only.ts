@@ -110,7 +110,8 @@ const walk = (dir: string): string[] =>
 // meant a new one was never checked. Files at the repository root are named explicitly
 // because walking the root would pull in every untracked working file with it.
 const ROOTS: string[] = [
-  'src', 'starter', 'e2e', 'orchestration', 'checks', '.claude', '.github', '.githooks',
+  'src', 'starter', 'e2e', 'docs', 'orchestration', 'checks',
+  '.claude', '.github', '.githooks',
 ]
 const ROOT_FILES: string[] = ['README.md', 'README.ja.md', 'CLAUDE.md', 'AGENTS.md']
 
