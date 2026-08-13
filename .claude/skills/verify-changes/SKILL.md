@@ -17,6 +17,11 @@ Changed paths:
 | anything outside `orchestration/` and `.githooks/` | `npm run test`, `npm run build` | repository root |
 | `orchestration/` | `npm run typecheck`, `npm run test` | `orchestration/ts` |
 | `README.md` or `README.ja.md` | read both side by side and confirm they still say the same thing | — |
+| anything | `node checks/english-only.ts` | repository root |
+
+The language check is cheap and repository-wide, so it runs whatever changed. It knows
+which paths are allowed to hold Japanese — the Japanese documentation, and the
+`orchestration/ts` subtree this repository does not own.
 
 The build is the type gate: tsup emits declarations, so a type error that the suite
 never touches fails there. A suite pass without a build pass proves nothing about the

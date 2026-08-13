@@ -64,12 +64,20 @@ the sanctioned route for reading a Knockout value as React state, which `KoForea
 identity and needs agreement first. Internal use of such mechanisms inside a component
 is fine; exporting them is the decision.
 
-## Both READMEs move together
+## English everywhere but the documentation
 
-`README.md` (English) and `README.ja.md` (Japanese) are translations of each other.
-A change to one is incomplete until the other says the same thing. This pair is where
-Japanese belongs; code, comments, tests, commit messages, and pull requests are written
-in English.
+Documentation is the one thing published in both languages. `README.md` (English) and
+`README.ja.md` (Japanese) are translations of each other, as are the English and Japanese
+pages of the documentation site: a change to one is incomplete until the other says the
+same thing. Everything else — code, comments, tests, commit messages, pull request titles
+and bodies — is written in English.
+
+Verify with `node checks/english-only.ts`, which knows those exceptions. It needs Node
+23.6 or later, because it runs as TypeScript with no build step. Do not grep for a CJK
+range instead: Git Bash on Windows mishandles it and reports every dash and arrow in the
+repository. The check starts from "not ASCII" and subtracts what English legitimately
+uses, so it also catches what a CJK range misses — full-width parentheses from a Japanese
+IME, a stray reference mark, a pasted zero-width space.
 
 ## dist/ is generated
 

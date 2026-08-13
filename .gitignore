@@ -5,6 +5,8 @@
 !tests/**/*
 !starter/
 !starter/**/*
+!checks/
+!checks/**/*
 
 !e2e/
 !e2e/**/*
