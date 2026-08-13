@@ -1,12 +1,6 @@
 import * as React from 'react'
 import type * as ko from 'knockout'
-import { KnockoutScope, useKoValue } from '@/index'
-import { ElementKnockoutScope } from '@/components/scope/ElementKnockoutScope'
-import type {
-  ElementBindingProps,
-  ElementChild,
-  HostedBindingProps,
-} from './bindingMode'
+import { useKoBind, useKoValue, type KoBindProps } from '@/index'
 
 type NullableItems<T> =
   | ko.Observable<T[] | null | undefined>
@@ -28,14 +22,14 @@ type CommonProps<T> = {
   itemKey?: (item: T, index: number) => React.Key
 }
 
-type Props<T> = CommonProps<T> & (
-  | (HostedBindingProps & {
-      children: (item: T, index: number) => React.ReactNode
-    })
-  | (ElementBindingProps & {
-      children: (item: T, index: number) => ElementChild
-    })
-)
+type Props<T> = CommonProps<T> & {
+  /**
+   * Rendered once per item. The third argument is the row's binding root: spread it
+   * onto the element that holds the row's `data-bind` attributes, or ignore it when
+   * the row binds nothing.
+   */
+  children: (item: T, index: number, bind: KoBindProps) => React.ReactNode
+}
 
 // Auto-assigned keys: object items get a stable identity-and-occurrence key
 // so their rows survive reorders and repeated references remain distinct;
@@ -65,9 +59,27 @@ function defaultItemKey(
 }
 
 /**
- * Renders the render prop once per item, each wrapped in a scope bound to
- * that item, so `data-bind` inside a row refers to the row item directly.
- * Iteration is owned by React: `$data`, `$index`, and `$parent` are
+ * A row exists so that `useKoBind` can be called once per item: a hook cannot be
+ * called from inside a loop, which is the whole reason this component is not a hook.
+ */
+function KoForeachRow<T>({
+  item,
+  index,
+  render,
+}: {
+  item: T
+  index: number
+  render: (item: T, index: number, bind: KoBindProps) => React.ReactNode
+}) {
+  const bind = useKoBind(item)
+  return <>{render(item, index, bind)}</>
+}
+
+/**
+ * Renders the render prop once per item and hands it a binding root for that item,
+ * so `data-bind` inside the row's own element refers to the row item directly. A row
+ * that binds nothing can ignore the third argument; nothing is added to the DOM
+ * either way. Iteration is owned by React: `$data`, `$index`, and `$parent` are
  * replaced by the function arguments and closures.
  */
 export function KoForeach<T>(props: Props<T>) {
@@ -91,19 +103,8 @@ export function KoForeach<T>(props: Props<T>) {
           ? props.itemKey(item, index)
           : defaultItemKey(item, index, occurrences)
 
-        return props.bindingMode === 'element' ? (
-          <ElementKnockoutScope key={key} viewModel={item}>
-            {props.children(item, index)}
-          </ElementKnockoutScope>
-        ) : (
-          <KnockoutScope
-            key={key}
-            viewModel={item}
-            boundaryAs={props.boundaryAs}
-            as={props.as}
-          >
-            {props.children(item, index)}
-          </KnockoutScope>
+        return (
+          <KoForeachRow key={key} item={item} index={index} render={props.children} />
         )
       })}
     </>

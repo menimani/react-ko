@@ -81,8 +81,9 @@ refer to the same component.
 Scopes render two unstyled host elements: the outer binding boundary and the
 inner binding root. Both default to `div`. Use `boundaryAs` and `as` to choose
 semantic HTML when a `div` is not valid in that position. The same props are
-available on `RootKnockoutProvider`, `KoIf`, `KoIfNot`, `KoForeach`, and
-`KoWith`. For example, use phrasing hosts inside a button:
+available on `RootKnockoutProvider`, `KoIf`, `KoIfNot`, and `KoWith`.
+`KoForeach` renders no host of its own: a row is bound through the binding root
+its render prop receives. For example, use phrasing hosts inside a button:
 
 ```tsx
 <button>
@@ -252,9 +253,10 @@ off by removing it in the same render that adds the content binding.
 
 ### `KoForeach`
 
-`KoForeach` takes a render prop: the function receives each item and its
-index, and the JSX it returns is bound to that item — `data-bind` inside a
-row refers to the row item directly.
+`KoForeach` takes a render prop: the function receives each item, its index, and
+a binding root for that item. Spread the binding root onto the row's own element
+and `data-bind` inside it refers to the row item directly. A row that binds
+nothing can ignore the third argument.
 
 ```tsx
 import ko from 'knockout'
@@ -269,14 +271,14 @@ const vm = { todos: ko.observableArray<Todo>([]) }
 
 <RootKnockoutProvider viewModel={vm}>
   <ul>
-    <KoForeach items={vm.todos} boundaryAs="li" as="div">
-      {(todo, index) => (
-        <div>
+    <KoForeach items={vm.todos}>
+      {(todo, index, bind) => (
+        <li {...bind}>
           <span>{index + 1}.</span>
           <input type="checkbox" data-bind="checked: done" />
           <input data-bind="value: title" />
           <button onClick={() => vm.todos.remove(todo)}>Remove</button>
-        </div>
+        </li>
       )}
     </KoForeach>
   </ul>
@@ -293,35 +295,27 @@ const vm = { todos: ko.observableArray<Todo>([]) }
   by identity and occurrence (so repeated references remain unique), while
   primitive items fall back to their index. Pass `itemKey` when rows hold
   state and items are primitive.
-- `boundaryAs` and `as` select the two hosts for every row. In the example,
-  each outer `li` is a valid direct child of `ul`; the render callback returns
-  its contents rather than another `li`.
+- The row's element is the caller's own. In the example each `li` is a valid
+  direct child of `ul`, and `KoForeach` adds nothing around it.
 
-Restricted parents such as `select`, `tbody`, and `tr` do not allow those
-scope hosts. Set `bindingMode="element"` explicitly to bind the single intrinsic
-HTML element returned for each row directly:
+Restricted parents such as `select`, `tbody`, and `tr` need no special mode,
+because the row's element is the caller's own:
 
 ```tsx
 <select>
-  <KoForeach items={vm.choices} bindingMode="element" itemKey={(choice) => choice.id}>
-    {() => <option data-bind="text: label, value: id" />}
+  <KoForeach items={vm.choices} itemKey={(choice) => choice.id}>
+    {(_choice, _index, bind) => <option {...bind} data-bind="text: label, value: id" />}
   </KoForeach>
 </select>
 ```
 
-Element mode adds neither hosts nor a comment range: the `option` itself is the
-row's binding root and disposal boundary. Server markup under the `select`
-therefore contains only `option` elements, and hydration reuses those elements
-before attaching their bindings. React continues to own every returned element;
+Neither a host nor a comment range is added: the `option` itself is the row's
+binding root and disposal boundary. Server markup under the `select` therefore
+contains only `option` elements, and hydration reuses those elements before
+attaching their bindings. React continues to own every returned element;
 Knockout may own an empty element's contents through `text`, `html`, `component`,
 or `options`, but the usual descendant-controller audit still rejects bindings
 that would control React-rendered children.
-
-The mode is opt-in and requires exactly one intrinsic HTML element; the
-foreign-content roots `svg` and `math` are rejected. It is also available on
-`KoIf`, `KoIfNot`, and `KoWith`; their visible/present child must likewise be one
-intrinsic HTML element. `boundaryAs` and `as` apply only to the default hosted
-mode and cannot be combined with `bindingMode="element"`.
 
 Nesting is plain JSX:
 

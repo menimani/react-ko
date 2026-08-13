@@ -72,15 +72,12 @@ describe('semantic hosts', () => {
     expect(list.querySelector('li > span > span')?.textContent).toBe('Bound')
   })
 
-  it('passes selected hosts through every structural component', () => {
+  // KoForeach is absent here because it renders no host of its own: a row is bound
+  // through the binding root handed to its render prop, on the caller's element.
+  it('passes selected hosts through every host-rendering structural component', () => {
     const row = { label: ko.observable('Row') }
     const { container } = render(
       <RootKnockoutProvider viewModel={{}}>
-        <ul data-testid="rows">
-          <KoForeach items={[row]} boundaryAs="li" as="span">
-            {() => <span data-bind="text: label" />}
-          </KoForeach>
-        </ul>
         <button>
           <KoIf condition boundaryAs="span" as="span">if</KoIf>
           <KoIfNot condition={false} boundaryAs="span" as="span">ifnot</KoIfNot>
@@ -91,8 +88,6 @@ describe('semantic hosts', () => {
       </RootKnockoutProvider>
     )
 
-    expect(container.querySelector('ul')?.firstElementChild?.tagName).toBe('LI')
-    expect(container.querySelector('ul li > span > span')?.textContent).toBe('Row')
     expect(container.querySelector('button')?.querySelectorAll(':scope > span')).toHaveLength(3)
     expect(container.querySelector('button')?.textContent).toBe('ififnotRow')
     expect(container.querySelector('button div')).toBeNull()

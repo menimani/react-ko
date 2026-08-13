@@ -40,13 +40,9 @@ function OptionList({ items }: { items: ko.ObservableArray<Row> }) {
   return (
     <RootKnockoutProvider viewModel={{}}>
       <select>
-        <KoForeach
-          items={items}
-          bindingMode="element"
-          itemKey={(item) => item.id}
-        >
-          {(item) => (
-            <option data-id={item.id} data-bind="text: label" />
+        <KoForeach items={items} itemKey={(item) => item.id}>
+          {(item, _index, bind) => (
+            <option {...bind} data-id={item.id} data-bind="text: label" />
           )}
         </KoForeach>
       </select>
@@ -147,9 +143,9 @@ describe('structural element binding mode', () => {
       <RootKnockoutProvider viewModel={{}}>
         <table>
           <tbody>
-            <KoForeach items={items} bindingMode="element">
-              {(item) => (
-                <tr data-bind="attr: { 'data-label': label }">
+            <KoForeach items={items}>
+              {(_item, _index, bind) => (
+                <tr {...bind} data-bind="attr: { 'data-label': label }">
                   <td data-bind="text: label" />
                 </tr>
               )}
@@ -239,9 +235,9 @@ describe('structural element binding mode', () => {
     render(
       <RootKnockoutProvider viewModel={{}}>
         <select>
-          <KoForeach items={items} bindingMode="element">
-            {() => (
-              <option value="A" data-bind="attr: { label: label }">
+          <KoForeach items={items}>
+            {(_item, _index, bind) => (
+              <option {...bind} value="A" data-bind="attr: { label: label }">
                 <CleanupProbe />
               </option>
             )}
@@ -267,7 +263,7 @@ describe('structural element binding mode', () => {
     const { unmount } = render(
       <RootKnockoutProvider viewModel={{}}>
         <select>
-          <KoForeach items={items} bindingMode="element">
+          <KoForeach items={items}>
             {() => <option ref={ref} />}
           </KoForeach>
         </select>
