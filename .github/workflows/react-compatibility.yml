@@ -80,6 +80,22 @@ jobs:
       - run: npm test
       - run: npm run build
 
+  english:
+    name: English only
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.draft != true
+    steps:
+      - uses: actions/checkout@v4
+      # The check runs as TypeScript with no build step, which needs the native type
+      # stripping of Node 23.6 or later. The other jobs pin 22 to match the package's
+      # own support floor, so this one carries its own version rather than moving theirs.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      # Anything this repository produces that is not written in English. No install:
+      # the check reads the tree and depends on nothing.
+      - run: node checks/english-only.ts
+
   e2e:
     name: Browser smoke
     runs-on: ubuntu-latest
