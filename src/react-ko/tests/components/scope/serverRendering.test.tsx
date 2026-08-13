@@ -204,6 +204,56 @@ describe.each(scopes)('%s server rendering', (_, createScope) => {
   })
 })
 
+it('clears deferred Suspense polling when the binding root unmounts', async () => {
+  vi.useFakeTimers()
+  const setTimeout = vi.spyOn(window, 'setTimeout')
+  const clearTimeout = vi.spyOn(window, 'clearTimeout')
+  let hydrating = false
+  const suspended = new Promise<void>(() => undefined)
+
+  function UnresolvedChild() {
+    if (hydrating) throw suspended
+    return <span data-bind="text: label" />
+  }
+
+  const tree = (
+    <RootKnockoutProvider viewModel={{ label: 'Deferred' }}>
+      <Suspense fallback={null}>
+        <UnresolvedChild />
+      </Suspense>
+    </RootKnockoutProvider>
+  )
+  const container = serverContainer(tree)
+  document.body.appendChild(container)
+  hydrating = true
+  let root: Root | undefined
+
+  try {
+    await act(async () => {
+      root = hydrateRoot(container, tree)
+    })
+
+    const pollingCall = setTimeout.mock.calls.find(([, delay]) => delay === 16)
+    const pollingCallIndex = setTimeout.mock.calls.indexOf(pollingCall!)
+    const pollingTimer = setTimeout.mock.results[pollingCallIndex]?.value
+    expect(pollingCall).toBeDefined()
+    expect(pollingTimer).toBeDefined()
+
+    act(() => root?.unmount())
+    root = undefined
+
+    expect(clearTimeout).toHaveBeenCalledWith(pollingTimer)
+  } finally {
+    if (root !== undefined && container.isConnected) {
+      act(() => root?.unmount())
+    }
+    container.remove()
+    setTimeout.mockRestore()
+    clearTimeout.mockRestore()
+    vi.useRealTimers()
+  }
+})
+
 describe('useKoValue server rendering', () => {
   it('renders the current computed value into the server markup', () => {
     const source = ko.observable('Server')

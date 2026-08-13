@@ -1,11 +1,15 @@
 import { execFileSync, spawn, spawnSync, type ChildProcess } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, utimesSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { recordIssueForTask } from '../src/issueQueue.ts'
 import { branchName, orchPaths, statusFile, worktreeDir } from '../src/paths.ts'
+import { recordTaskProcess } from '../src/processRegistry.ts'
 import { writeStatus } from '../src/status.ts'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -43,7 +47,10 @@ const CORE_ENV = {
 let repoRoot: string
 
 beforeEach(() => {
-  repoRoot = mkdtempSync(join(tmpdir(), 'orch-cli-'))
+  // The runner's temp path contains an 8.3 short name when the account name is long
+  // (RUNNER~1 for runneradmin), while paths the CLI reports are canonical. Compare like
+  // with like, or the assertions differ only in a place no developer machine reproduces.
+  repoRoot = realpathSync.native(mkdtempSync(join(tmpdir(), 'orch-cli-')))
   const init = spawnSync('git', ['init'], { cwd: repoRoot, windowsHide: true })
   expect(init.status).toBe(0)
 })
@@ -345,6 +352,8 @@ describe('loop daemon ownership', () => {
       status: 'running',
       pid: process.pid,
     }))
+    // A task's process lives in the registry, not in the record.
+    recordTaskProcess(paths, taskId, process.pid)
 
     const result = spawnSync(process.execPath, [CLI, 'loop'], {
       cwd: repoRoot,
@@ -392,10 +401,11 @@ describe('loop daemon ownership', () => {
       "import { syncBuiltinESMExports } from 'node:module'",
       'const originalWriteFileSync = fs.writeFileSync',
       'fs.writeFileSync = function (file, ...args) {',
+      '  const result = originalWriteFileSync.call(this, file, ...args)',
       "  if (typeof file === 'string' && /[\\\\/]loop\\.pid$/.test(file)) {",
-      '    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 250)',
+      '    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1000)',
       '  }',
-      '  return originalWriteFileSync.call(this, file, ...args)',
+      '  return result',
       '}',
       'syncBuiltinESMExports()',
       `await import(${JSON.stringify(cliUrl)})`,
@@ -450,10 +460,11 @@ describe('loop daemon ownership', () => {
       "import { syncBuiltinESMExports } from 'node:module'",
       'const originalWriteFileSync = fs.writeFileSync',
       'fs.writeFileSync = function (file, ...args) {',
+      '  const result = originalWriteFileSync.call(this, file, ...args)',
       "  if (typeof file === 'string' && /[\\\\/]loop\\.pid$/.test(file)) {",
-      '    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 250)',
+      '    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1000)',
       '  }',
-      '  return originalWriteFileSync.call(this, file, ...args)',
+      '  return result',
       '}',
       'syncBuiltinESMExports()',
       `await import(${JSON.stringify(cliUrl)})`,
@@ -499,6 +510,53 @@ describe('loop daemon ownership', () => {
     }
   })
 
+  it('reclaims an aged ownerless recovery directory', () => {
+    const paths = orchPaths(repoRoot)
+    const recovery = `${daemonFile('loop.pid')}.recovery`
+    writeFileSync(daemonFile('loop.pid'), '999999999\n')
+    mkdirSync(recovery)
+    const past = (Date.now() - 60_000) / 1000
+    utimesSync(recovery, past, past)
+    mkdirSync(join(paths.worktreesDir, 'orphan-after-recovery'))
+
+    const result = spawnSync(process.execPath, [CLI, 'loop'], {
+      cwd: repoRoot,
+      env: { ...CORE_ENV, ISSUE_QUEUE_ENABLED: 'false' },
+      encoding: 'utf8',
+      windowsHide: true,
+      timeout: CLI_TIMEOUT_MS,
+    })
+
+    expect(result.status).toBe(1)
+    expect(result.stdout).toContain('Removing stale PID file')
+    expect(existsSync(recovery)).toBe(false)
+  })
+
+  it('reclaims a recovery lock whose recorded owner has exited', () => {
+    const paths = orchPaths(repoRoot)
+    const recovery = `${daemonFile('loop.pid')}.recovery`
+    writeFileSync(daemonFile('loop.pid'), '999999999\n')
+    mkdirSync(recovery)
+    writeFileSync(join(recovery, 'owner.json'), JSON.stringify({
+      pid: 999999999,
+      acquiredAt: new Date().toISOString(),
+      token: 'abandoned-owner',
+    }))
+    mkdirSync(join(paths.worktreesDir, 'orphan-after-owner-recovery'))
+
+    const result = spawnSync(process.execPath, [CLI, 'loop'], {
+      cwd: repoRoot,
+      env: { ...CORE_ENV, ISSUE_QUEUE_ENABLED: 'false' },
+      encoding: 'utf8',
+      windowsHide: true,
+      timeout: CLI_TIMEOUT_MS,
+    })
+
+    expect(result.status).toBe(1)
+    expect(result.stdout).toContain('Removing stale PID file')
+    expect(existsSync(recovery)).toBe(false)
+  })
+
   it('prints a failed-task contract marker as an exact standalone line', async () => {
     const paths = orchPaths(repoRoot)
     const taskId = '20260810_010203_031_auto-failed-task'
@@ -525,7 +583,7 @@ describe('loop daemon ownership', () => {
     )
   })
 
-  it('separates daemon markers while formatting their loop-log copies', async () => {
+  it('separates daemon markers from the aligned loop-log event', async () => {
     const paths = orchPaths(repoRoot)
     const taskId = '20260810_010203_032_auto-failed-task'
     const markerLog = join(paths.logsDir, 'loop-markers.log')
@@ -560,9 +618,10 @@ describe('loop daemon ownership', () => {
     expect(loopLogLines).not.toContain(marker)
     expect(loopLogLines.every((line) =>
       /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} \[loop 00\/12\] /.test(line))).toBe(true)
-    expect(loopLogLines).toContainEqual(
-      expect.stringMatching(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} \[loop 00\/12\] FAILED:/),
-    )
+    expect(loopLogLines).toContainEqual(expect.stringMatching(
+      /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} \[loop 00\/12\] Failed     032_auto\s+log 032_auto\.log$/,
+    ))
+    expect(loopLogLines.filter((line) => line.includes('032_auto'))).toHaveLength(1)
   })
 
   it('removes the PID and issue marker after a startup failure', () => {
@@ -599,7 +658,7 @@ describe('loop daemon ownership', () => {
     })
 
     expect(result.status).toBe(0)
-    expect(result.stdout).toContain('Mode       core        auto-update on')
+    expect(result.stdout).toContain('Started    core        auto-update on')
     expect(existsSync(daemonFile('loop.pid'))).toBe(false)
     expect(existsSync(daemonFile('issue-mode'))).toBe(false)
     expect(readFileSync(daemonFile('cycle-cap.txt'), 'utf8')).toBe('0\n')
@@ -623,7 +682,7 @@ describe('loop daemon ownership', () => {
     })
 
     expect(result.status).toBe(0)
-    expect(result.stdout).toContain('Mode       core        auto-update off')
+    expect(result.stdout).toContain('Started    core        auto-update off')
   })
 })
 

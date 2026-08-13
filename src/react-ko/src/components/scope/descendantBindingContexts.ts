@@ -61,6 +61,27 @@ function establishesDescendantContext(
     .some(({ key }) => key !== undefined && CONTEXT_ESTABLISHING_BINDINGS.has(key))
 }
 
+export function isDescendantBindingContextCaptureMarker(node: Node) {
+  return (
+    node.nodeType === 1 &&
+    (node as Element).getAttribute('data-bind') ===
+      `${CAPTURE_DESCENDANT_CONTEXT}: true`
+  )
+}
+
+export function descendantBindingContextCaptureBindings(accessors: boolean) {
+  return accessors
+    ? {
+        // The capture handler intentionally never reads its value.
+        [CAPTURE_DESCENDANT_CONTEXT]: /* v8 ignore next */ () => true,
+      }
+    : { [CAPTURE_DESCENDANT_CONTEXT]: true }
+}
+
+type RemoveContextMarkers = (() => void) & {
+  captureProviderBindings(element: Element, bindingNames: Iterable<string>): void
+}
+
 /**
  * Adds short-lived binding markers that retain the exact context Knockout
  * creates for descendants of `using` and `let`, including empty elements.
@@ -73,26 +94,42 @@ export function prepareDescendantBindingContextCapture(
   descendantBindingContexts()
   const candidates = [root, ...root.querySelectorAll<HTMLElement>('[data-bind]')]
   const markers: HTMLElement[] = []
+  const markedElements = new WeakSet<Element>()
 
-  for (const element of candidates) {
-    if (excludedElements?.has(element)) {
-      continue
-    }
-    if (!establishesDescendantContext(element, validatedSources)) {
-      continue
+  function addMarker(element: Element) {
+    if (excludedElements?.has(element) || markedElements.has(element)) {
+      return
     }
 
     const marker = document.createElement('span')
     marker.setAttribute('data-bind', `${CAPTURE_DESCENDANT_CONTEXT}: true`)
     element.appendChild(marker)
     markers.push(marker)
+    markedElements.add(element)
   }
 
-  return () => {
+  for (const element of candidates) {
+    if (!establishesDescendantContext(element, validatedSources)) {
+      continue
+    }
+
+    addMarker(element)
+  }
+
+  const removeMarkers = (() => {
     for (const marker of markers) {
       marker.remove()
     }
+  }) as RemoveContextMarkers
+  removeMarkers.captureProviderBindings = (element, bindingNames) => {
+    for (const name of bindingNames) {
+      if (CONTEXT_ESTABLISHING_BINDINGS.has(name)) {
+        addMarker(element)
+        return
+      }
+    }
   }
+  return removeMarkers
 }
 
 export function descendantBindingContextFor(node: Node, root: Node) {
