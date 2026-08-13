@@ -73,7 +73,7 @@ describe('KoForeach', () => {
     render(
       <RootKnockoutProvider viewModel={{}}>
         <KoForeach items={vm.items}>
-          {() => <span data-bind="text: name" />}
+          {(_item, _index, bind) => <span {...bind} data-bind="text: name" />}
         </KoForeach>
       </RootKnockoutProvider>
     )
@@ -93,7 +93,7 @@ describe('KoForeach', () => {
     render(
       <RootKnockoutProvider viewModel={{}}>
         <KoForeach items={vm.items}>
-          {() => <span data-bind="text: name" />}
+          {(_item, _index, bind) => <span {...bind} data-bind="text: name" />}
         </KoForeach>
       </RootKnockoutProvider>
     )
@@ -113,7 +113,7 @@ describe('KoForeach', () => {
     render(
       <RootKnockoutProvider viewModel={{}}>
         <KoForeach items={vm.items}>
-          {() => <span data-bind="text: name" />}
+          {(_item, _index, bind) => <span {...bind} data-bind="text: name" />}
         </KoForeach>
       </RootKnockoutProvider>
     )
@@ -316,7 +316,7 @@ describe('KoForeach', () => {
     render(
       <RootKnockoutProvider viewModel={{}}>
         <KoForeach items={vm.items}>
-          {() => <span data-bind="text: name" />}
+          {(_item, _index, bind) => <span {...bind} data-bind="text: name" />}
         </KoForeach>
       </RootKnockoutProvider>
     )
@@ -358,7 +358,7 @@ describe('KoForeach', () => {
     render(
       <RootKnockoutProvider viewModel={appVm}>
         <KoForeach items={[item]}>
-          {() => <span data-bind="text: $root.name" />}
+          {(_item, _index, bind) => <span {...bind} data-bind="text: $root.name" />}
         </KoForeach>
       </RootKnockoutProvider>
     )

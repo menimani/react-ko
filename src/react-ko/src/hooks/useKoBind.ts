@@ -21,6 +21,15 @@ export type KoBindProps = {
  * The element belongs to the caller. Nothing is added to the DOM, which is what
  * separates this from a component that has to render a host of its own.
  *
+ * One thing a scope component gave that this cannot: React attaches refs from the
+ * bottom up, so the host is bound after its own descendants have run their layout
+ * effects. A descendant layout effect that writes to Knockout-owned DOM in the first
+ * commit -- setting an input's value and dispatching the event, say -- acts on a
+ * subtree nothing is watching yet, and that event is lost. Everything after that first
+ * commit is unaffected: the post-layout refresh and the descendant observer cover it.
+ * Closing the gap needs the engine's "an ancestor root binds before the roots inside
+ * it" ordering to be revisited, which is tracked as accepted for now.
+ *
  * A nullish view model binds nothing, so an element rendered only while a value
  * exists can hold the props unconditionally:
  *

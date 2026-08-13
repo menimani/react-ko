@@ -111,7 +111,7 @@ KoForeach({
   itemKey: (row, index) => `${row.id}:${index}`,
 })
 KoForeach({ items: observableRows, children: (row) => row.label })
-KoForeach({ items: rows, children: (row) => row.label, boundaryAs: 'li', as: 'span' })
+KoForeach({ items: rows, children: (row, _index, bind) => createElement('li', bind, row.label) })
 KoForeach({ items: computedRows, children: (row) => row.label })
 KoForeach({ items: nullableObservableRows, children: (row) => row.label })
 KoForeach({ items: nullableComputedRows, children: (row) => row.label })

@@ -102,7 +102,7 @@ ReactKo.KoForeach({
   itemKey: (row, index) => `${row.id}:${index}`,
 })
 ReactKo.KoForeach({ items: observableRows, children: (row) => row.label })
-ReactKo.KoForeach({ items: rows, children: (row) => row.label, boundaryAs: 'li', as: 'span' })
+ReactKo.KoForeach({ items: rows, children: (row, _index, bind) => React.createElement('li', bind, row.label) })
 ReactKo.KoForeach({ items: computedRows, children: (row) => row.label })
 ReactKo.KoForeach({ items: nullableObservableRows, children: (row) => row.label })
 ReactKo.KoForeach({ items: nullableComputedRows, children: (row) => row.label })
