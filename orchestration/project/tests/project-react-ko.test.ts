@@ -58,11 +58,24 @@ describe('check selection', () => {
 })
 
 describe('cycle suite', () => {
-  it('lists the suite and the build, with the vitest-launcher repair on the suite', () => {
+  it('runs the library gates and browser smoke with launcher repairs', () => {
     const steps = reactKoProject.cycleSuite()
-    expect(steps.map((step) => step.label)).toEqual(['Library suite', 'Library build'])
+    expect(steps.map((step) => step.label)).toEqual([
+      'Library suite',
+      'Library build',
+      'Browser smoke',
+    ])
     expect(steps[0]?.repairWhenMissing?.path).toBe('node_modules/.bin/vitest')
     expect(steps[0]?.repairWhenMissing?.command).toBe('npm install --no-audit --no-fund')
+    expect(steps[2]).toMatchObject({
+      cwd: 'e2e',
+      command: 'npx playwright install chromium && npm test',
+      requires: 'e2e/package.json',
+      repairWhenMissing: {
+        path: 'e2e/node_modules/.bin/playwright',
+        command: 'npm install --no-audit --no-fund',
+      },
+    })
   })
 })
 
