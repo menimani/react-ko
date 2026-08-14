@@ -276,6 +276,42 @@ describe('KnockoutScope', () => {
     act(() => vm.label('Late changed'))
     expect(screen.getByTestId('late').textContent).toBe('Late changed')
   })
+
+  it('binds a late child before layout in a document without a window', () => {
+    const secondaryDocument = document.implementation.createHTMLDocument('secondary')
+    const container = secondaryDocument.createElement('div')
+    secondaryDocument.body.appendChild(container)
+    expect(secondaryDocument.defaultView).toBeNull()
+
+    const root = createRoot(container)
+    const layoutText = vi.fn()
+
+    function LateChild() {
+      const element = useRef<HTMLSpanElement>(null)
+      useLayoutEffect(() => {
+        layoutText(element.current?.textContent)
+      }, [])
+      return <span ref={element} data-bind="text: label" />
+    }
+
+    function Harness({ show }: { show: boolean }) {
+      return (
+        <KnockoutScope viewModel={{ label: 'Bound before layout' }}>
+          {show ? <LateChild /> : null}
+        </KnockoutScope>
+      )
+    }
+
+    try {
+      act(() => root.render(<Harness show={false} />))
+      act(() => root.render(<Harness show />))
+
+      expect(layoutText).toHaveBeenCalledWith('Bound before layout')
+      expect(container.textContent).toBe('Bound before layout')
+    } finally {
+      act(() => root.unmount())
+    }
+  })
 })
 
 describe('KnockoutScope boundary', () => {

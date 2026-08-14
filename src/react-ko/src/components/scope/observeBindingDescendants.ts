@@ -113,11 +113,66 @@ const INTERCEPTOR_REGISTRY = Symbol.for(
   'react-ko.observeBindingDescendants.prototypeInterceptors'
 )
 
-function interceptorRegistry(view: Window & typeof globalThis) {
-  const registries = view as unknown as {
+function interceptorRegistry(owner: object) {
+  const registries = owner as {
     [key: symbol]: PrototypeInterceptorRegistry | undefined
   }
   return (registries[INTERCEPTOR_REGISTRY] ??= {})
+}
+
+type DomPrototypes = {
+  registryOwner: object
+  element: typeof Element.prototype
+  node: typeof Node.prototype
+  characterData: typeof CharacterData.prototype
+  formProperties: Array<[object, string]>
+}
+
+function prototypeDefining(value: object, name: string) {
+  let prototype = Object.getPrototypeOf(value) as object | null
+  while (prototype !== null) {
+    if (Object.prototype.hasOwnProperty.call(prototype, name)) return prototype
+    prototype = Object.getPrototypeOf(prototype) as object | null
+  }
+  throw new Error(`react-ko could not find the DOM prototype for ${name}.`)
+}
+
+function domPrototypes(root: HTMLElement): DomPrototypes {
+  const document = root.ownerDocument
+  const view = document.defaultView
+  if (view !== null) {
+    return {
+      registryOwner: view.Node.prototype,
+      element: view.Element.prototype,
+      node: view.Node.prototype,
+      characterData: view.CharacterData.prototype,
+      formProperties: [
+        [view.HTMLInputElement.prototype, 'value'],
+        [view.HTMLInputElement.prototype, 'checked'],
+        [view.HTMLTextAreaElement.prototype, 'value'],
+        [view.HTMLSelectElement.prototype, 'value'],
+        [view.HTMLOptionElement.prototype, 'selected'],
+      ],
+    }
+  }
+
+  const input = document.createElement('input')
+  return {
+    registryOwner: prototypeDefining(root, 'appendChild'),
+    element: prototypeDefining(root, 'setAttribute') as typeof Element.prototype,
+    node: prototypeDefining(root, 'appendChild') as typeof Node.prototype,
+    characterData: prototypeDefining(
+      document.createTextNode(''),
+      'data'
+    ) as typeof CharacterData.prototype,
+    formProperties: [
+      [prototypeDefining(input, 'value'), 'value'],
+      [prototypeDefining(input, 'checked'), 'checked'],
+      [prototypeDefining(document.createElement('textarea'), 'value'), 'value'],
+      [prototypeDefining(document.createElement('select'), 'value'), 'value'],
+      [prototypeDefining(document.createElement('option'), 'selected'), 'selected'],
+    ],
+  }
 }
 
 const detachedBindingRoots = createBindingRootRegistry()
@@ -702,8 +757,8 @@ function releaseInterceptorOwner(owners: Map<InterceptorOwner, number>) {
   return owners.size === 0
 }
 
-function releaseAttributeInterceptor(view: Window & typeof globalThis) {
-  const registry = interceptorRegistry(view)
+function releaseAttributeInterceptor(prototypes: DomPrototypes) {
+  const registry = interceptorRegistry(prototypes.registryOwner)
   const interceptor = registry.attribute
   if (interceptor === undefined) {
     return
@@ -713,7 +768,7 @@ function releaseAttributeInterceptor(view: Window & typeof globalThis) {
     return
   }
 
-  const prototype = view.Element.prototype
+  const prototype = prototypes.element
   if (prototype.setAttribute === interceptor.interceptedSetAttribute) {
     prototype.setAttribute = interceptor.setAttribute
   }
@@ -815,18 +870,11 @@ function releaseReactTrackedChecked(
 }
 
 function interceptFormProperties(
-  view: Window & typeof globalThis,
+  prototypes: DomPrototypes,
   owners: Map<InterceptorOwner, number>
 ) {
   const intercepted: AttributeInterceptor['formProperties'] = []
-  const properties: Array<[object, string]> = [
-    [view.HTMLInputElement.prototype, 'value'],
-    [view.HTMLInputElement.prototype, 'checked'],
-    [view.HTMLTextAreaElement.prototype, 'value'],
-    [view.HTMLSelectElement.prototype, 'value'],
-    [view.HTMLOptionElement.prototype, 'selected'],
-  ]
-  for (const [prototype, name] of properties) {
+  for (const [prototype, name] of prototypes.formProperties) {
     const descriptor = Object.getOwnPropertyDescriptor(prototype, name)
     if (descriptor?.set === undefined) continue
     const set = descriptor.set
@@ -846,17 +894,13 @@ function interceptFormProperties(
 }
 
 function interceptDataBindChanges(root: HTMLElement) {
-  const view = root.ownerDocument.defaultView
-  if (view === null) {
-    return () => undefined
-  }
-
-  const registry = interceptorRegistry(view)
-  const prototype = view.Element.prototype
+  const prototypes = domPrototypes(root)
+  const registry = interceptorRegistry(prototypes.registryOwner)
+  const prototype = prototypes.element
   const existing = registry.attribute
   if (existing !== undefined) {
     addInterceptorOwner(existing.owners)
-    return () => releaseAttributeInterceptor(view)
+    return () => releaseAttributeInterceptor(prototypes)
   }
 
   const setAttribute = prototype.setAttribute
@@ -886,7 +930,7 @@ function interceptDataBindChanges(root: HTMLElement) {
   }
   prototype.setAttribute = interceptedSetAttribute
   prototype.removeAttribute = interceptedRemoveAttribute
-  const formProperties = interceptFormProperties(view, owners)
+  const formProperties = interceptFormProperties(prototypes, owners)
   registry.attribute = {
     owners,
     setAttribute,
@@ -896,11 +940,11 @@ function interceptDataBindChanges(root: HTMLElement) {
     formProperties,
   }
 
-  return () => releaseAttributeInterceptor(view)
+  return () => releaseAttributeInterceptor(prototypes)
 }
 
-function releaseChildListInterceptor(view: Window & typeof globalThis) {
-  const registry = interceptorRegistry(view)
+function releaseChildListInterceptor(prototypes: DomPrototypes) {
+  const registry = interceptorRegistry(prototypes.registryOwner)
   const interceptor = registry.childList
   if (interceptor === undefined) {
     return
@@ -910,7 +954,7 @@ function releaseChildListInterceptor(view: Window & typeof globalThis) {
     return
   }
 
-  const prototype = view.Node.prototype
+  const prototype = prototypes.node
   if (prototype.appendChild === interceptor.interceptedAppendChild) {
     prototype.appendChild = interceptor.appendChild
   }
@@ -927,17 +971,13 @@ function releaseChildListInterceptor(view: Window & typeof globalThis) {
 }
 
 function interceptChildListInsertions(root: HTMLElement) {
-  const view = root.ownerDocument.defaultView
-  if (view === null) {
-    return () => undefined
-  }
-
-  const registry = interceptorRegistry(view)
-  const prototype = view.Node.prototype
+  const prototypes = domPrototypes(root)
+  const registry = interceptorRegistry(prototypes.registryOwner)
+  const prototype = prototypes.node
   const existing = registry.childList
   if (existing !== undefined) {
     addInterceptorOwner(existing.owners)
-    return () => releaseChildListInterceptor(view)
+    return () => releaseChildListInterceptor(prototypes)
   }
 
   const appendChild = prototype.appendChild
@@ -1025,11 +1065,11 @@ function interceptChildListInsertions(root: HTMLElement) {
     interceptedRemoveChild,
   }
 
-  return () => releaseChildListInterceptor(view)
+  return () => releaseChildListInterceptor(prototypes)
 }
 
-function releaseDirectTextInterceptor(view: Window & typeof globalThis) {
-  const registry = interceptorRegistry(view)
+function releaseDirectTextInterceptor(prototypes: DomPrototypes) {
+  const registry = interceptorRegistry(prototypes.registryOwner)
   const interceptor = registry.directText
   if (interceptor === undefined) return
 
@@ -1049,15 +1089,13 @@ function releaseDirectTextInterceptor(view: Window & typeof globalThis) {
 }
 
 function interceptDirectTextWrites(root: HTMLElement) {
-  const view = root.ownerDocument.defaultView
-  if (view === null) return () => undefined
-
-  const registry = interceptorRegistry(view)
-  const prototype = view.Node.prototype
+  const prototypes = domPrototypes(root)
+  const registry = interceptorRegistry(prototypes.registryOwner)
+  const prototype = prototypes.node
   const existing = registry.directText
   if (existing !== undefined) {
     addInterceptorOwner(existing.owners)
-    return () => releaseDirectTextInterceptor(view)
+    return () => releaseDirectTextInterceptor(prototypes)
   }
 
   const owners = new Map([[interceptorOwner, 1]])
@@ -1068,8 +1106,8 @@ function interceptDirectTextWrites(root: HTMLElement) {
   for (const [propertyPrototype, name] of [
     [prototype, 'nodeValue'],
     [prototype, 'textContent'],
-    [view.CharacterData.prototype, 'data'],
-    [view.Element.prototype, 'innerHTML'],
+    [prototypes.characterData, 'data'],
+    [prototypes.element, 'innerHTML'],
   ] as Array<[object, string]>) {
     const descriptor = Object.getOwnPropertyDescriptor(propertyPrototype, name)
     if (descriptor?.set === undefined) continue
@@ -1090,7 +1128,7 @@ function interceptDirectTextWrites(root: HTMLElement) {
   }
   registry.directText = { owners, properties }
 
-  return () => releaseDirectTextInterceptor(view)
+  return () => releaseDirectTextInterceptor(prototypes)
 }
 
 function isKnockoutOwnedContentAddition(
