@@ -18,6 +18,7 @@ import { isElementBindingRoot } from './elementBindingRoot'
 
 type BindingObserverState = {
   observer: MutationObserver
+  bindingStates: BindingStateStore
   reconcile: (records: MutationRecord[], reactCommitInProgress?: boolean) => void
   shouldDeferReconciliation?: () => boolean
   shouldDeferDataBindChange: (element: Element) => boolean
@@ -1951,6 +1952,45 @@ function assertBindingsCanBeRetired(state: BindingState) {
   }
 }
 
+function assertBindingTreeCanBeRetired(
+  element: HTMLElement,
+  root: HTMLElement,
+  bindingStates: BindingStateStore
+) {
+  if (
+    element !== root &&
+    bindingRootRegistry(root).bindingRoots.has(element)
+  ) {
+    return
+  }
+
+  const state = bindingStates.get(element)
+  if (state !== undefined) assertBindingsCanBeRetired(state)
+  for (const child of element.children) {
+    assertBindingTreeCanBeRetired(child as HTMLElement, root, bindingStates)
+  }
+}
+
+/** Validates a complete root replacement before any of its bindings are disposed. */
+export function assertBindingRootsCanBeRetired(roots: readonly HTMLElement[]) {
+  const validatedRoots = new Set<HTMLElement>()
+  for (const replacementRoot of roots) {
+    const registry = bindingRootRegistry(replacementRoot)
+    const affectedRoots = [...registry.bindingRoots.keys()].filter(
+      (candidate) =>
+        candidate === replacementRoot || replacementRoot.contains(candidate)
+    )
+    for (const root of affectedRoots) {
+      if (validatedRoots.has(root)) continue
+      validatedRoots.add(root)
+      const state = registry.bindingObservers.get(root)
+      if (state !== undefined) {
+        assertBindingTreeCanBeRetired(root, root, state.bindingStates)
+      }
+    }
+  }
+}
+
 function restoreRetiredDomEffects(element: HTMLElement, state: BindingState) {
   assertBindingsCanBeRetired(state)
   const names = bindingNames(state.source)
@@ -2246,6 +2286,7 @@ export function observeBindingDescendants(
   })
   registry.bindingObservers.set(root, {
     observer,
+    bindingStates,
     reconcile,
     shouldDeferReconciliation,
     onError,

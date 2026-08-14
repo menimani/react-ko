@@ -142,6 +142,50 @@ describe('KnockoutScope', () => {
     expect(screen.getByTestId('inner').textContent).toBe('inner changed')
   })
 
+  it('validates nested roots before replacing an outer scope', async () => {
+    const binding = 'appendOnInitForNestedScopeReplacement'
+    const init = vi.fn((element: HTMLElement) => {
+      element.appendChild(document.createElement('i'))
+    })
+    ko.bindingHandlers[binding] = { init }
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    function Harness() {
+      const [outer, setOuter] = useState({ version: 1 })
+      return (
+        <KnockoutScope viewModel={outer}>
+          <button type="button" onClick={() => setOuter({ version: 2 })}>
+            replace outer scope
+          </button>
+          <KnockoutScope viewModel={{}}>
+            <span data-testid="nested-custom-owner" data-bind={`${binding}: true`} />
+          </KnockoutScope>
+        </KnockoutScope>
+      )
+    }
+
+    try {
+      render(
+        <ErrorBoundary>
+          <Harness />
+        </ErrorBoundary>
+      )
+      expect(screen.getByTestId('nested-custom-owner').children).toHaveLength(1)
+
+      act(() => screen.getByRole('button').click())
+
+      await waitFor(() =>
+        expect(screen.getByTestId('failure').textContent).toContain(
+          `react-ko cannot replace the Knockout "${binding}" binding because its DOM effects cannot be safely retired.`
+        )
+      )
+      expect(init).toHaveBeenCalledOnce()
+    } finally {
+      delete ko.bindingHandlers[binding]
+      consoleError.mockRestore()
+    }
+  })
+
   it('sends a rebind failure that arrives after the layout phase to an error boundary', async () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     let failRebind = false

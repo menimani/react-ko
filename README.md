@@ -62,6 +62,9 @@ the structural `if`, `ifnot`, `foreach`, `template`, and `with` bindings are rej
 render that structure with React and `useKoValue`, or use `KoForeach` for lists.
 Bindings that replace an element's contents, including `text`, `html`, `component`,
 and `options`, require an empty host in JSX so Knockout exclusively owns the contents.
+When a scope's view model is replaced, every binding root that would be cleaned is
+checked first. A custom or overridden binding that cannot be safely retired rejects
+the replacement instead of running its initializer again.
 `useKoValue` brings a Knockout value into React, for the places `data-bind` cannot
 reach — JSX interpolation, props, effect dependencies.
 
