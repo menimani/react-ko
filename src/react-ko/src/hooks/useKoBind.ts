@@ -22,6 +22,10 @@ function hostSelector(id: string) {
   return `[${ELEMENT_BINDING_ROOT_ATTRIBUTE}="${id.replace(/["\\]/g, '\\$&')}"]`
 }
 
+// Independently rendered roots receive the same default useId sequence. Remember which
+// matching SSR host each hook claimed so a later root can select its own unclaimed host.
+const hostOwners = new WeakMap<HTMLElement, object>()
+
 function useKoBindRoot<T>(viewModel: T, bindable: boolean): KoBindProps {
   const parentGeneration = useContext(ScopeBindGenerationContext)
   const [failure, setFailure] = useState<{ error: unknown } | null>(null)
@@ -41,6 +45,7 @@ function useKoBindRoot<T>(viewModel: T, bindable: boolean): KoBindProps {
   )
 
   const boundHost = useRef<HTMLElement | null>(null)
+  const hostOwner = useRef<object>({})
   const hostId = useId()
 
   // React attaches refs from the bottom up, so a host taken from a ref is bound after
@@ -52,10 +57,16 @@ function useKoBindRoot<T>(viewModel: T, bindable: boolean): KoBindProps {
   // a root inside another one first is what the binding root's own ordering handles.
   useInsertionEffect(() => {
     if (!bindable || boundHost.current !== null) return
-    const host = document.querySelector<HTMLElement>(hostSelector(hostId))
+    const host = Array.from(
+      document.querySelectorAll<HTMLElement>(hostSelector(hostId))
+    ).find((candidate) => {
+      const owner = hostOwners.get(candidate)
+      return owner === undefined || owner === hostOwner.current
+    })
     // A host rendered into another document, or into a container React has not put in
     // one yet, is not reachable from here. Its ref still arrives in the layout phase.
-    if (host === null) return
+    if (host === undefined) return
+    hostOwners.set(host, hostOwner.current)
     boundHost.current = host
     bindingContainer(host)
   })
@@ -63,6 +74,10 @@ function useKoBindRoot<T>(viewModel: T, bindable: boolean): KoBindProps {
   const ref = useCallback(
     (node: HTMLElement | null) => {
       if (node === null) {
+        const held = boundHost.current
+        if (held !== null && hostOwners.get(held) === hostOwner.current) {
+          hostOwners.delete(held)
+        }
         boundHost.current = null
         return
       }
@@ -80,6 +95,7 @@ function useKoBindRoot<T>(viewModel: T, bindable: boolean): KoBindProps {
         return
       }
 
+      hostOwners.set(node, hostOwner.current)
       boundHost.current = node
       if (bindable) bindingContainer(node)
     },

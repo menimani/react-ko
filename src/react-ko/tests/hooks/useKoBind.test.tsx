@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, act, waitFor } from '@testing-library/react'
 import { Component, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { hydrateRoot, type Root } from 'react-dom/client'
 import { renderToString } from 'react-dom/server'
 import ko from 'knockout'
 import { useKoBind } from '@/index'
@@ -305,5 +306,61 @@ describe('useKoBind', () => {
     expect(html).toMatch(/data-react-ko-scope="[^"]+"/)
     // Server rendering never runs a ref, so the child keeps the markup it was given.
     expect(html).toContain('<span data-bind="text: label"></span>')
+  })
+
+  it('hydrates independent roots with the same generated id', async () => {
+    const firstLabel = ko.observable('First')
+    const secondLabel = ko.observable('Second')
+
+    function Host({ label }: { label: ko.Observable<string> }) {
+      const bind = useKoBind({ label })
+      return (
+        <div {...bind}>
+          <span data-bind="text: label" />
+        </div>
+      )
+    }
+
+    const firstTree = <Host label={firstLabel} />
+    const secondTree = <Host label={secondLabel} />
+    const firstContainer = document.createElement('div')
+    const secondContainer = document.createElement('div')
+    firstContainer.innerHTML = renderToString(firstTree)
+    secondContainer.innerHTML = renderToString(secondTree)
+    expect(firstContainer.firstElementChild?.getAttribute('data-react-ko-scope')).toBe(
+      secondContainer.firstElementChild?.getAttribute('data-react-ko-scope')
+    )
+    document.body.append(firstContainer, secondContainer)
+    let firstRoot: Root | undefined
+    let secondRoot: Root | undefined
+
+    try {
+      await act(async () => {
+        firstRoot = hydrateRoot(firstContainer, firstTree)
+        secondRoot = hydrateRoot(secondContainer, secondTree)
+      })
+
+      expect(firstContainer.textContent).toBe('First')
+      expect(secondContainer.textContent).toBe('Second')
+
+      act(() => {
+        firstLabel('First update')
+      })
+
+      expect(firstContainer.textContent).toBe('First update')
+      expect(secondContainer.textContent).toBe('Second')
+
+      act(() => {
+        secondLabel('Second update')
+      })
+
+      expect(firstContainer.textContent).toBe('First update')
+      expect(secondContainer.textContent).toBe('Second update')
+    } finally {
+      if (firstRoot !== undefined) act(() => firstRoot?.unmount())
+      if (secondRoot !== undefined) act(() => secondRoot?.unmount())
+      firstContainer.remove()
+      secondContainer.remove()
+    }
   })
 })
