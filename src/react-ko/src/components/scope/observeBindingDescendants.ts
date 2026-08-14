@@ -67,9 +67,11 @@ type ChildListInterceptor = {
   appendChild: typeof Node.prototype.appendChild
   insertBefore: typeof Node.prototype.insertBefore
   replaceChild: typeof Node.prototype.replaceChild
+  removeChild: typeof Node.prototype.removeChild
   interceptedAppendChild: typeof Node.prototype.appendChild
   interceptedInsertBefore: typeof Node.prototype.insertBefore
   interceptedReplaceChild: typeof Node.prototype.replaceChild
+  interceptedRemoveChild: typeof Node.prototype.removeChild
 }
 type DirectTextInterceptor = {
   owners: Map<InterceptorOwner, number>
@@ -85,6 +87,11 @@ type InterceptorOwner = {
   reconcileChangedProperty: (element: Element) => void
   hasReactOwnership: (node: Node, parent?: Element) => boolean
   reconcileInsertedChildren: (parent: Node, reactOwned: boolean) => void
+  reconcilePortalTopology: (
+    parent: Node,
+    added: Node | null,
+    removed: Node | null
+  ) => void
   reconcileDirectTextWrite: (node: Node) => void
 }
 type PrototypeInterceptorRegistry = {
@@ -105,6 +112,18 @@ function interceptorRegistry(view: Window & typeof globalThis) {
 }
 
 const detachedBindingRoots = createBindingRootRegistry()
+const portalTopologyObservers = new Map<
+  HTMLElement,
+  (parent: Node, added: Node | null, removed: Node | null) => void
+>()
+
+export function observePortalTopology(
+  root: HTMLElement,
+  synchronize: (parent: Node, added: Node | null, removed: Node | null) => void
+) {
+  portalTopologyObservers.set(root, synchronize)
+  return () => portalTopologyObservers.delete(root)
+}
 
 function createBindingRootRegistry(): BindingRootRegistry {
   return {
@@ -607,6 +626,16 @@ function reconcileInsertedChildren(parent: Node, reactOwned: boolean) {
   }
 }
 
+function reconcilePortalTopology(
+  parent: Node,
+  added: Node | null,
+  removed: Node | null
+) {
+  for (const synchronize of [...portalTopologyObservers.values()]) {
+    synchronize(parent, added, removed)
+  }
+}
+
 function reconcileDirectTextWrite(node: Node) {
   const element =
     node.nodeType === Node.ELEMENT_NODE
@@ -632,6 +661,7 @@ const interceptorOwner: InterceptorOwner = {
   reconcileChangedProperty,
   hasReactOwnership,
   reconcileInsertedChildren,
+  reconcilePortalTopology,
   reconcileDirectTextWrite,
 }
 
@@ -868,6 +898,9 @@ function releaseChildListInterceptor(view: Window & typeof globalThis) {
   if (prototype.replaceChild === interceptor.interceptedReplaceChild) {
     prototype.replaceChild = interceptor.replaceChild
   }
+  if (prototype.removeChild === interceptor.interceptedRemoveChild) {
+    prototype.removeChild = interceptor.removeChild
+  }
   delete registry.childList
 }
 
@@ -888,6 +921,7 @@ function interceptChildListInsertions(root: HTMLElement) {
   const appendChild = prototype.appendChild
   const insertBefore = prototype.insertBefore
   const replaceChild = prototype.replaceChild
+  const removeChild = prototype.removeChild
   const owners = new Map([[interceptorOwner, 1]])
   const interceptedAppendChild: typeof prototype.appendChild = function <T extends Node>(
     this: Node,
@@ -901,6 +935,7 @@ function interceptChildListInsertions(root: HTMLElement) {
     const inserted = appendChild.call(this, child) as T
     for (const [owner, reactOwned] of ownership) {
       owner.reconcileInsertedChildren(this, reactOwned)
+      if (reactOwned) owner.reconcilePortalTopology(this, child, null)
     }
     return inserted
   }
@@ -917,6 +952,7 @@ function interceptChildListInsertions(root: HTMLElement) {
     const inserted = insertBefore.call(this, child, referenceChild) as T
     for (const [owner, reactOwned] of ownership) {
       owner.reconcileInsertedChildren(this, reactOwned)
+      if (reactOwned) owner.reconcilePortalTopology(this, child, null)
     }
     return inserted
   }
@@ -933,20 +969,38 @@ function interceptChildListInsertions(root: HTMLElement) {
     const replaced = replaceChild.call(this, child, replacedChild) as T
     for (const [owner, reactOwned] of ownership) {
       owner.reconcileInsertedChildren(this, reactOwned)
+      if (reactOwned) owner.reconcilePortalTopology(this, child, replacedChild)
     }
     return replaced
+  }
+  const interceptedRemoveChild: typeof prototype.removeChild = function <T extends Node>(
+    this: Node,
+    child: T
+  ): T {
+    const reactOwned = Array.from(owners.keys(), (owner) => [
+      owner,
+      owner.hasReactOwnership(child),
+    ] as const)
+    const removed = removeChild.call(this, child) as T
+    for (const [owner, owned] of reactOwned) {
+      if (owned) owner.reconcilePortalTopology(this, null, child)
+    }
+    return removed
   }
   prototype.appendChild = interceptedAppendChild
   prototype.insertBefore = interceptedInsertBefore
   prototype.replaceChild = interceptedReplaceChild
+  prototype.removeChild = interceptedRemoveChild
   registry.childList = {
     owners,
     appendChild,
     insertBefore,
     replaceChild,
+    removeChild,
     interceptedAppendChild,
     interceptedInsertBefore,
     interceptedReplaceChild,
+    interceptedRemoveChild,
   }
 
   return () => releaseChildListInterceptor(view)
