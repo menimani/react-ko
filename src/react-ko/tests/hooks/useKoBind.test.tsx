@@ -131,28 +131,54 @@ describe('useKoBind', () => {
     expect(label.getSubscriptionsCount()).toBe(0)
   })
 
-  it('keeps one live subscription through StrictMode replay and disposes it on unmount', () => {
-    const label = ko.observable('Strict')
+  it('rejects a StrictMode host instead of losing a descendant layout-effect change', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const handleChange = vi.fn()
+    const dispatchChange = vi.fn((input: HTMLInputElement) => {
+      input.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+
+    function ChangeOnMount() {
+      const input = useRef<HTMLInputElement>(null)
+      const dispatched = useRef(false)
+
+      useLayoutEffect(() => {
+        if (dispatched.current || input.current === null) return
+        dispatched.current = true
+        dispatchChange(input.current)
+      }, [])
+
+      return <input ref={input} data-bind="event: { change: handleChange }" />
+    }
 
     function Host() {
-      const bind = useKoBind({ label })
+      const bind = useKoBind({ handleChange })
       return (
         <div {...bind}>
-          <span data-bind="text: label" />
+          <ChangeOnMount />
         </div>
       )
     }
 
-    const { unmount } = render(
-      <StrictMode>
-        <Host />
-      </StrictMode>
-    )
+    try {
+      render(
+        <ErrorBoundary>
+          <StrictMode>
+            <Host />
+          </StrictMode>
+        </ErrorBoundary>
+      )
 
-    expect(label.getSubscriptionsCount()).toBe(1)
-
-    unmount()
-    expect(label.getSubscriptionsCount()).toBe(0)
+      expect(dispatchChange).toHaveBeenCalledOnce()
+      expect(handleChange).not.toHaveBeenCalled()
+      await waitFor(() =>
+        expect(screen.getByTestId('failure').textContent).toContain(
+          'could not claim this host during the insertion phase'
+        )
+      )
+    } finally {
+      consoleError.mockRestore()
+    }
   })
 
   it('binds nothing while the view model is nullish, and binds once it arrives', () => {
