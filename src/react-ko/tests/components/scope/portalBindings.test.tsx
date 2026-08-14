@@ -419,6 +419,7 @@ describe('portal bindings', () => {
     const secondTarget = portalTarget()
     const added = ko.observable('Added')
     const existing = ko.observable('Existing')
+    const viewModel = { added, existing }
     const binding = 'throwDuringPortalBinding'
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     ko.bindingHandlers[binding] = {
@@ -430,7 +431,7 @@ describe('portal bindings', () => {
     function Harness({ addFailingPortal }: { addFailingPortal: boolean }) {
       return (
         <ErrorBoundary>
-          <BindingHost viewModel={{ added, existing }}>
+          <BindingHost viewModel={viewModel}>
             {addFailingPortal
               ? createPortal(
                   <div>
