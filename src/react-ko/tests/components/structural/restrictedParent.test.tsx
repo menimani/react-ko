@@ -4,7 +4,7 @@ import { hydrateRoot, type Root } from 'react-dom/client'
 import { renderToString } from 'react-dom/server'
 import ko from 'knockout'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { KoForeach } from '@/index'
+import { KoForeach, useKoBind } from '@/index'
 import { BindingHost } from '../../fixtures/bindingHost'
 
 type Row = {
@@ -32,16 +32,16 @@ function row(id: string): Row {
 }
 
 function OptionList({ items }: { items: ko.ObservableArray<Row> }) {
+  const bind = useKoBind({})
+
   return (
-    <BindingHost viewModel={{}}>
-      <select>
-        <KoForeach items={items} itemKey={(item) => item.id}>
-          {(item, _index, bind) => (
-            <option {...bind} data-id={item.id} data-bind="text: label" />
-          )}
-        </KoForeach>
-      </select>
-    </BindingHost>
+    <select {...bind}>
+      <KoForeach items={items} itemKey={(item) => item.id}>
+        {(item, _index, rowBind) => (
+          <option {...rowBind} data-id={item.id} data-bind="text: label" />
+        )}
+      </KoForeach>
+    </select>
   )
 }
 
