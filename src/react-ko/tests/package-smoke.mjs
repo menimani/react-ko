@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process'
 import { readFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
+import { isValidElement } from 'react'
 
 const expectedExports = [
   'KnockoutScope',
@@ -17,6 +18,10 @@ const cjs = createRequire(import.meta.url)('react-ko')
 
 assert.deepEqual(Object.keys(esm).sort(), expectedExports)
 assert.deepEqual(Object.keys(cjs).sort(), expectedExports)
+
+const scopeProps = { viewModel: { label: 'smoke' }, children: null }
+assert.ok(isValidElement(esm.KnockoutScope(scopeProps)))
+assert.ok(isValidElement(cjs.KnockoutScope(scopeProps)))
 
 const packageDirectory = fileURLToPath(new URL('..', import.meta.url))
 const npmCli = process.env.npm_execpath
