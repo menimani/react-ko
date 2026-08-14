@@ -13,10 +13,6 @@ import { describe, expect, it, vi } from 'vitest'
 import { KoForeach, useKoValue } from '@/index'
 import { BindingHost } from '../../fixtures/bindingHost'
 
-type ViewModel = {
-  label: ko.Observable<string>
-}
-
 class ErrorBoundary extends Component<
   { children: ReactNode },
   { error: Error | null }
@@ -35,23 +31,6 @@ class ErrorBoundary extends Component<
     )
   }
 }
-
-type ScopeFactory = (
-  viewModel: ViewModel,
-  children: ReactNode,
-  as?: string
-) => ReactElement
-
-const scopes: Array<[string, ScopeFactory]> = [
-  [
-    'BindingHost',
-    (viewModel, children, as) => (
-      <BindingHost viewModel={viewModel} as={as as never}>
-        {children}
-      </BindingHost>
-    ),
-  ],
-]
 
 function childTree() {
   return (
@@ -91,10 +70,12 @@ async function hydrate(tree: ReactElement) {
   }
 }
 
-describe.each(scopes)('%s server rendering', (_, createScope) => {
+describe('BindingHost server rendering', () => {
   it('includes its child subtree in the server output', () => {
     const html = renderToString(
-      createScope({ label: ko.observable('Server') }, childTree())
+      <BindingHost viewModel={{ label: ko.observable('Server') }}>
+        {childTree()}
+      </BindingHost>
     )
 
     expect(html).toContain('Server child')
@@ -103,7 +84,7 @@ describe.each(scopes)('%s server rendering', (_, createScope) => {
 
   it('preserves and binds its server-rendered children during hydration', async () => {
     const viewModel = { label: ko.observable('Hydrated') }
-    const tree = createScope(viewModel, childTree())
+    const tree = <BindingHost viewModel={viewModel}>{childTree()}</BindingHost>
     const container = document.createElement('div')
     container.innerHTML = renderToString(tree)
     document.body.appendChild(container)
@@ -150,11 +131,12 @@ describe.each(scopes)('%s server rendering', (_, createScope) => {
       )
     }
 
-    const tree = createScope(
-      viewModel,
-      <Suspense fallback={<span>Fallback</span>}>
-        <DelayedChild />
-      </Suspense>
+    const tree = (
+      <BindingHost viewModel={viewModel}>
+        <Suspense fallback={<span>Fallback</span>}>
+          <DelayedChild />
+        </Suspense>
+      </BindingHost>
     )
     const container = serverContainer(tree)
     const serverChild = container.querySelector('[data-testid="suspended-bound"]')
