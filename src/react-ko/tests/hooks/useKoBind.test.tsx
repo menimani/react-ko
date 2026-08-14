@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, act, waitFor } from '@testing-library/react'
 import { Component, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
-import { hydrateRoot, type Root } from 'react-dom/client'
+import { createRoot, hydrateRoot, type Root } from 'react-dom/client'
 import { renderToString } from 'react-dom/server'
 import ko from 'knockout'
 import { useKoBind } from '@/index'
@@ -288,6 +288,41 @@ describe('useKoBind', () => {
     } finally {
       failRebind = false
       consoleError.mockRestore()
+    }
+  })
+
+  it('binds inside a shadow root before descendant layout effects', () => {
+    const handleClick = vi.fn()
+    const shadowHost = document.createElement('div')
+    const shadowRoot = shadowHost.attachShadow({ mode: 'open' })
+    document.body.appendChild(shadowHost)
+    const root = createRoot(shadowRoot)
+
+    function ClickOnMount() {
+      const button = useRef<HTMLButtonElement>(null)
+
+      useLayoutEffect(() => {
+        button.current?.click()
+      }, [])
+
+      return <button ref={button} data-bind="click: handleClick" />
+    }
+
+    function Host() {
+      const bind = useKoBind({ handleClick })
+      return (
+        <div {...bind}>
+          <ClickOnMount />
+        </div>
+      )
+    }
+
+    try {
+      act(() => root.render(<Host />))
+      expect(handleClick).toHaveBeenCalledOnce()
+    } finally {
+      act(() => root.unmount())
+      shadowHost.remove()
     }
   })
 

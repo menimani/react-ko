@@ -32,6 +32,16 @@ function isReactOwnedHost(host: HTMLElement) {
   )
 }
 
+function hostsAcrossOpenRoots(root: Document | ShadowRoot, selector: string) {
+  const hosts = Array.from(root.querySelectorAll<HTMLElement>(selector))
+  for (const element of root.querySelectorAll<HTMLElement>('*')) {
+    if (element.shadowRoot !== null) {
+      hosts.push(...hostsAcrossOpenRoots(element.shadowRoot, selector))
+    }
+  }
+  return hosts
+}
+
 function useKoBindRoot<T>(viewModel: T, bindable: boolean): KoBindProps {
   const parentGeneration = useContext(ScopeBindGenerationContext)
   const [failure, setFailure] = useState<{ error: unknown } | null>(null)
@@ -63,18 +73,16 @@ function useKoBindRoot<T>(viewModel: T, bindable: boolean): KoBindProps {
   // a root inside another one first is what the binding root's own ordering handles.
   useInsertionEffect(() => {
     if (!bindable || boundHost.current !== null) return
-    const hosts = Array.from(
-      document.querySelectorAll<HTMLElement>(hostSelector(hostId))
-    ).filter(
+    const hosts = hostsAcrossOpenRoots(document, hostSelector(hostId)).filter(
       (candidate) =>
         isReactOwnedHost(candidate) &&
         (hostOwners.get(candidate) === undefined ||
           hostOwners.get(candidate) === hostOwner.current)
     )
-    // A host rendered into another document, or into a container React has not put in
-    // one yet, is not reachable from here. Multiple roots can also share a useId, so
-    // only prebind when React ownership identifies one eligible host unambiguously.
-    // Otherwise its ref still arrives in the layout phase.
+    // A host rendered into another document, a closed shadow root, or a container React
+    // has not put in one yet is not reachable from here. Multiple roots can also share
+    // a useId, so only prebind when React ownership identifies one eligible host
+    // unambiguously. Otherwise its ref still arrives in the layout phase.
     if (hosts.length !== 1) return
     const host = hosts[0]
     hostOwners.set(host, hostOwner.current)
