@@ -1,12 +1,13 @@
 import reactLogo from './assets/react.svg'
 import viteLogo from '/vite.svg'
 import './App.css'
-import { AppViewModelContext } from './appViewModel'
+import { useKoViewModel } from 'react-ko'
+import type { AppViewModel } from './appViewModel'
 import { KoText, KoTextHook } from './components/KoText'
 import { TodoForm } from './components/TodoForm'
 
 function App() {
-  const vm = AppViewModelContext.useAppViewModel()
+  const vm = useKoViewModel<AppViewModel>()
 
   return (
     <>

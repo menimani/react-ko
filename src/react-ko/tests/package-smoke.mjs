@@ -8,7 +8,8 @@ const expectedExports = [
   'KnockoutScope',
   'KoForeach',
   'useKoBind',
-  'useKoValue'
+  'useKoValue',
+  'useKoViewModel'
 ]
 
 const esm = await import('react-ko')

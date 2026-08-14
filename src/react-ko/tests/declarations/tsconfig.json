@@ -14,6 +14,7 @@
     "../../dist/index.d.ts",
     "ko-foreach.ts",
     "use-ko-bind.tsx",
-    "use-ko-value.ts"
+    "use-ko-value.ts",
+    "use-ko-view-model.tsx"
   ]
 }

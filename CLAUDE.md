@@ -57,12 +57,13 @@ that shared rejected set.
 
 The library's premise is absorbing Knockout into JSX without multiplying components:
 users write `data-bind` attributes inside a `KnockoutScope`, and the component set stays
-minimal. The v2 decision (2026-08) added exactly one React-side bridge: `useKoValue`,
-the sanctioned route for reading a Knockout value as React state, which `KoForeach`
-also uses internally. Any further React-side alternative to
-`data-bind` (`observer`-style wrappers, write-side hooks) still changes the library's
-identity and needs agreement first. Internal use of such mechanisms inside a component
-is fine; exporting them is the decision.
+minimal. The v3 decision (2026-08-14) makes `KnockoutScope` the ordinary scoping API: it
+both binds and provides its view model, and `useKoViewModel` is the sanctioned way for a
+React component to retrieve that model. `useKoValue` remains the sanctioned route for
+reading a Knockout value as React state, which `KoForeach` also uses internally. Any
+further React-side alternative to `data-bind` (`observer`-style wrappers, write-side
+hooks) still changes the library's identity and needs agreement first. Internal use of
+such mechanisms inside a component is fine; exporting them is the decision.
 
 ## English everywhere but the documentation
 
