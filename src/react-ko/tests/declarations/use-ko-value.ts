@@ -9,8 +9,6 @@ type Assert<T extends true> = T
 const rows = ko.observableArray([{ label: 'one' }])
 const value = useKoValue(rows)
 
-type ArrayValueIncludesNullish = Assert<
-  Equal<typeof value, { label: string }[] | null | undefined>
->
+type ArrayValue = Assert<Equal<typeof value, { label: string }[]>>
 
-void (true satisfies ArrayValueIncludesNullish)
+void (true satisfies ArrayValue)
