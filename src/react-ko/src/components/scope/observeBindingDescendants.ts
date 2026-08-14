@@ -121,8 +121,8 @@ function createBindingRootRegistry(): BindingRootRegistry {
 // changed subtree to the globally nearest root. The view model registry also
 // lets an ancestor rebind restore descendant roots cleaned along with it.
 function bindingRootRegistry(node: Node) {
-  const view = node.ownerDocument.defaultView
-  if (view === null) return detachedBindingRoots
+  const view = node.ownerDocument?.defaultView
+  if (view == null) return detachedBindingRoots
   const registry = interceptorRegistry(view)
   return (registry.bindingRoots ??= createBindingRootRegistry())
 }
@@ -367,7 +367,10 @@ function reactHostFiber(element: Element): ReactHostFiber | undefined {
 }
 
 function directReactContent(props: ReactHostProps | ReadonlyMap<string, unknown> | undefined) {
-  const get = (name: string) => (props instanceof Map ? props.get(name) : props?.[name])
+  const get = (name: string) =>
+    props instanceof Map
+      ? props.get(name)
+      : (props as ReactHostProps | undefined)?.[name]
   const innerHtml = (get('dangerouslySetInnerHTML') as { __html?: unknown } | undefined)
     ?.__html
   if (innerHtml !== undefined && innerHtml !== null) {
@@ -563,7 +566,7 @@ function reconcileChangedDataBind(element: Element, name: string) {
   }
 }
 
-function hasReactOwnership(node: Node, parent?: Element) {
+function hasReactOwnership(node: Node, parent?: Element): boolean {
   // React 18 and 19 tag host nodes before inserting them. Knockout-created
   // template nodes have no such tag and must remain on the asynchronous path.
   // Fiber-backed text keeps its tag after removal; optimized direct text has
@@ -810,13 +813,20 @@ function interceptDataBindChanges(root: HTMLElement) {
   // MutationObserver callbacks run after layout effects, and a state update
   // below the binding root does not rerender that root. Drain the queued
   // data-bind record directly from React's attribute mutation in that case.
-  const interceptedSetAttribute: typeof prototype.setAttribute = function (name, value) {
+  const interceptedSetAttribute: typeof prototype.setAttribute = function (
+    this: Element,
+    name,
+    value
+  ) {
     setAttribute.call(this, name, value)
     for (const owner of owners.keys()) {
       owner.reconcileChangedDataBind(this, name)
     }
   }
-  const interceptedRemoveAttribute: typeof prototype.removeAttribute = function (name) {
+  const interceptedRemoveAttribute: typeof prototype.removeAttribute = function (
+    this: Element,
+    name
+  ) {
     removeAttribute.call(this, name)
     for (const owner of owners.keys()) {
       owner.reconcileChangedDataBind(this, name)
@@ -880,6 +890,7 @@ function interceptChildListInsertions(root: HTMLElement) {
   const replaceChild = prototype.replaceChild
   const owners = new Map([[interceptorOwner, 1]])
   const interceptedAppendChild: typeof prototype.appendChild = function <T extends Node>(
+    this: Node,
     child: T
   ): T {
     const parent = this.nodeType === Node.ELEMENT_NODE ? (this as Element) : undefined
@@ -894,6 +905,7 @@ function interceptChildListInsertions(root: HTMLElement) {
     return inserted
   }
   const interceptedInsertBefore: typeof prototype.insertBefore = function <T extends Node>(
+    this: Node,
     child: T,
     referenceChild: Node | null
   ): T {
@@ -909,6 +921,7 @@ function interceptChildListInsertions(root: HTMLElement) {
     return inserted
   }
   const interceptedReplaceChild: typeof prototype.replaceChild = function <T extends Node>(
+    this: Node,
     child: Node,
     replacedChild: T
   ): T {
@@ -2390,7 +2403,7 @@ export function observeBindingDescendants(
         }
 
         const elements = suspenseRangeElements(start, binding.end)
-        if (!elements.some(hasReactOwnership)) continue
+        if (!elements.some((element) => hasReactOwnership(element))) continue
 
         pendingSuspenseBindings.delete(start)
         const topLevelElements = elements.filter(

@@ -63,8 +63,9 @@ it('accepts unchanged built-in handlers from the official Knockout debug build',
 
     expect(() => applyBindingsSafely({ shown: true }, container)).not.toThrow()
     for (const [name, method] of canonicalDebugHandlerMethods) {
+      const handler = debugKo.bindingHandlers[name] as ko.BindingHandler | undefined
       expect(
-        debugKo.bindingHandlers[name]?.[method],
+        handler?.[method],
         `${name}.${method} should exist in the debug build`
       ).toBeTypeOf('function')
       expect(
