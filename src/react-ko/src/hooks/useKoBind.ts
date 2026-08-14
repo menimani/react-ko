@@ -115,7 +115,7 @@ function useKoBindRoot<T>(viewModel: T, bindable: boolean): KoBindProps {
 
   if (failure !== null) throw failure.error
 
-  return { ref, [ELEMENT_BINDING_ROOT_ATTRIBUTE]: hostId }
+  return { ref, [ELEMENT_BINDING_ROOT_ATTRIBUTE]: bindable ? hostId : '' }
 }
 
 /**
