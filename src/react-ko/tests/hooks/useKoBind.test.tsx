@@ -137,6 +137,45 @@ describe('useKoBind', () => {
     expect(screen.getByTestId('value').textContent).toBe('Selected')
   })
 
+  it.each([null, undefined])(
+    'disposes and resumes binding when a mounted host receives %s',
+    (missingViewModel) => {
+      const firstLabel = ko.observable('First')
+      const first = { label: firstLabel }
+      const second = { label: ko.observable('Second') }
+
+      function Host({
+        viewModel,
+      }: {
+        viewModel: typeof first | null | undefined
+      }) {
+        const bind = useKoBind(viewModel)
+        return (
+          <div {...bind}>
+            <span data-testid="value" data-bind="text: label" />
+          </div>
+        )
+      }
+
+      const { rerender } = render(<Host viewModel={first} />)
+      const value = screen.getByTestId('value')
+      expect(value.textContent).toBe('First')
+      expect(ko.dataFor(value)).toBe(first)
+
+      rerender(<Host viewModel={missingViewModel} />)
+      expect(ko.dataFor(value)).toBeUndefined()
+
+      act(() => {
+        firstLabel('Changed while disabled')
+      })
+      expect(value.textContent).toBe('First')
+
+      rerender(<Host viewModel={second} />)
+      expect(value.textContent).toBe('Second')
+      expect(ko.dataFor(value)).toBe(second)
+    }
+  )
+
   it('reports props spread onto more than one element', async () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
 

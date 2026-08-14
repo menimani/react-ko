@@ -55,7 +55,8 @@ function BindingCommitMarker({
 export function useBindingRoot(
   viewModel: unknown,
   parentGeneration: number,
-  onError: (error: unknown) => void
+  onError: (error: unknown) => void,
+  bindable: boolean
 ) {
   const containerNode = useRef<HTMLElement | null>(null)
   const activeBinding = useRef<ActiveBinding | null>(null)
@@ -213,6 +214,12 @@ export function useBindingRoot(
     if (!node.isConnected) {
       containerNode.current = null
       disposeBinding()
+      return
+    }
+
+    if (!bindable) {
+      disposeBinding()
+      pendingBindingReplacement.current = false
       return
     }
 

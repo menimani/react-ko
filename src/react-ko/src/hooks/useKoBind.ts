@@ -31,11 +31,13 @@ function useKoBindRoot<T>(viewModel: T, bindable: boolean): KoBindProps {
 
   // A nullish view model still runs the binding root: hooks cannot be skipped, and
   // holding one root across the value arriving is what lets the caller keep the props
-  // on an element it renders conditionally. Nothing binds until a host is attached.
+  // on an element it renders conditionally. The root itself binds nothing while the
+  // view model is nullish, and retires a binding it already had.
   const { bindingContainer } = useBindingRoot(
     viewModel,
     parentGeneration,
-    handleBindingError
+    handleBindingError,
+    bindable
   )
 
   const boundHost = useRef<HTMLElement | null>(null)
