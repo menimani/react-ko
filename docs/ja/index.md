@@ -276,7 +276,7 @@ radio の暗黙の name — は復元されます。
 | `<KnockoutScope viewModel={vm}>…</KnockoutScope>` | `<div {...useKoBind(vm)}>…</div>`。ViewModel の差し替えと子や portal の更新が同じコミットになる場合は `KnockoutScope` のまま |
 | `<KoIf condition={c}>…</KoIf>` | `useKoValue(c) ? … : null` |
 | `<KoIfNot condition={c}>…</KoIfNot>` | `useKoValue(c) ? null : …` |
-| `<KoWith value={v}>{(x) => …}</KoWith>` | `const x = useKoValue(v)` の後 `x ? <div {...useKoBind(x)}>…</div> : null` |
+| `<KoWith value={v}>{(x) => …}</KoWith>` | `const x = useKoValue(v); const bind = useKoBind(x)` の後 `x ? <div {...bind}>…</div> : null` |
 | `<KoForeach>{(item, i) => …}</KoForeach>` | `<KoForeach>{(item, i, bind) => …}</KoForeach>` |
 | `boundaryAs`・`as`・`bindingMode` | 廃止。要素が利用側のものなら、そのタグも利用側のもの |
 | `SemanticHost`・`SemanticHostProps` | 上記と一緒に廃止 |
