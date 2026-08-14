@@ -69,6 +69,49 @@ describe('binding root order', () => {
     }
   )
 
+  it.each([null, undefined])(
+    'keeps an inner root live when its active outer root receives %s',
+    (missingViewModel) => {
+      const first = { outerLabel: ko.observable('first') }
+      const second = { outerLabel: ko.observable('second') }
+      const inner = { innerLabel: ko.observable('inner') }
+
+      function Harness({
+        outer,
+      }: {
+        outer: typeof first | typeof second | null | undefined
+      }) {
+        return (
+          <Host viewModel={outer}>
+            <span data-testid="outer" data-bind="text: outerLabel" />
+            <Host viewModel={inner}>
+              <span data-testid="inner" data-bind="text: innerLabel" />
+            </Host>
+          </Host>
+        )
+      }
+
+      const { rerender } = render(<Harness outer={first} />)
+      expect(screen.getByTestId('outer').textContent).toBe('first')
+      expect(screen.getByTestId('inner').textContent).toBe('inner')
+
+      rerender(<Harness outer={missingViewModel} />)
+      expect(ko.dataFor(screen.getByTestId('outer'))).toBeUndefined()
+      expect(ko.dataFor(screen.getByTestId('inner'))).toBe(inner)
+
+      act(() => inner.innerLabel('inner while disabled'))
+      expect(screen.getByTestId('inner').textContent).toBe('inner while disabled')
+
+      rerender(<Harness outer={second} />)
+      expect(screen.getByTestId('outer').textContent).toBe('second')
+
+      act(() => inner.innerLabel('inner after re-enable'))
+      expect(screen.getByTestId('inner').textContent).toBe(
+        'inner after re-enable'
+      )
+    }
+  )
+
   it('binds every level of a three-deep nest', () => {
     const a = { a: ko.observable('A') }
     const b = { b: ko.observable('B') }
