@@ -22,27 +22,7 @@ function hostSelector(id: string) {
   return `[${ELEMENT_BINDING_ROOT_ATTRIBUTE}="${id.replace(/["\\]/g, '\\$&')}"]`
 }
 
-/**
- * Makes the caller's own element a Knockout binding root for the given view model:
- * `data-bind` inside it is applied against that view model, reapplied when the view
- * model is replaced, and retired with `ko.cleanNode` when the element goes away.
- *
- * The element belongs to the caller. Nothing is added to the DOM, which is what
- * separates this from a component that has to render a host of its own.
- *
- * The host is bound before anything inside it runs a layout effect, so a descendant
- * that writes to Knockout-owned DOM on mount acts on a subtree that is already bound.
- *
- * A nullish view model binds nothing, so an element rendered only while a value
- * exists can hold the props unconditionally:
- *
- * ```tsx
- * const selected = useKoValue(vm.selected)
- * const bind = useKoBind(selected)
- * return selected ? <article {...bind}>…</article> : null
- * ```
- */
-export function useKoBind<T>(viewModel: T | null | undefined): KoBindProps {
+function useKoBindRoot<T>(viewModel: T, bindable: boolean): KoBindProps {
   const parentGeneration = useContext(ScopeBindGenerationContext)
   const [failure, setFailure] = useState<{ error: unknown } | null>(null)
   const handleBindingError = useCallback((error: unknown) => {
@@ -59,7 +39,6 @@ export function useKoBind<T>(viewModel: T | null | undefined): KoBindProps {
   )
 
   const boundHost = useRef<HTMLElement | null>(null)
-  const bindable = viewModel !== null && viewModel !== undefined
   const hostId = useId()
 
   // React attaches refs from the bottom up, so a host taken from a ref is bound after
@@ -108,4 +87,33 @@ export function useKoBind<T>(viewModel: T | null | undefined): KoBindProps {
   if (failure !== null) throw failure.error
 
   return { ref, [ELEMENT_BINDING_ROOT_ATTRIBUTE]: hostId }
+}
+
+/**
+ * Makes the caller's own element a Knockout binding root for the given view model:
+ * `data-bind` inside it is applied against that view model, reapplied when the view
+ * model is replaced, and retired with `ko.cleanNode` when the element goes away.
+ *
+ * The element belongs to the caller. Nothing is added to the DOM, which is what
+ * separates this from a component that has to render a host of its own.
+ *
+ * The host is bound before anything inside it runs a layout effect, so a descendant
+ * that writes to Knockout-owned DOM on mount acts on a subtree that is already bound.
+ *
+ * A nullish view model binds nothing, so an element rendered only while a value
+ * exists can hold the props unconditionally:
+ *
+ * ```tsx
+ * const selected = useKoValue(vm.selected)
+ * const bind = useKoBind(selected)
+ * return selected ? <article {...bind}>…</article> : null
+ * ```
+ */
+export function useKoBind<T>(viewModel: T | null | undefined): KoBindProps {
+  return useKoBindRoot(viewModel, viewModel !== null && viewModel !== undefined)
+}
+
+/** Internal binding path for structural rows, whose data may itself be nullish. */
+export function useKoBindAlways<T>(viewModel: T): KoBindProps {
+  return useKoBindRoot(viewModel, true)
 }
