@@ -54,7 +54,7 @@ afterEach(() => {
   document.body.replaceChildren()
 })
 
-describe('structural element binding mode', () => {
+describe('KoForeach direct row roots under restricted parents', () => {
   it('renders only options under select on the server and reuses them during hydration', async () => {
     const items = ko.observableArray([row('A'), row('B')])
     const container = document.createElement('div')
