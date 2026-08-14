@@ -1,6 +1,7 @@
-import { createElement } from 'react'
+import { createElement, type ReactElement } from 'react'
 import ko from 'knockout'
 import {
+  KnockoutScope,
   KoForeach,
   useKoBind,
   useKoValue,
@@ -44,6 +45,13 @@ expectType<(node: HTMLElement | null) => void>(bind.ref)
 useKoBind<ViewModel | null>(null)
 useKoBind(undefined)
 expectType<ViewModel>(useKoViewModel<ViewModel>())
+
+expectType<ReactElement>(
+  KnockoutScope<ViewModel>({
+    viewModel,
+    children: createElement('span', null, viewModel.title),
+  })
+)
 
 KoForeach({
   items: rows,
