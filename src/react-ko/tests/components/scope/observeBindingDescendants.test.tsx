@@ -571,6 +571,7 @@ describe('observeBindingDescendants', () => {
       [Node.prototype, 'nodeValue'],
       [Node.prototype, 'textContent'],
       [CharacterData.prototype, 'data'],
+      [Element.prototype, 'innerHTML'],
       [HTMLInputElement.prototype, 'value'],
       [HTMLInputElement.prototype, 'checked'],
       [HTMLTextAreaElement.prototype, 'value'],

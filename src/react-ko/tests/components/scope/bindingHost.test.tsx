@@ -1326,6 +1326,61 @@ describe('BindingHost', () => {
     }
   })
 
+  it('rejects a React innerHTML write before a sibling layout effect can detach it', () => {
+    const vm = { label: ko.observable('Knockout text') }
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    let showMarkup: () => void = () => undefined
+    let connectedAfterUpdate = false
+
+    function LayoutNotifier({ notify }: { notify: boolean }) {
+      useLayoutEffect(() => {
+        if (notify) {
+          const markup = document.querySelector('[data-testid="direct-html-owner"] strong')
+          vm.label('Updated in layout')
+          connectedAfterUpdate = markup?.isConnected ?? false
+        }
+      }, [notify])
+
+      return null
+    }
+
+    function BindingOwner() {
+      const [show, setShow] = useState(false)
+      showMarkup = () => setShow(true)
+
+      return (
+        <>
+          <div
+            data-testid="direct-html-owner"
+            data-bind="text: label"
+            dangerouslySetInnerHTML={
+              show ? { __html: '<strong>React markup</strong>' } : undefined
+            }
+          />
+          <LayoutNotifier notify={show} />
+        </>
+      )
+    }
+
+    try {
+      render(
+        <ErrorBoundary>
+          <BindingHost viewModel={vm}>
+            <BindingOwner />
+          </BindingHost>
+        </ErrorBoundary>
+      )
+      act(() => showMarkup())
+
+      expect(screen.getByText('Binding failed')).toBeDefined()
+      expect(connectedAfterUpdate).toBe(true)
+      expect(vm.label()).toBe('Updated in layout')
+      expect(vm.label.getSubscriptionsCount()).toBe(0)
+    } finally {
+      consoleError.mockRestore()
+    }
+  })
+
   it.each([
     ['text', 'text: text'],
     ['html', 'html: markup'],

@@ -23,7 +23,11 @@ type BindingObserverState = {
   shouldDeferReconciliation?: () => boolean
   shouldDeferDataBindChange: (element: Element) => boolean
   shouldDeferInsertion: (parent: Node) => boolean
-  shouldReconcileDirectTextWrite: (element: HTMLElement) => boolean
+  shouldReconcileDirectTextWrite: (
+    element: HTMLElement,
+    kind?: 'text' | 'html',
+    value?: string
+  ) => boolean
   refreshAfterLayout: () => void
   onError: (error: unknown) => void
 }
@@ -93,7 +97,11 @@ type InterceptorOwner = {
     added: Node | null,
     removed: Node | null
   ) => void
-  reconcileDirectTextWrite: (node: Node) => void
+  reconcileDirectTextWrite: (
+    node: Node,
+    kind?: 'text' | 'html',
+    value?: string
+  ) => void
 }
 type PrototypeInterceptorRegistry = {
   attribute?: AttributeInterceptor
@@ -470,20 +478,29 @@ function hasDirectReactContentTransition(
   )
 }
 
-function hasActiveDirectReactTextWrite(
+function hasActiveDirectReactContentWrite(
   element: HTMLElement,
-  previousProps: ReadonlyMap<string, unknown>
+  previousProps: ReadonlyMap<string, unknown>,
+  writtenKind?: 'text' | 'html',
+  writtenValue?: string
 ) {
   const currentProps = currentReactHostProps(element, true)
   const current = directReactContent(currentProps)
+  const renderedContent =
+    writtenKind === undefined
+      ? current?.kind === 'html'
+        ? element.innerHTML
+        : element.textContent
+      : writtenValue
 
   // After a commit, the alternate describes the previous render but remains
-  // reachable. A later Knockout text notification must not be mistaken for
-  // that stale render: an active React write produces the pending text and
+  // reachable. A later Knockout content notification must not be mistaken for
+  // that stale render: an active React write produces the pending content and
   // keeps the binding source currently reflected in the DOM.
   return (
-    current?.kind === 'text' &&
-    current.value === element.textContent &&
+    current !== null &&
+    (writtenKind === undefined || current.kind === writtenKind) &&
+    current.value === renderedContent &&
     (currentProps?.['data-bind'] ?? null) === element.getAttribute('data-bind') &&
     hasDirectReactContentTransition(element, previousProps, true)
   )
@@ -637,7 +654,11 @@ function reconcilePortalTopology(
   }
 }
 
-function reconcileDirectTextWrite(node: Node) {
+function reconcileDirectTextWrite(
+  node: Node,
+  kind?: 'text' | 'html',
+  value?: string
+) {
   const element =
     node.nodeType === Node.ELEMENT_NODE
       ? (node as HTMLElement)
@@ -650,7 +671,7 @@ function reconcileDirectTextWrite(node: Node) {
   if (
     root !== undefined &&
     state !== undefined &&
-    state.shouldReconcileDirectTextWrite(element) &&
+    state.shouldReconcileDirectTextWrite(element, kind, value) &&
     !registry.reconcilingRoots.has(root)
   ) {
     reconcileBindingDescendants(root)
@@ -1041,21 +1062,24 @@ function interceptDirectTextWrites(root: HTMLElement) {
 
   const owners = new Map([[interceptorOwner, 1]])
   const properties: DirectTextInterceptor['properties'] = []
-  // React can update a direct text child without calling a child-list method.
+  // React can update direct text or HTML without calling a child-list method.
   // Observe every DOM setter it uses before sibling layout effects can notify
   // the content binding that still owns the host's current child nodes.
   for (const [propertyPrototype, name] of [
     [prototype, 'nodeValue'],
     [prototype, 'textContent'],
     [view.CharacterData.prototype, 'data'],
+    [view.Element.prototype, 'innerHTML'],
   ] as Array<[object, string]>) {
     const descriptor = Object.getOwnPropertyDescriptor(propertyPrototype, name)
     if (descriptor?.set === undefined) continue
     const set = descriptor.set
     const interceptedSet = function (this: Node, value: unknown) {
       set.call(this, value)
+      const kind = name === 'innerHTML' ? 'html' : 'text'
+      const writtenValue = value === null || value === undefined ? '' : String(value)
       for (const owner of owners.keys()) {
-        owner.reconcileDirectTextWrite(this)
+        owner.reconcileDirectTextWrite(this, kind, writtenValue)
       }
     }
     Object.defineProperty(propertyPrototype, name, {
@@ -2379,12 +2403,12 @@ export function observeBindingDescendants(
 
       return currentReactHostProps(element, true)?.['data-bind'] !== state.source
     },
-    shouldReconcileDirectTextWrite: (element) => {
+    shouldReconcileDirectTextWrite: (element, kind, value) => {
       const state = bindingStates.get(element)
       return (
         state !== undefined &&
         state.ownedContent !== null &&
-        hasActiveDirectReactTextWrite(element, state.reactProps)
+        hasActiveDirectReactContentWrite(element, state.reactProps, kind, value)
       )
     },
     refreshAfterLayout: () => {
