@@ -41,7 +41,7 @@ describe('KoForeach', () => {
   it('renders nothing when the array is empty', () => {
     const vm = { items: ko.observableArray<string>([]) }
 
-    render(
+    const { container } = render(
       <BindingHost viewModel={{}}>
         <KoForeach items={vm.items}>
           {(item) => <span>{item}</span>}
@@ -49,7 +49,7 @@ describe('KoForeach', () => {
       </BindingHost>
     )
 
-    expect(screen.queryByText(/./)).toBeNull()
+    expect(container.firstElementChild?.childNodes).toHaveLength(0)
   })
 
   it('passes the index to the render prop', () => {
