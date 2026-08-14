@@ -176,7 +176,6 @@ function domPrototypes(root: HTMLElement): DomPrototypes {
   }
 }
 
-const detachedBindingRoots = createBindingRootRegistry()
 const portalTopologyObservers = new Map<
   HTMLElement,
   (parent: Node, added: Node | null, removed: Node | null) => void
@@ -201,13 +200,13 @@ function createBindingRootRegistry(): BindingRootRegistry {
 }
 
 // Observers on enclosing roots also see mutations inside nested scopes. Keep
-// ownership on the DOM window so independently loaded copies still dispatch a
-// changed subtree to the globally nearest root. The view model registry also
-// lets an ancestor rebind restore descendant roots cleaned along with it.
+// ownership on a shared DOM object so independently loaded copies still dispatch
+// a changed subtree to the globally nearest root. Windowless documents use their
+// owner document instead. The view model registry also lets an ancestor rebind
+// restore descendant roots cleaned along with it.
 function bindingRootRegistry(node: Node) {
-  const view = node.ownerDocument?.defaultView
-  if (view == null) return detachedBindingRoots
-  const registry = interceptorRegistry(view)
+  const document = node.ownerDocument
+  const registry = interceptorRegistry(document?.defaultView ?? document ?? node)
   return (registry.bindingRoots ??= createBindingRootRegistry())
 }
 
