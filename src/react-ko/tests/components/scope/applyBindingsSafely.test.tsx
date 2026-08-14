@@ -48,7 +48,7 @@ describe('applyBindingsSafely', () => {
 
       expect(() => applyBindingsSafely({ value: true }, container)).toThrow(
         `react-ko cannot apply the Knockout "${binding}" binding because it controls React-owned child nodes. ` +
-          'Use React rendering with useKoValue, or KoForeach for lists, instead.'
+          'Use React rendering with useKoValue, useKoBind for a Knockout binding root, or KoForeach for lists instead.'
       )
       expect(container.querySelector('span')?.textContent).toBe('React markup')
     }
