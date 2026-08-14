@@ -52,8 +52,9 @@ function Greeting() {
 持ち込みます。
 
 ランタイムのエクスポートは 4 つ：`useKoBind`、`useKoValue`、リスト用の `KoForeach`、そして
-スコープがバインドした後に現れる子のための `KnockoutScope`。TypeScript では、`useKoBind` が
-返す props の型である `KoBindProps` もインポートできます。詳細は
+ViewModel の差し替えと子や portal の変更が同じコミットになる場合、または `useKoBind` が返す
+props を渡せる既存のホストがない場合の `KnockoutScope`。TypeScript では、その props の型である
+`KoBindProps` もインポートできます。詳細は
 [ドキュメント](https://menimani.github.io/react-ko/ja/)にあります。
 
 ---
