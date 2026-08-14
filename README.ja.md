@@ -71,7 +71,8 @@ ViewModel を取得できます。ネストしたスコープは、それぞれ�
 `useKoBind`。React の insertion phase で検出できないホストは拒否されます。これには closed shadow root 内、
 `DocumentFragment` などの切り離されたツリー内、ページから到達できない別の `Document` 内のホストが
 含まれます。これらのレンダー位置では `KnockoutScope` を使ってください。アクセス可能な同一オリジンの
-iframe 内のホストはサポートされます。TypeScript では、
+iframe 内のホストはサポートされます。ホストには HTML 要素が必要です。返された ref を SVG または
+MathML 要素に指定する JavaScript の呼び出しは、ランタイムで拒否されます。TypeScript では、
 `useKoBind` が返す型 `KoBindProps` もインポートできます。詳細は
 [ドキュメント](https://menimani.github.io/react-ko/ja/)にあります。
 

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, act, waitFor } from '@testing-library/react'
-import { Component, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { Component, createElement, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { createRoot, hydrateRoot, type Root } from 'react-dom/client'
 import { renderToString } from 'react-dom/server'
 import ko from 'knockout'
@@ -379,6 +379,38 @@ describe('useKoBind', () => {
     } finally {
       act(() => root.unmount())
       iframe.remove()
+    }
+  })
+
+  it.each([
+    ['SVG', 'svg'],
+    ['MathML', 'math'],
+  ] as const)('rejects an unsupported %s host at runtime', async (_name, tagName) => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    function Host() {
+      const bind = useKoBind({ label: 'Unsupported' })
+      const javascriptBind = bind as unknown as {
+        ref: (node: Element | null) => void
+        'data-react-ko-scope': string
+      }
+      return createElement(tagName, javascriptBind)
+    }
+
+    try {
+      render(
+        <ErrorBoundary>
+          <Host />
+        </ErrorBoundary>
+      )
+
+      await waitFor(() =>
+        expect(screen.getByTestId('failure').textContent).toBe(
+          'react-ko: useKoBind requires an HTMLElement host; SVG and MathML elements are not supported.'
+        )
+      )
+    } finally {
+      consoleError.mockRestore()
     }
   })
 

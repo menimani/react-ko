@@ -70,7 +70,8 @@ binding root when a wrapper cannot be used. A host that cannot be discovered dur
 React's insertion phase is rejected; this includes closed shadow roots, detached trees
 such as a `DocumentFragment`, and secondary `Document` objects not reachable from the
 page. Use `KnockoutScope` at those render locations. Hosts in reachable same-origin
-iframes are supported. TypeScript users can also import
+iframes are supported. The host must be an HTML element; JavaScript calls that attach
+the returned ref to an SVG or MathML element are rejected at runtime. TypeScript users can also import
 `KoBindProps`, the type returned by `useKoBind`. The
 [documentation](https://menimani.github.io/react-ko/) covers each.
 

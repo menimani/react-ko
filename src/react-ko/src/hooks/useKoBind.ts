@@ -22,6 +22,16 @@ function hostSelector(id: string) {
   return `[${ELEMENT_BINDING_ROOT_ATTRIBUTE}="${id.replace(/["\\]/g, '\\$&')}"]`
 }
 
+function isHTMLElement(node: Element): node is HTMLElement {
+  const view = node.ownerDocument.defaultView
+  if (view !== null) return node instanceof view.HTMLElement
+
+  // Documents created with createHTMLDocument have no Window, but their HTML
+  // namespace elements are still valid hosts. The namespace also excludes SVG and
+  // MathML without consulting a constructor from the wrong realm.
+  return node.namespaceURI === 'http://www.w3.org/1999/xhtml'
+}
+
 // Independently rendered roots receive the same default useId sequence. Remember which
 // matching SSR host each hook claimed so a later root can select its own unclaimed host.
 const hostOwners = new WeakMap<HTMLElement, object>()
@@ -40,8 +50,8 @@ function hostsAcrossOpenRoots(
   if (visited.has(root)) return []
   visited.add(root)
 
-  const hosts = Array.from(root.querySelectorAll<HTMLElement>(selector))
-  for (const element of root.querySelectorAll<HTMLElement>('*')) {
+  const hosts = Array.from(root.querySelectorAll(selector)).filter(isHTMLElement)
+  for (const element of root.querySelectorAll('*')) {
     if (element.shadowRoot !== null) {
       hosts.push(...hostsAcrossOpenRoots(element.shadowRoot, selector, visited))
     }
@@ -126,6 +136,12 @@ function useKoBindRoot<T>(
         }
         boundHost.current = null
         return
+      }
+
+      if (!isHTMLElement(node)) {
+        throw new Error(
+          'react-ko: useKoBind requires an HTMLElement host; SVG and MathML elements are not supported.'
+        )
       }
 
       if (bindable && isClosedShadowRoot(node.getRootNode())) {
