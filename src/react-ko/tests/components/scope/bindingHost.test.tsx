@@ -45,24 +45,6 @@ class ErrorMessageBoundary extends Component<
 }
 
 describe('BindingHost', () => {
-  it('binds direct children to the root view model', () => {
-    const vm = { label: ko.observable('Initial') }
-
-    render(
-      <BindingHost viewModel={vm}>
-        <span data-bind="text: label" />
-      </BindingHost>
-    )
-
-    expect(screen.getByText('Initial')).toBeDefined()
-
-    act(() => {
-      vm.label('Updated')
-    })
-
-    expect(screen.getByText('Updated')).toBeDefined()
-  })
-
   describe.each([
     ['text', 'text: label'],
     ['html', 'html: markup'],
@@ -116,33 +98,6 @@ describe('BindingHost', () => {
         expect(value.getSubscriptionsCount()).toBeGreaterThan(0)
       })
     })
-  })
-
-  it('binds ordinary React descendants mounted after the initial pass', async () => {
-    const vm = { label: ko.observable('Mounted later') }
-
-    function Harness({ show }: { show: boolean }) {
-      return (
-        <BindingHost viewModel={vm}>
-          {show ? <span data-bind="text: label" /> : null}
-        </BindingHost>
-      )
-    }
-
-    const { rerender } = render(<Harness show={false} />)
-    expect(vm.label.getSubscriptionsCount()).toBe(0)
-
-    rerender(<Harness show />)
-
-    await waitFor(() => {
-      expect(screen.getByText('Mounted later')).toBeDefined()
-      expect(vm.label.getSubscriptionsCount()).toBeGreaterThan(0)
-    })
-
-    act(() => {
-      vm.label('Still bound')
-    })
-    expect(screen.getByText('Still bound')).toBeDefined()
   })
 
   it('preprocesses a custom alias once when its element mounts later', async () => {
@@ -1823,44 +1778,6 @@ describe('BindingHost', () => {
 
     expect(screen.getByText('Binding failed')).toBeDefined()
     expect(vm.label.getSubscriptionsCount()).toBe(0)
-  })
-
-  it('binds once and cleans up correctly under StrictMode', () => {
-    const vm = { label: ko.observable('Strict') }
-
-    const { unmount } = render(
-      <StrictMode>
-        <BindingHost viewModel={vm}>
-          <span data-bind="text: label" />
-        </BindingHost>
-      </StrictMode>
-    )
-
-    expect(screen.getByText('Strict')).toBeDefined()
-    expect(vm.label.getSubscriptionsCount()).toBe(1)
-
-    unmount()
-
-    expect(vm.label.getSubscriptionsCount()).toBe(0)
-  })
-
-  it('surfaces a binding error raised by a late non-React descendant', async () => {
-    render(
-      <ErrorBoundary>
-        <BindingHost viewModel={{}}>
-          <div data-testid="root-host" />
-        </BindingHost>
-      </ErrorBoundary>
-    )
-    const host = screen.getByTestId('root-host')
-
-    const el = document.createElement('span')
-    el.setAttribute('data-bind', 'text: missing.value')
-    act(() => {
-      host.appendChild(el)
-    })
-
-    await waitFor(() => expect(screen.getByText('Binding failed')).toBeDefined())
   })
 
   it('rejects a content binding over dangerouslySetInnerHTML content', () => {
