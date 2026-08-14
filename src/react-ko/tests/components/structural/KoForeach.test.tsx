@@ -16,6 +16,25 @@ function StatefulIndex({ index }: { index: number }) {
   return <span>{`${index}:${initialIndex}`}</span>
 }
 
+function TrackedStatefulIndex({
+  index,
+  onUnmount,
+}: {
+  index: number
+  onUnmount: (initialIndex: number) => void
+}) {
+  const [initialIndex] = React.useState(index)
+
+  React.useEffect(
+    () => () => {
+      onUnmount(initialIndex)
+    },
+    [initialIndex, onUnmount]
+  )
+
+  return <span>{`${index}:${initialIndex}`}</span>
+}
+
 function StatefulItem({ item, list }: { item: string; list: string }) {
   const [initialItem] = React.useState(item)
   return <span data-testid={`${list}-${item}`}>{`${item}:${initialItem}`}</span>
@@ -398,6 +417,38 @@ describe('KoForeach', () => {
     expect(screen.getByText('A')).toBe(node)
   })
 
+  it('keeps row DOM identity across reorders for observable items and disposes removed bindings', () => {
+    const first = ko.observable('A')
+    const second = ko.observable('B')
+    const items = ko.observableArray([first, second])
+
+    render(
+      <BindingHost viewModel={{}}>
+        <KoForeach items={items}>
+          {(_item, _index, bind) => <span {...bind} data-bind="text: $data" />}
+        </KoForeach>
+      </BindingHost>
+    )
+
+    const node = screen.getByText('A')
+    expect(first.getSubscriptionsCount()).toBe(1)
+
+    act(() => {
+      items.reverse()
+    })
+
+    expect(screen.getByText('A')).toBe(node)
+    expect(first.getSubscriptionsCount()).toBe(1)
+
+    act(() => {
+      items.remove(first)
+    })
+
+    expect(screen.queryByText('A')).toBeNull()
+    expect(first.getSubscriptionsCount()).toBe(0)
+    expect(second.getSubscriptionsCount()).toBe(1)
+  })
+
   it('keeps distinct state for repeated object references after a preceding row is removed', () => {
     const before = row('Before')
     const shared = row('Shared')
@@ -417,6 +468,50 @@ describe('KoForeach', () => {
 
     expect(screen.getByText('0:1')).toBeDefined()
     expect(screen.getByText('1:2')).toBeDefined()
+  })
+
+  it('keeps distinct state for repeated observable references and cleans up only removed rows', () => {
+    const before = ko.observable('Before')
+    const shared = ko.observable('Shared')
+    const items = ko.observableArray([before, shared, shared])
+    const onUnmount = vi.fn()
+
+    render(
+      <BindingHost viewModel={{}}>
+        <KoForeach items={items}>
+          {(_item, index, bind) => (
+            <div {...bind}>
+              <TrackedStatefulIndex index={index} onUnmount={onUnmount} />
+              <span data-bind="text: $data" />
+            </div>
+          )}
+        </KoForeach>
+      </BindingHost>
+    )
+
+    expect(before.getSubscriptionsCount()).toBe(1)
+    expect(shared.getSubscriptionsCount()).toBe(2)
+
+    act(() => {
+      items.splice(0, 1)
+    })
+
+    expect(screen.getByText('0:1')).toBeDefined()
+    expect(screen.getByText('1:2')).toBeDefined()
+    expect(onUnmount).toHaveBeenCalledTimes(1)
+    expect(onUnmount).toHaveBeenLastCalledWith(0)
+    expect(before.getSubscriptionsCount()).toBe(0)
+    expect(shared.getSubscriptionsCount()).toBe(2)
+
+    act(() => {
+      items.splice(1, 1)
+    })
+
+    expect(screen.getByText('0:1')).toBeDefined()
+    expect(screen.queryByText('1:2')).toBeNull()
+    expect(onUnmount).toHaveBeenCalledTimes(2)
+    expect(onUnmount).toHaveBeenLastCalledWith(2)
+    expect(shared.getSubscriptionsCount()).toBe(1)
   })
 
   it('makes each object item the Knockout $root for its row', () => {
