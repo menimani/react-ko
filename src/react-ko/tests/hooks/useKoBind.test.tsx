@@ -213,7 +213,7 @@ describe('useKoBind', () => {
     }
   )
 
-  it('reports props spread onto more than one element', async () => {
+  it('reports insertion-phase ambiguity when two hosts are rendered initially', async () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
 
     function Host() {
@@ -234,8 +234,44 @@ describe('useKoBind', () => {
       )
 
       await waitFor(() =>
-        expect(screen.getByTestId('failure').textContent).toContain(
-          'could not claim this host during the insertion phase'
+        expect(screen.getByTestId('failure').textContent).toBe(
+          'react-ko: useKoBind could not claim this host during the insertion phase, so it cannot bind before descendant layout effects run. Use KnockoutScope at this render location instead.'
+        )
+      )
+    } finally {
+      consoleError.mockRestore()
+    }
+  })
+
+  it('reports props spread onto more than one connected element', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    function Host({ includeSecond }: { includeSecond: boolean }) {
+      const bind = useKoBind({ label: 'Shared' })
+      return (
+        <div>
+          <span {...bind} data-bind="text: label" />
+          {includeSecond && <span {...bind} data-bind="text: label" />}
+        </div>
+      )
+    }
+
+    try {
+      const { rerender } = render(
+        <ErrorBoundary>
+          <Host includeSecond={false} />
+        </ErrorBoundary>
+      )
+
+      rerender(
+        <ErrorBoundary>
+          <Host includeSecond />
+        </ErrorBoundary>
+      )
+
+      await waitFor(() =>
+        expect(screen.getByTestId('failure').textContent).toBe(
+          'react-ko: the props returned by one useKoBind call are spread onto more than one element. Call useKoBind once per element.'
         )
       )
     } finally {
