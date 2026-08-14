@@ -99,6 +99,17 @@ export const reactKoProject: ProjectAdapter = {
         command: 'npm run build',
         requires: 'package.json',
       },
+      {
+        label: 'Browser smoke',
+        cwd: 'e2e',
+        command: 'npx playwright install chromium && npm test',
+        requires: 'e2e/package.json',
+        repairWhenMissing: {
+          path: 'e2e/node_modules/.bin/playwright',
+          command: 'npm install --no-audit --no-fund',
+          message: 'the Playwright launcher is missing — running npm install to restore it',
+        },
+      },
     ]
   },
 

@@ -2,7 +2,6 @@ import { describe, it, expect, vi } from 'vitest'
 import { render, screen, act, fireEvent, waitFor } from '@testing-library/react'
 import { Component, type ReactNode, useLayoutEffect, useRef, useState } from 'react'
 import ko from 'knockout'
-import { KnockoutScope } from '@/index'
 import { BindingHost } from '../../fixtures/bindingHost'
 
 class ErrorBoundary extends Component<

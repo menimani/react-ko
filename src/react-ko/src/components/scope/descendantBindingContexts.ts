@@ -135,10 +135,13 @@ export function prepareDescendantBindingContextCapture(
 export function descendantBindingContextFor(node: Node, root: Node) {
   const contexts = descendantBindingContexts()
   let ancestor = node.parentNode
-  while (ancestor !== null && ancestor !== root) {
+  while (ancestor !== null) {
     const context = contexts.get(ancestor)
     if (context !== undefined) {
       return context
+    }
+    if (ancestor === root) {
+      break
     }
     ancestor = ancestor.parentNode
   }
