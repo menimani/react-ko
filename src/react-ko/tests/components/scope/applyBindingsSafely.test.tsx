@@ -543,6 +543,109 @@ describe('applyBindingsSafely', () => {
     }
   })
 
+  it('restores React children mutated by a custom init without a descendant-control flag', () => {
+    const binding = 'destructiveCustomInit'
+    ko.bindingHandlers[binding] = {
+      init(element) {
+        element.replaceChildren(document.createElement('strong'))
+      },
+    }
+
+    try {
+      const { container } = render(
+        <section data-bind={`${binding}: true`}>
+          <span>React child</span>
+        </section>
+      )
+      const child = container.querySelector('span')
+
+      expect(() => applyBindingsSafely({}, container)).toThrow(
+        `react-ko cannot apply the Knockout "${binding}" binding because its custom handler mutated React-owned child nodes.`
+      )
+      expect(container.querySelector('span')).toBe(child)
+      expect(container.querySelector('strong')).toBeNull()
+    } finally {
+      delete ko.bindingHandlers[binding]
+    }
+  })
+
+  it('restores and cleans a custom init that mutates React children before throwing', () => {
+    const binding = 'throwingDestructiveCustomInit'
+    const bindingError = new Error('Custom binding failed')
+    const dispose = vi.fn()
+    ko.bindingHandlers[binding] = {
+      init(element) {
+        ko.utils.domNodeDisposal.addDisposeCallback(element, dispose)
+        element.replaceChildren(document.createElement('strong'))
+        throw bindingError
+      },
+    }
+
+    try {
+      const { container } = render(
+        <section data-bind={`${binding}: true`}>
+          <span>First React child</span>
+          <em>Second React child</em>
+        </section>
+      )
+      const section = container.querySelector('section')!
+      const children = [...section.childNodes]
+      let diagnostic: unknown
+
+      try {
+        applyBindingsSafely({}, container)
+      } catch (error) {
+        diagnostic = error
+      }
+
+      expect(diagnostic).toBeInstanceOf(Error)
+      expect(diagnostic).toMatchObject({
+        message:
+          `Unable to process binding "${binding}: function(){return true }"\n` +
+          `Message: react-ko cannot apply the Knockout "${binding}" binding because its custom handler mutated React-owned child nodes. ` +
+          'Custom bindings on elements with React-owned children must leave their descendants in place.',
+        cause: bindingError,
+      })
+      expect([...section.childNodes]).toEqual(children)
+      expect(section.querySelector('strong')).toBeNull()
+      expect(dispose).toHaveBeenCalledOnce()
+    } finally {
+      delete ko.bindingHandlers[binding]
+    }
+  })
+
+  it('restores React children mutated by a custom update after an observable changes', () => {
+    const binding = 'destructiveCustomUpdate'
+    const mode = ko.observable('keep')
+    ko.bindingHandlers[binding] = {
+      update(element, valueAccessor) {
+        if (ko.unwrap(valueAccessor()) === 'replace') {
+          element.replaceChildren(document.createElement('strong'))
+        }
+      },
+    }
+
+    const { container, unmount } = render(
+      <section data-bind={`${binding}: mode`}>
+        <span>React child</span>
+      </section>
+    )
+    const child = container.querySelector('span')
+
+    try {
+      expect(() => applyBindingsSafely({ mode }, container)).not.toThrow()
+      expect(() => mode('replace')).toThrow(
+        `react-ko cannot apply the Knockout "${binding}" binding because its custom handler mutated React-owned child nodes.`
+      )
+      expect(container.querySelector('span')).toBe(child)
+      expect(container.querySelector('strong')).toBeNull()
+    } finally {
+      ko.cleanNode(container)
+      unmount()
+      delete ko.bindingHandlers[binding]
+    }
+  })
+
   it('restores a React-owned virtual range removed by a rejected custom init', () => {
     const binding = 'destructiveVirtualDescendantController'
     const init = vi.fn((start: Node) => {

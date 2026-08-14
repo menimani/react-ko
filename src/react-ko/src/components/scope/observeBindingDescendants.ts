@@ -339,7 +339,6 @@ const DELEGATED_BINDING_HANDLERS = new Map<string, readonly string[]>([
 type DomSnapshot = {
   attributes: Map<string, string>
   style: Map<string, { value: string; priority: string }>
-  styleDisplay: string
   focused: boolean
   value?: unknown
   checked?: boolean
@@ -400,7 +399,6 @@ function snapshotDom(element: HTMLElement): DomSnapshot {
         },
       ])
     ),
-    styleDisplay: element.style.display,
     focused: element.ownerDocument.activeElement === element,
     ...('value' in properties ? { value: properties.value } : {}),
     ...('checked' in properties ? { checked: properties.checked } : {}),
@@ -1837,8 +1835,6 @@ function refreshReactOwnedDom(
         state.reactProps.get('style'),
         currentProps.get('style')
       )
-      state.beforeBinding.styleDisplay =
-        state.beforeBinding.style.get('display')?.value ?? ''
       changed.add(element)
     } else if (names.has('attr') && state.ownedAttributes.has(attributeName)) {
       updateAttributeBaselineFromReactProp(
@@ -1883,10 +1879,6 @@ function refreshReactOwnedDom(
         reactPropChanged(state.reactProps, currentProps, 'style')
       ) {
         updateStyleBaselineFromReactProps(state, previousStyle, currentStyle)
-        if (displayChanged) {
-          state.beforeBinding.styleDisplay =
-            state.beforeBinding.style.get('display')?.value ?? ''
-        }
         changed.add(element)
       }
 
@@ -2114,7 +2106,6 @@ function restoreRetiredDomEffects(element: HTMLElement, state: BindingState) {
     value?: unknown
     checked?: boolean
     disabled?: boolean
-    selected?: boolean
   }
 
   if (names.has('class') || names.has('css')) {
@@ -2123,7 +2114,7 @@ function restoreRetiredDomEffects(element: HTMLElement, state: BindingState) {
   if (names.has('style')) {
     restoreStyle(element, state.beforeBinding)
   } else if (names.has('visible') || names.has('hidden')) {
-    element.style.display = state.beforeBinding.styleDisplay
+    element.style.display = state.beforeBinding.style.get('display')?.value ?? ''
   }
   if (names.has('attr')) {
     for (const name of state.ownedAttributes) {
@@ -2152,9 +2143,6 @@ function restoreRetiredDomEffects(element: HTMLElement, state: BindingState) {
     state.beforeBinding.disabled !== undefined
   ) {
     properties.disabled = state.beforeBinding.disabled
-  }
-  if (names.has('selectedOptions') && state.beforeBinding.selected !== undefined) {
-    properties.selected = state.beforeBinding.selected
   }
   if (names.has('hasFocus') || names.has('hasfocus')) {
     if (state.beforeBinding.focused) {
@@ -2339,8 +2327,6 @@ export function observeBindingDescendants(
   )
   trackBindingTree(root, root, bindingStates, deferredSuspenseElements)
 
-  const deferredRecords: MutationRecord[] = []
-
   const reconcile = (records: MutationRecord[], reactCommitInProgress = false) => {
     cleanRemovedNodes(records, root)
     const addedRoots = addedBindingRoots(records, root, bindingStates)
@@ -2380,18 +2366,7 @@ export function observeBindingDescendants(
 
     registry.reconcilingRoots.add(root)
     try {
-      if (shouldDeferReconciliation?.() === true) {
-        // The replacement pass cleans and binds the current tree as a whole.
-        // Only detached nodes need immediate cleanup from this delivered batch.
-        cleanRemovedNodes(records, root)
-        // The pass this batch is waiting for is not certain to arrive: a replacement
-        // rendered but never committed leaves the root bound as it was. Keeping the
-        // batch means the next reconciliation still sees these nodes, rather than the
-        // announcement quietly costing them their bindings.
-        deferredRecords.push(...records)
-        return
-      }
-      reconcile([...deferredRecords.splice(0), ...records])
+      reconcile(records)
     } catch (error) {
       observer.disconnect()
       onError(error)
