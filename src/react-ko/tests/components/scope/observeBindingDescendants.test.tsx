@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, act, fireEvent, waitFor } from '@testing-library/react'
 import { Component, type ReactNode, useLayoutEffect, useRef, useState } from 'react'
+import { createRoot } from 'react-dom/client'
 import ko from 'knockout'
 import { BindingHost } from '../../fixtures/bindingHost'
 
@@ -724,6 +725,52 @@ describe('observeBindingDescendants', () => {
       expect(screen.getByTestId('two-copy-late').textContent).toBe('Inner provider')
     } finally {
       mounted.unmount()
+      vi.resetModules()
+    }
+  })
+
+  it('restores a copy-B scope after a copy-A replacement in a windowless document', async () => {
+    const detached = document.implementation.createHTMLDocument('detached')
+    const container = detached.createElement('div')
+    detached.body.appendChild(container)
+    expect(detached.defaultView).toBeNull()
+
+    vi.resetModules()
+    const first = await import('@/index')
+    vi.resetModules()
+    const second = await import('@/index')
+    const OuterScope = first.KnockoutScope
+    const InnerScope = second.KnockoutScope
+    const innerLabel = ko.observable('Inner first')
+    const innerViewModel = { label: innerLabel }
+    let replaceOuter: (() => void) | undefined
+
+    function Harness() {
+      const [outerViewModel, setOuterViewModel] = useState({ version: 1 })
+      replaceOuter = () => setOuterViewModel({ version: 2 })
+      return (
+        <OuterScope viewModel={outerViewModel}>
+          <InnerScope viewModel={innerViewModel}>
+            <span data-testid="windowless-inner" data-bind="text: label" />
+          </InnerScope>
+        </OuterScope>
+      )
+    }
+
+    const root = createRoot(container)
+    try {
+      act(() => root.render(<Harness />))
+      const inner = container.querySelector('[data-testid="windowless-inner"]')
+      expect(inner?.textContent).toBe('Inner first')
+      expect(innerLabel.getSubscriptionsCount()).toBe(1)
+
+      act(() => replaceOuter?.())
+      expect(innerLabel.getSubscriptionsCount()).toBe(1)
+
+      act(() => innerLabel('Inner second'))
+      expect(inner?.textContent).toBe('Inner second')
+    } finally {
+      act(() => root.unmount())
       vi.resetModules()
     }
   })
