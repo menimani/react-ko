@@ -1,6 +1,14 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, act, waitFor } from '@testing-library/react'
-import { Component, createElement, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import {
+  Component,
+  createElement,
+  StrictMode,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react'
 import { createRoot, hydrateRoot, type Root } from 'react-dom/client'
 import { renderToString } from 'react-dom/server'
 import ko from 'knockout'
@@ -102,21 +110,49 @@ describe('useKoBind', () => {
       )
     }
 
-    const { rerender } = render(<Host show />)
+    const { rerender, unmount } = render(<Host show />)
     expect(screen.getByTestId('value').textContent).toBe('Present')
     expect(ko.dataFor(screen.getByTestId('value'))).toBe(vm)
+    expect(label.getSubscriptionsCount()).toBe(1)
 
     rerender(<Host show={false} />)
     expect(screen.getByTestId('empty')).toBeDefined()
+    expect(label.getSubscriptionsCount()).toBe(0)
 
-    // The subscription is gone with the element: a notification after the removal
-    // reaches nothing, and a later mount binds again from scratch.
     act(() => {
       label('Changed while unmounted')
     })
 
     rerender(<Host show />)
     expect(screen.getByTestId('value').textContent).toBe('Changed while unmounted')
+    expect(label.getSubscriptionsCount()).toBe(1)
+
+    unmount()
+    expect(label.getSubscriptionsCount()).toBe(0)
+  })
+
+  it('keeps one live subscription through StrictMode replay and disposes it on unmount', () => {
+    const label = ko.observable('Strict')
+
+    function Host() {
+      const bind = useKoBind({ label })
+      return (
+        <div {...bind}>
+          <span data-bind="text: label" />
+        </div>
+      )
+    }
+
+    const { unmount } = render(
+      <StrictMode>
+        <Host />
+      </StrictMode>
+    )
+
+    expect(label.getSubscriptionsCount()).toBe(1)
+
+    unmount()
+    expect(label.getSubscriptionsCount()).toBe(0)
   })
 
   it('binds nothing while the view model is nullish, and binds once it arrives', () => {

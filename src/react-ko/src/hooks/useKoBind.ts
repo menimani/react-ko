@@ -98,6 +98,7 @@ function useKoBindRoot<T>(
 
   const boundHost = useRef<HTMLElement | null>(null)
   const hostOwner = useRef<object>({})
+  const mainDocumentHostWasNotYetDiscoverable = useRef(false)
   const hostId = useId()
 
   // React attaches refs from the bottom up, so a host taken from a ref is bound after
@@ -115,11 +116,15 @@ function useKoBindRoot<T>(
         (hostOwners.get(candidate) === undefined ||
           hostOwners.get(candidate) === hostOwner.current)
     )
+    // StrictMode may run this insertion effect before placing the host. Remember that
+    // specific main-document case so its first ref attachment can complete the claim.
+    mainDocumentHostWasNotYetDiscoverable.current = hosts.length === 0
     // A host in an inaccessible document, a closed shadow root, or a container React has
     // not put in one yet is not reachable from here. Multiple roots can also share a
     // useId, so only prebind when React ownership identifies one eligible host
-    // unambiguously. The ref rejects every other bindable attachment: binding there
-    // would happen after descendant layout effects and silently miss their work.
+    // unambiguously. Except for a main-document host not placed until after the
+    // insertion effect, the ref rejects every other bindable attachment: binding
+    // there would happen after descendant layout effects and silently miss their work.
     if (hosts.length !== 1) return
     const host = hosts[0]
     hostOwners.set(host, hostOwner.current)
@@ -169,10 +174,24 @@ function useKoBindRoot<T>(
         return
       }
 
+      const refClaimCandidates =
+        mainDocumentHostWasNotYetDiscoverable.current &&
+        node.ownerDocument === document
+          ? hostsAcrossOpenRoots(document, hostSelector(hostId)).filter(
+              (candidate) =>
+                isReactOwnedHost(candidate) &&
+                (hostOwners.get(candidate) === undefined ||
+                  hostOwners.get(candidate) === hostOwner.current)
+            )
+          : []
+      const canClaimFromRef =
+        refClaimCandidates.length === 1 && refClaimCandidates[0] === node
+
       if (
         bindable &&
         rejectUnclaimedHost &&
-        hostOwners.get(node) !== hostOwner.current
+        hostOwners.get(node) !== hostOwner.current &&
+        !canClaimFromRef
       ) {
         throw new Error(
           'react-ko: useKoBind could not claim this host during the insertion phase, so it cannot bind before descendant layout effects run. Use KnockoutScope at this render location instead.'
