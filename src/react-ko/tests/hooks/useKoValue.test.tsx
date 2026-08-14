@@ -62,6 +62,38 @@ describe('useKoValue', () => {
     expect(screen.getByTestId('value').textContent).toBe('10')
   })
 
+  it('updates and disposes subscriptions when a pure computed source changes', () => {
+    const firstValue = ko.observable('First')
+    const secondValue = ko.observable('Second')
+    const first = ko.pureComputed(() => `First: ${firstValue()}`)
+    const second = ko.pureComputed(() => `Second: ${secondValue()}`)
+
+    const { rerender, unmount } = render(<Probe source={first} />)
+    expect(screen.getByTestId('value').textContent).toBe('First: First')
+    expect(first.getSubscriptionsCount()).toBe(1)
+
+    act(() => {
+      firstValue('Updated')
+    })
+    expect(screen.getByTestId('value').textContent).toBe('First: Updated')
+
+    rerender(<Probe source={second} />)
+
+    expect(screen.getByTestId('value').textContent).toBe('Second: Second')
+    expect(first.getSubscriptionsCount()).toBe(0)
+    expect(second.getSubscriptionsCount()).toBe(1)
+
+    act(() => {
+      firstValue('Ignored')
+      secondValue('Updated')
+    })
+    expect(screen.getByTestId('value').textContent).toBe('Second: Updated')
+
+    unmount()
+
+    expect(second.getSubscriptionsCount()).toBe(0)
+  })
+
   it('re-renders when an observableArray mutates in place', () => {
     const items = ko.observableArray(['A'])
 
