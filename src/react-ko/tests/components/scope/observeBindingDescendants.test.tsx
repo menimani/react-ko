@@ -1,11 +1,16 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, act, fireEvent, waitFor } from '@testing-library/react'
 import { Component, type ReactNode, useLayoutEffect, useRef, useState } from 'react'
+import { createRoot } from 'react-dom/client'
 import ko from 'knockout'
 import { BindingHost } from '../../fixtures/bindingHost'
 
 class ErrorBoundary extends Component<
-  { children: ReactNode; onError?: (error: unknown) => void },
+  {
+    children: ReactNode
+    fallback?: ReactNode
+    onError?: (error: unknown) => void
+  },
   { failed: boolean }
 > {
   state = { failed: false }
@@ -19,7 +24,9 @@ class ErrorBoundary extends Component<
   }
 
   render() {
-    return this.state.failed ? <span>Binding failed</span> : this.props.children
+    return this.state.failed
+      ? (this.props.fallback ?? <span>Binding failed</span>)
+      : this.props.children
   }
 }
 
@@ -220,6 +227,61 @@ describe('observeBindingDescendants', () => {
     mounted.rerender(<Harness replaced />)
 
     await waitFor(() => expect(screen.getByText('Binding failed')).toBeDefined())
+  })
+
+  it('rebinds a surviving scope after a nested boundary catches a reconciliation error', async () => {
+    const vm = { label: ko.observable('Fallback bound') }
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    function Fallback() {
+      const [showLate, setShowLate] = useState(false)
+      return (
+        <>
+          <span data-bind="text: label" />
+          <button onClick={() => setShowLate(true)}>Show late binding</button>
+          {showLate ? (
+            <span data-testid="late-fallback" data-bind="text: label" />
+          ) : null}
+        </>
+      )
+    }
+
+    function InvalidBinding() {
+      const owner = useRef<HTMLDivElement>(null)
+      useLayoutEffect(() => {
+        owner.current?.setAttribute('data-bind', 'text: label')
+      }, [])
+      return (
+        <div ref={owner}>
+          <span>React-owned child</span>
+        </div>
+      )
+    }
+
+    function Harness() {
+      const [invalid, setInvalid] = useState(false)
+      return (
+        <BindingHost viewModel={vm}>
+          <button onClick={() => setInvalid(true)}>Introduce invalid binding</button>
+          <ErrorBoundary fallback={<Fallback />}>
+            {invalid ? <InvalidBinding /> : <span>Valid child</span>}
+          </ErrorBoundary>
+        </BindingHost>
+      )
+    }
+
+    try {
+      render(<Harness />)
+      act(() => screen.getByText('Introduce invalid binding').click())
+
+      await waitFor(() => expect(screen.getByText('Fallback bound')).toBeDefined())
+      act(() => screen.getByText('Show late binding').click())
+      await waitFor(() =>
+        expect(screen.getByTestId('late-fallback').textContent).toBe('Fallback bound')
+      )
+    } finally {
+      consoleError.mockRestore()
+    }
   })
 
   it('retires a click binding with its handlerless Bubble option when data-bind is removed', () => {
@@ -663,6 +725,52 @@ describe('observeBindingDescendants', () => {
       expect(screen.getByTestId('two-copy-late').textContent).toBe('Inner provider')
     } finally {
       mounted.unmount()
+      vi.resetModules()
+    }
+  })
+
+  it('restores a copy-B scope after a copy-A replacement in a windowless document', async () => {
+    const detached = document.implementation.createHTMLDocument('detached')
+    const container = detached.createElement('div')
+    detached.body.appendChild(container)
+    expect(detached.defaultView).toBeNull()
+
+    vi.resetModules()
+    const first = await import('@/index')
+    vi.resetModules()
+    const second = await import('@/index')
+    const OuterScope = first.KnockoutScope
+    const InnerScope = second.KnockoutScope
+    const innerLabel = ko.observable('Inner first')
+    const innerViewModel = { label: innerLabel }
+    let replaceOuter: (() => void) | undefined
+
+    function Harness() {
+      const [outerViewModel, setOuterViewModel] = useState({ version: 1 })
+      replaceOuter = () => setOuterViewModel({ version: 2 })
+      return (
+        <OuterScope viewModel={outerViewModel}>
+          <InnerScope viewModel={innerViewModel}>
+            <span data-testid="windowless-inner" data-bind="text: label" />
+          </InnerScope>
+        </OuterScope>
+      )
+    }
+
+    const root = createRoot(container)
+    try {
+      act(() => root.render(<Harness />))
+      const inner = container.querySelector('[data-testid="windowless-inner"]')
+      expect(inner?.textContent).toBe('Inner first')
+      expect(innerLabel.getSubscriptionsCount()).toBe(1)
+
+      act(() => replaceOuter?.())
+      expect(innerLabel.getSubscriptionsCount()).toBe(1)
+
+      act(() => innerLabel('Inner second'))
+      expect(inner?.textContent).toBe('Inner second')
+    } finally {
+      act(() => root.unmount())
       vi.resetModules()
     }
   })
