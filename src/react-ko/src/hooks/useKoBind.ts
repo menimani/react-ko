@@ -26,6 +26,12 @@ function hostSelector(id: string) {
 // matching SSR host each hook claimed so a later root can select its own unclaimed host.
 const hostOwners = new WeakMap<HTMLElement, object>()
 
+function isReactOwnedHost(host: HTMLElement) {
+  return Object.getOwnPropertyNames(host).some(
+    (name) => name.startsWith('__reactFiber$') || name.startsWith('__reactProps$')
+  )
+}
+
 function useKoBindRoot<T>(viewModel: T, bindable: boolean): KoBindProps {
   const parentGeneration = useContext(ScopeBindGenerationContext)
   const [failure, setFailure] = useState<{ error: unknown } | null>(null)
@@ -57,15 +63,20 @@ function useKoBindRoot<T>(viewModel: T, bindable: boolean): KoBindProps {
   // a root inside another one first is what the binding root's own ordering handles.
   useInsertionEffect(() => {
     if (!bindable || boundHost.current !== null) return
-    const host = Array.from(
+    const hosts = Array.from(
       document.querySelectorAll<HTMLElement>(hostSelector(hostId))
-    ).find((candidate) => {
-      const owner = hostOwners.get(candidate)
-      return owner === undefined || owner === hostOwner.current
-    })
+    ).filter(
+      (candidate) =>
+        isReactOwnedHost(candidate) &&
+        (hostOwners.get(candidate) === undefined ||
+          hostOwners.get(candidate) === hostOwner.current)
+    )
     // A host rendered into another document, or into a container React has not put in
-    // one yet, is not reachable from here. Its ref still arrives in the layout phase.
-    if (host === undefined) return
+    // one yet, is not reachable from here. Multiple roots can also share a useId, so
+    // only prebind when React ownership identifies one eligible host unambiguously.
+    // Otherwise its ref still arrives in the layout phase.
+    if (hosts.length !== 1) return
+    const host = hosts[0]
     hostOwners.set(host, hostOwner.current)
     boundHost.current = host
     bindingContainer(host)

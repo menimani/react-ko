@@ -363,4 +363,57 @@ describe('useKoBind', () => {
       secondContainer.remove()
     }
   })
+
+  it('hydrates independent roots with the same generated id in reverse order', async () => {
+    const firstLabel = ko.observable('First')
+    const secondLabel = ko.observable('Second')
+
+    function Host({ label }: { label: ko.Observable<string> }) {
+      const bind = useKoBind({ label })
+      return (
+        <div {...bind}>
+          <span data-bind="text: label" />
+        </div>
+      )
+    }
+
+    const firstTree = <Host label={firstLabel} />
+    const secondTree = <Host label={secondLabel} />
+    const firstContainer = document.createElement('div')
+    const secondContainer = document.createElement('div')
+    firstContainer.innerHTML = renderToString(firstTree)
+    secondContainer.innerHTML = renderToString(secondTree)
+    expect(firstContainer.firstElementChild?.getAttribute('data-react-ko-scope')).toBe(
+      secondContainer.firstElementChild?.getAttribute('data-react-ko-scope')
+    )
+    document.body.append(firstContainer, secondContainer)
+    let firstRoot: Root | undefined
+    let secondRoot: Root | undefined
+
+    try {
+      await act(async () => {
+        secondRoot = hydrateRoot(secondContainer, secondTree)
+      })
+
+      expect(firstContainer.textContent).toBe('')
+      expect(secondContainer.textContent).toBe('Second')
+
+      await act(async () => {
+        firstRoot = hydrateRoot(firstContainer, firstTree)
+      })
+
+      act(() => {
+        firstLabel('First update')
+        secondLabel('Second update')
+      })
+
+      expect(firstContainer.textContent).toBe('First update')
+      expect(secondContainer.textContent).toBe('Second update')
+    } finally {
+      if (firstRoot !== undefined) act(() => firstRoot?.unmount())
+      if (secondRoot !== undefined) act(() => secondRoot?.unmount())
+      firstContainer.remove()
+      secondContainer.remove()
+    }
+  })
 })
