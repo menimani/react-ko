@@ -64,7 +64,8 @@ ViewModel を取得できます。ネストしたスコープは、それぞれ�
 ランタイムのエクスポートは 5 つ：`KnockoutScope`、`useKoViewModel`、`useKoValue`、リスト用の
 `KoForeach`、そしてラッパーを使えないときに特定の既存要素をバインディングルートにする
 `useKoBind`。closed shadow root 内や `DocumentFragment` などの切り離されたツリー内のホストは
-`useKoBind` では拒否されるため、そこでは `KnockoutScope` を使ってください。TypeScript では、`useKoBind` が返す型 `KoBindProps` もインポートできます。詳細は
+`useKoBind` では拒否されるため、そこでは `KnockoutScope` を使ってください。アクセス可能な同一オリジンの
+iframe 内のホストはサポートされます。TypeScript では、`useKoBind` が返す型 `KoBindProps` もインポートできます。詳細は
 [ドキュメント](https://menimani.github.io/react-ko/ja/)にあります。
 
 ---

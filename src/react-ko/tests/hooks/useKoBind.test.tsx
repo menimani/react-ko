@@ -326,6 +326,65 @@ describe('useKoBind', () => {
     }
   })
 
+  it('binds inside a same-origin iframe before descendant layout effects', () => {
+    const handleClick = vi.fn()
+    const iframe = document.createElement('iframe')
+    document.body.appendChild(iframe)
+    const container = iframe.contentDocument!.createElement('div')
+    iframe.contentDocument!.body.appendChild(container)
+    const root = createRoot(container)
+
+    function ClickOnMount() {
+      const button = useRef<HTMLButtonElement>(null)
+
+      useLayoutEffect(() => {
+        button.current?.click()
+      }, [])
+
+      return <button ref={button} data-bind="click: handleClick" />
+    }
+
+    function Host() {
+      const bind = useKoBind({ handleClick })
+      return (
+        <div {...bind}>
+          <ClickOnMount />
+        </div>
+      )
+    }
+
+    try {
+      act(() => root.render(<Host />))
+      expect(handleClick).toHaveBeenCalledOnce()
+    } finally {
+      act(() => root.unmount())
+      iframe.remove()
+    }
+  })
+
+  it('ignores an iframe whose document is inaccessible', () => {
+    const iframe = document.createElement('iframe')
+    Object.defineProperty(iframe, 'contentDocument', {
+      get() {
+        throw new DOMException('Blocked frame', 'SecurityError')
+      },
+    })
+    document.body.appendChild(iframe)
+
+    function Host() {
+      const bind = useKoBind({ label: 'Bound' })
+      return <span {...bind} data-bind="text: label" />
+    }
+
+    try {
+      const { getByText, unmount } = render(<Host />)
+      expect(getByText('Bound')).toBeDefined()
+      unmount()
+    } finally {
+      iframe.remove()
+    }
+  })
+
   it('rejects a host inside a closed shadow root before binding too late', async () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     const handleClick = vi.fn()
