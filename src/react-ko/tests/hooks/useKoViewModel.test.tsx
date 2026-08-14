@@ -65,20 +65,25 @@ describe('useKoViewModel', () => {
     expect(screen.getByTestId('view-model').textContent).toBe('replacement')
   })
 
-  it('preserves a nullish view model instead of treating it as a missing scope', () => {
-    function NullishProbe() {
-      const viewModel = useKoViewModel<null>()
-      return <span data-testid="nullish">{String(viewModel)}</span>
+  it.each([null, undefined])(
+    'preserves the %s view model instead of treating it as a missing scope',
+    (value) => {
+      let received: null | undefined = value === null ? undefined : null
+
+      function NullishProbe() {
+        received = useKoViewModel<null | undefined>()
+        return null
+      }
+
+      render(
+        <KnockoutScope viewModel={value}>
+          <NullishProbe />
+        </KnockoutScope>
+      )
+
+      expect(received).toBe(value)
     }
-
-    render(
-      <KnockoutScope viewModel={null}>
-        <NullishProbe />
-      </KnockoutScope>
-    )
-
-    expect(screen.getByTestId('nullish').textContent).toBe('null')
-  })
+  )
 
   it('reports a missing KnockoutScope', () => {
     const consoleError = vi
