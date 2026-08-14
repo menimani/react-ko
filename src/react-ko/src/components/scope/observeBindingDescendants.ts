@@ -2331,8 +2331,6 @@ export function observeBindingDescendants(
   )
   trackBindingTree(root, root, bindingStates, deferredSuspenseElements)
 
-  const deferredRecords: MutationRecord[] = []
-
   const reconcile = (records: MutationRecord[], reactCommitInProgress = false) => {
     cleanRemovedNodes(records, root)
     const addedRoots = addedBindingRoots(records, root, bindingStates)
@@ -2372,18 +2370,7 @@ export function observeBindingDescendants(
 
     registry.reconcilingRoots.add(root)
     try {
-      if (shouldDeferReconciliation?.() === true) {
-        // The replacement pass cleans and binds the current tree as a whole.
-        // Only detached nodes need immediate cleanup from this delivered batch.
-        cleanRemovedNodes(records, root)
-        // The pass this batch is waiting for is not certain to arrive: a replacement
-        // rendered but never committed leaves the root bound as it was. Keeping the
-        // batch means the next reconciliation still sees these nodes, rather than the
-        // announcement quietly costing them their bindings.
-        deferredRecords.push(...records)
-        return
-      }
-      reconcile([...deferredRecords.splice(0), ...records])
+      reconcile(records)
     } catch (error) {
       observer.disconnect()
       onError(error)
