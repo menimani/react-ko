@@ -782,6 +782,19 @@ function deferredElements(bindings: readonly DeferredSuspenseBinding[]) {
 function rejectDescendantControllingCustomHandlers(root: HTMLElement) {
   const getBindingHandler = ko.getBindingHandler
 
+  type ChildSnapshot = {
+    changed: () => boolean
+    restore: () => void
+  }
+
+  function childNodesChanged(parent: Node, children: readonly Node[]) {
+    if (parent.childNodes.length !== children.length) return true
+    for (let index = 0; index < children.length; index += 1) {
+      if (parent.childNodes[index] !== children[index]) return true
+    }
+    return false
+  }
+
   function virtualRangeSnapshot(start: Comment) {
     const parent = start.parentNode
     if (parent?.nodeType !== Node.ELEMENT_NODE) return undefined
@@ -797,17 +810,36 @@ function rejectDescendantControllingCustomHandlers(root: HTMLElement) {
     // The custom init can remove the closing marker as well as its children.
     // Preserve the parent's exact node list so the whole virtual range can be
     // restored by identity before the rejected binding is cleaned.
+    const children = [...parent.childNodes]
     return {
-      parent,
-      children: [...parent.childNodes],
+      changed: () => childNodesChanged(parent, children),
+      restore: () => parent.replaceChildren(...children),
+    }
+  }
+
+  function childSnapshot(element: Node): ChildSnapshot | undefined {
+    if (element.nodeType === Node.COMMENT_NODE) {
+      return virtualRangeSnapshot(element as Comment)
+    }
+    if (
+      element.nodeType !== Node.ELEMENT_NODE ||
+      !hasReactOwnedChildren(element as Element)
+    ) {
+      return undefined
+    }
+
+    const target = element as Element
+    const children = [...target.childNodes]
+    return {
+      changed: () => childNodesChanged(target, children),
+      restore: () => target.replaceChildren(...children),
     }
   }
 
   ko.getBindingHandler = (name) => {
     const handler = getBindingHandler(name)
-    const init = handler?.init
     if (
-      init === undefined ||
+      handler === undefined ||
       name === DESCENDANT_BINDING_BOUNDARY ||
       hasCanonicalKnockoutBindingHandler(name)
     ) {
@@ -815,51 +847,63 @@ function rejectDescendantControllingCustomHandlers(root: HTMLElement) {
     }
 
     const detectingHandler = Object.create(handler) as ko.BindingHandler
-    detectingHandler.init = (...args) => {
-      const element = args[0]
+    type BindingHandlerCallback = NonNullable<ko.BindingHandler['init']>
+    function auditHandler(
+      method: BindingHandlerCallback,
+      args: Parameters<BindingHandlerCallback>,
+      rejectDescendantControl: boolean
+    ) {
+      const element = args[0] as Node
       if (element !== root && !root.contains(element)) {
-        return init(...args)
+        return method(...args)
       }
-      const virtualSnapshot =
-        element.nodeType === Node.COMMENT_NODE
-          ? virtualRangeSnapshot(element as Comment)
-          : undefined
-      const controlsReactOwnedChildren =
-        virtualSnapshot !== undefined ||
-        (element.nodeType === Node.ELEMENT_NODE &&
-          hasReactOwnedChildren(element as Element))
-      const originalChildren =
-        element.nodeType === Node.ELEMENT_NODE && controlsReactOwnedChildren
-          ? [...element.childNodes]
-          : []
-      const result = init(...args)
-      if (result?.controlsDescendantBindings) {
-        if (element.nodeType === 1) {
-          customDescendantControllers.set(element as Element, name)
-        }
-        if (!controlsReactOwnedChildren) {
-          return result
-        }
 
-        // Restore the direct React nodes if the rejected init moved or removed
-        // them before reporting that it controls descendants.
-        const childrenChanged =
-          element.nodeType === Node.ELEMENT_NODE &&
-          (element.childNodes.length !== originalChildren.length ||
-            originalChildren.some(
-              (child, index) => element.childNodes[index] !== child
-            ))
-        if (virtualSnapshot !== undefined) {
-          virtualSnapshot.parent.replaceChildren(...virtualSnapshot.children)
-        } else if (childrenChanged) {
-          element.replaceChildren(...originalChildren)
+      const snapshot = childSnapshot(element)
+      let result: ReturnType<BindingHandlerCallback>
+      try {
+        result = method(...args)
+      } catch (error) {
+        if (snapshot?.changed()) {
+          snapshot.restore()
+          throw new Error(
+            `react-ko cannot apply the Knockout "${name}" binding because its custom handler mutated React-owned child nodes. ` +
+              'Custom bindings on elements with React-owned children must leave their descendants in place.',
+            { cause: error }
+          )
         }
+        throw error
+      }
+
+      const childrenChanged = snapshot?.changed() ?? false
+      if (childrenChanged) snapshot?.restore()
+      const controlsDescendants =
+        rejectDescendantControl &&
+        result?.controlsDescendantBindings
+      if (controlsDescendants && element.nodeType === Node.ELEMENT_NODE) {
+        customDescendantControllers.set(element as Element, name)
+      }
+      if (controlsDescendants && snapshot !== undefined) {
         throw new Error(
           `react-ko cannot apply the Knockout "${name}" binding because its custom handler controls React-owned child nodes. ` +
             'Custom bindings on elements with React-owned children must leave their descendants in place.'
         )
       }
+      if (childrenChanged) {
+        throw new Error(
+          `react-ko cannot apply the Knockout "${name}" binding because its custom handler mutated React-owned child nodes. ` +
+            'Custom bindings on elements with React-owned children must leave their descendants in place.'
+        )
+      }
       return result
+    }
+
+    if (handler.init !== undefined) {
+      detectingHandler.init = (...args) =>
+        auditHandler(handler.init!, args, true)
+    }
+    if (handler.update !== undefined) {
+      detectingHandler.update = (...args) =>
+        auditHandler(handler.update!, args, false)
     }
     return detectingHandler
   }
