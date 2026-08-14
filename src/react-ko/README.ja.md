@@ -54,9 +54,14 @@ function App() {
 }
 ```
 
-`KnockoutScope` はスコープを作る通常の方法です。内側のすべての `data-bind` が ViewModel に
-対して適用され、スコープ内のどの React コンポーネントからでも `useKoViewModel` でその
-ViewModel を取得できます。ネストしたスコープは、それぞれの ViewModel を提供します。
+`KnockoutScope` はスコープを作る通常の方法です。内側のサポートされている `data-bind` が
+ViewModel に対して適用され、スコープ内のどの React コンポーネントからでも
+`useKoViewModel` でその ViewModel を取得できます。ネストしたスコープは、それぞれの
+ViewModel を提供します。Knockout は React がレンダーした子孫の所有権を引き継げないため、
+構造を制御する `if`、`ifnot`、`foreach`、`template`、`with` バインディングは拒否されます。
+その構造は React と `useKoValue` でレンダーするか、リストには `KoForeach` を使用してください。
+`text`、`html`、`component`、`options` など要素の内容を置き換えるバインディングでは、内容を
+Knockout だけが所有できるように、JSX で空のホスト要素を指定する必要があります。
 `useKoValue` は
 `data-bind` が届かない場所 — JSX 補間・props・effect の依存配列 — に Knockout の値を
 持ち込みます。
