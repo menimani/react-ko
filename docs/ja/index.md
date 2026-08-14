@@ -3,6 +3,7 @@ layout: default
 lang: ja
 title: react-ko
 description: React コンポーネントの中で Knockout.js を使うための最小のブリッジ
+footer: react-ko は MIT ライセンスの下で公開されています。
 ---
 
 # react-ko

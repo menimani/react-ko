@@ -131,11 +131,7 @@
 <div class="page">
 {{ content }}
 <footer>
-  {% if page.lang == 'ja' %}
-  react-ko は MIT ライセンスの下で公開されています。
-  {% else %}
-  react-ko is published under the MIT licence.
-  {% endif %}
+  {{ page.footer | default: 'react-ko is published under the MIT licence.' }}
 </footer>
 </div>
 </body>
