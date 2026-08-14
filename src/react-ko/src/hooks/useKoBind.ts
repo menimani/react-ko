@@ -225,14 +225,3 @@ export function useKoBind<T>(viewModel: T | null | undefined): KoBindProps {
 export function useKoBindAlways<T>(viewModel: T): KoBindProps {
   return useKoBindRoot(viewModel, true, false)
 }
-
-/** Internal path for binding hosts whose early ordering is established externally. */
-export function useKoBindFallback<T>(
-  viewModel: T | null | undefined
-): KoBindProps {
-  return useKoBindRoot(
-    viewModel,
-    viewModel !== null && viewModel !== undefined,
-    false
-  )
-}
