@@ -130,7 +130,7 @@ than a runtime one.
 ## useKoValue
 
 ```ts
-function useKoValue<T>(source: ko.ObservableArray<T>): T[] | null | undefined
+function useKoValue<T>(source: ko.ObservableArray<T>): T[]
 function useKoValue<T>(source: ko.Observable<T> | ko.Computed<T> | T): T
 function useKoValue<T>(source: ko.Observable<T> | ko.Computed<T> | T | undefined): T | undefined
 ```
@@ -151,11 +151,12 @@ Pass the observable, not its value. `useKoValue(vm.name)` subscribes;
 first render and then quietly stops.
 
 An optional source keeps its own shape: `ko.Observable<string> | undefined` returns
-`string | undefined`. An observable array returns `T[] | null | undefined`, because
-that is what it can hold at runtime:
+`string | undefined`. An observable array returns `T[]`. If the array value itself can
+be nullish, use a nullable observable instead:
 
 ```tsx
-const items = useKoValue(vm.items) ?? []
+const items = ko.observable<Item[] | null | undefined>(undefined)
+const value = useKoValue(items) // Item[] | null | undefined
 ```
 
 Plain values pass through unchanged, so a prop typed `ko.Observable<T> | T` can be

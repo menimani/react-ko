@@ -129,7 +129,7 @@ type KoBindProps = {
 ## useKoValue
 
 ```ts
-function useKoValue<T>(source: ko.ObservableArray<T>): T[] | null | undefined
+function useKoValue<T>(source: ko.ObservableArray<T>): T[]
 function useKoValue<T>(source: ko.Observable<T> | ko.Computed<T> | T): T
 function useKoValue<T>(source: ko.Observable<T> | ko.Computed<T> | T | undefined): T | undefined
 ```
@@ -148,11 +148,12 @@ function Greeting({ name }: { name: ko.Observable<string> }) {
 `vm.name()` は 1 度読むだけです — 初回は正しい値が出て、その後静かに更新が止まります。
 
 オプショナルなソースは形を保ちます。`ko.Observable<string> | undefined` を渡せば
-`string | undefined` が返ります。observable array は `T[] | null | undefined` を返します。
-実行時に実際そうなり得るからです:
+`string | undefined` が返ります。observable array は `T[]` を返します。配列の値自体が
+nullish になり得る場合は、代わりに nullable な observable を使います:
 
 ```tsx
-const items = useKoValue(vm.items) ?? []
+const items = ko.observable<Item[] | null | undefined>(undefined)
+const value = useKoValue(items) // Item[] | null | undefined
 ```
 
 素の値はそのまま通過するので、`ko.Observable<T> | T` 型の prop はどちらでも読めます。
