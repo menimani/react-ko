@@ -10,22 +10,7 @@ type Props<T> = {
   children: React.ReactNode
 }
 
-/**
- * Binds its children to the given view model and provides it through context.
- *
- * Unlike a root made with `useKoBind`, this component owns a position in the tree.
- * React attaches refs from the bottom up and runs a component's own effects after its
- * subtree's mutations, so a root taken from the caller's ref learns about its subtree
- * last. This component renders an inert marker before its host, and a first child's ref
- * and effects run before its siblings' -- which is what lets it bind an element that
- * arrives after it, and apply a replacement view model before the observer reaches a
- * child the same commit changed.
- *
- * This is the ordinary way to establish a Knockout scope. The hosts are plain divs with
- * `display: contents`: an element that has to be something else -- a row of a table, an
- * option of a select -- is the caller's own, through `useKoBind`.
- */
-export const KnockoutScope = React.memo(function KnockoutScope<T>({
+function KnockoutScopeComponent<T>({
   viewModel,
   children,
 }: Props<T>) {
@@ -63,4 +48,25 @@ export const KnockoutScope = React.memo(function KnockoutScope<T>({
       </ScopeBindGenerationContext.Provider>
     </ScopeViewModelContext.Provider>
   )
-}) as <T>(props: Props<T>) => React.ReactElement
+}
+
+const MemoizedKnockoutScope = React.memo(KnockoutScopeComponent)
+
+/**
+ * Binds its children to the given view model and provides it through context.
+ *
+ * Unlike a root made with `useKoBind`, this component owns a position in the tree.
+ * React attaches refs from the bottom up and runs a component's own effects after its
+ * subtree's mutations, so a root taken from the caller's ref learns about its subtree
+ * last. This component renders an inert marker before its host, and a first child's ref
+ * and effects run before its siblings' -- which is what lets it bind an element that
+ * arrives after it, and apply a replacement view model before the observer reaches a
+ * child the same commit changed.
+ *
+ * This is the ordinary way to establish a Knockout scope. The hosts are plain divs with
+ * `display: contents`: an element that has to be something else -- a row of a table, an
+ * option of a select -- is the caller's own, through `useKoBind`.
+ */
+export function KnockoutScope<T>(props: Props<T>): React.ReactElement {
+  return <MemoizedKnockoutScope {...props} />
+}
