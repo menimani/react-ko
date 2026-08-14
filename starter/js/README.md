@@ -28,11 +28,11 @@ npx degit menimani/react-ko/starter/ts my-app-ts
 
 - React + Vite (official template)
 - Knockout.js and react-ko installed
-- An app-level ViewModel bound through `RootKnockoutProvider`
-- A matched `createAppViewModelContext` provider and `useAppViewModel` hook
-- Nested scopes with two-way `data-bind` bindings
-- A working todo list built with `KoIf`, `KoIfNot`, keyed `KoForeach` rows,
-  and a nullable `KoWith` detail view
+- An app-level ViewModel bound through `useKoBind` on the app's own element
+- A plain React context and hook for reaching that ViewModel from anywhere
+- Nested binding roots with two-way `data-bind` bindings
+- A working todo list with keyed `KoForeach` rows, plain-JSX conditionals, and a
+  detail view bound to the selected item
 - `useKoValue` bridging an in-place `observableArray` update into React output
 - No extra setup — `npm install` and go
 
@@ -42,15 +42,17 @@ npx degit menimani/react-ko/starter/ts my-app-ts
 const itemCount = (useKoValue(vm.list) ?? []).length
 
 <ul>
-  <KoForeach items={vm.list} itemKey={(todo) => todo.id} boundaryAs="li" as="div">
-    {(_todo, index) => <div>{index + 1}. <span data-bind="text: title" /></div>}
+  <KoForeach items={vm.list} itemKey={(todo) => todo.id}>
+    {(_todo, index, bind) => (
+      <li {...bind}>{index + 1}. <span data-bind="text: title" /></li>
+    )}
   </KoForeach>
 </ul>
 ```
 
-`boundaryAs` makes every row a semantic `li` directly under the `ul`; `as`
-selects its inner binding host. Use `boundaryAs="span" as="span"` for a scope
-inside phrasing-only content such as a `button`.
+Each row receives its own binding root as the third argument and spreads it onto
+its own element, so the row is the semantic `li` directly under the `ul` and
+nothing is added to the DOM. A row that binds nothing can ignore the argument.
 
 See [`src/components/TodoForm.jsx`](./src/components/TodoForm.jsx) for the
 full example, and the [react-ko README](https://github.com/menimani/react-ko/blob/main/README.md) for the API.

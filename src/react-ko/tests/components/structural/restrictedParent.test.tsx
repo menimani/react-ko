@@ -4,13 +4,8 @@ import { hydrateRoot, type Root } from 'react-dom/client'
 import { renderToString } from 'react-dom/server'
 import ko from 'knockout'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import {
-  KoForeach,
-  KoIf,
-  KoIfNot,
-  KoWith,
-  RootKnockoutProvider,
-} from '@/index'
+import { KoForeach } from '@/index'
+import { BindingHost } from '../../fixtures/bindingHost'
 
 type Row = {
   id: string
@@ -38,19 +33,15 @@ function row(id: string): Row {
 
 function OptionList({ items }: { items: ko.ObservableArray<Row> }) {
   return (
-    <RootKnockoutProvider viewModel={{}}>
+    <BindingHost viewModel={{}}>
       <select>
-        <KoForeach
-          items={items}
-          bindingMode="element"
-          itemKey={(item) => item.id}
-        >
-          {(item) => (
-            <option data-id={item.id} data-bind="text: label" />
+        <KoForeach items={items} itemKey={(item) => item.id}>
+          {(item, _index, bind) => (
+            <option {...bind} data-id={item.id} data-bind="text: label" />
           )}
         </KoForeach>
       </select>
-    </RootKnockoutProvider>
+    </BindingHost>
   )
 }
 
@@ -144,19 +135,19 @@ describe('structural element binding mode', () => {
   it('binds the row element and its descendants directly for restricted table markup', () => {
     const items = ko.observableArray([row('A')])
     const { container } = render(
-      <RootKnockoutProvider viewModel={{}}>
+      <BindingHost viewModel={{}}>
         <table>
           <tbody>
-            <KoForeach items={items} bindingMode="element">
-              {(item) => (
-                <tr data-bind="attr: { 'data-label': label }">
+            <KoForeach items={items}>
+              {(_item, _index, bind) => (
+                <tr {...bind} data-bind="attr: { 'data-label': label }">
                   <td data-bind="text: label" />
                 </tr>
               )}
             </KoForeach>
           </tbody>
         </table>
-      </RootKnockoutProvider>
+      </BindingHost>
     )
 
     const rowElement = container.querySelector('tr')
@@ -167,42 +158,6 @@ describe('structural element binding mode', () => {
     act(() => items()[0].label('B'))
     expect(rowElement?.dataset.label).toBe('B')
     expect(rowElement?.querySelector('td')?.textContent).toBe('B')
-  })
-
-  it('supports conditional and value scopes without inserting hosts', () => {
-    const visible = ko.observable(false)
-    const hidden = ko.observable(true)
-    const selected = ko.observable<Row | null>(null)
-    const vm = { visible, hidden, selected, label: ko.observable('if') }
-    const { container } = render(
-      <RootKnockoutProvider viewModel={vm}>
-        <select>
-          <KoIf condition={visible} bindingMode="element">
-            <option data-kind="if" data-bind="text: label" />
-          </KoIf>
-          <KoIfNot condition={hidden} bindingMode="element">
-            <option data-kind="ifnot" data-bind="text: label" />
-          </KoIfNot>
-          <KoWith value={selected} bindingMode="element">
-            {(item) => <option data-kind="with" data-bind="text: label" />}
-          </KoWith>
-        </select>
-      </RootKnockoutProvider>
-    )
-
-    expect(container.querySelectorAll('option')).toHaveLength(0)
-    act(() => {
-      visible(true)
-      hidden(false)
-      selected(row('with'))
-    })
-
-    expect(
-      Array.from(
-        container.querySelectorAll('option'),
-        (option) => option.textContent
-      )
-    ).toEqual(['if', 'if', 'with'])
   })
 
   it('disposes every element binding when its enclosing scope unmounts', () => {
@@ -237,17 +192,17 @@ describe('structural element binding mode', () => {
     }
 
     render(
-      <RootKnockoutProvider viewModel={{}}>
+      <BindingHost viewModel={{}}>
         <select>
-          <KoForeach items={items} bindingMode="element">
-            {() => (
-              <option value="A" data-bind="attr: { label: label }">
+          <KoForeach items={items}>
+            {(_item, _index, bind) => (
+              <option {...bind} value="A" data-bind="attr: { label: label }">
                 <CleanupProbe />
               </option>
             )}
           </KoForeach>
         </select>
-      </RootKnockoutProvider>
+      </BindingHost>
     )
 
     act(() => items.remove(item))
@@ -265,13 +220,13 @@ describe('structural element binding mode', () => {
     })
     const items = ko.observableArray([row('A')])
     const { unmount } = render(
-      <RootKnockoutProvider viewModel={{}}>
+      <BindingHost viewModel={{}}>
         <select>
-          <KoForeach items={items} bindingMode="element">
+          <KoForeach items={items}>
             {() => <option ref={ref} />}
           </KoForeach>
         </select>
-      </RootKnockoutProvider>
+      </BindingHost>
     )
 
     expect(ref).toHaveBeenCalledWith(expect.any(HTMLOptionElement))
@@ -288,11 +243,11 @@ describe('structural element binding mode', () => {
     function Harness() {
       return (
         <ErrorBoundary>
-          <RootKnockoutProvider viewModel={{}}>
-            <KoIf condition bindingMode="element">
-              <div data-testid="element-scope" />
-            </KoIf>
-          </RootKnockoutProvider>
+          <BindingHost viewModel={{}}>
+            <KoForeach items={[{ label: 'row' }]}>
+              {(_item, _index, bind) => <div {...bind} data-testid="element-scope" />}
+            </KoForeach>
+          </BindingHost>
         </ErrorBoundary>
       )
     }
@@ -310,50 +265,4 @@ describe('structural element binding mode', () => {
     }
   })
 
-  it('rejects a component child in element mode', () => {
-    function RowComponent() {
-      return <option />
-    }
-
-    const consoleError = vi
-      .spyOn(console, 'error')
-      .mockImplementation(() => undefined)
-    try {
-      expect(() =>
-        render(
-          <RootKnockoutProvider viewModel={{}}>
-            <select>
-              <KoIf condition bindingMode="element">
-                <RowComponent />
-              </KoIf>
-            </select>
-          </RootKnockoutProvider>
-        )
-      ).toThrow(/requires one intrinsic HTML element/)
-    } finally {
-      consoleError.mockRestore()
-    }
-  })
-
-  it.each(['svg', 'math'] as const)(
-    'rejects the foreign-content root <%s> in element mode',
-    (host) => {
-      const consoleError = vi
-        .spyOn(console, 'error')
-        .mockImplementation(() => undefined)
-      try {
-        expect(() =>
-          render(
-            <RootKnockoutProvider viewModel={{}}>
-              <KoIf condition bindingMode="element">
-                {React.createElement(host) as never}
-              </KoIf>
-            </RootKnockoutProvider>
-          )
-        ).toThrow(/requires one intrinsic HTML element/)
-      } finally {
-        consoleError.mockRestore()
-      }
-    }
-  )
 })

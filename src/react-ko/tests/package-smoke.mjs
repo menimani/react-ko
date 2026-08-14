@@ -5,16 +5,9 @@ import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 
 const expectedExports = [
-  'AppViewModelContext',
   'KnockoutScope',
   'KoForeach',
-  'KoIf',
-  'KoIfNot',
-  'KoScope',
-  'KoWith',
-  'RootKnockoutProvider',
-  'createAppViewModelContext',
-  'useAppViewModel',
+  'useKoBind',
   'useKoValue'
 ]
 
@@ -23,8 +16,6 @@ const cjs = createRequire(import.meta.url)('react-ko')
 
 assert.deepEqual(Object.keys(esm).sort(), expectedExports)
 assert.deepEqual(Object.keys(cjs).sort(), expectedExports)
-assert.equal(esm.KoScope, esm.KnockoutScope)
-assert.equal(cjs.KoScope, cjs.KnockoutScope)
 
 const packageDirectory = fileURLToPath(new URL('..', import.meta.url))
 const npmCli = process.env.npm_execpath

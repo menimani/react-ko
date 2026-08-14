@@ -27,11 +27,11 @@ npx degit menimani/react-ko/starter/ts my-app-ts
 
 - React + Vite（公式テンプレート）
 - Knockout.js と react-ko インストール済み
-- `RootKnockoutProvider` でバインドするアプリレベルの ViewModel
-- 対応関係が保証された `createAppViewModelContext` の Provider と `useAppViewModel` フック
-- ネストしたスコープによる双方向の `data-bind`
-- `KoIf` / `KoIfNot`、キー付き `KoForeach` 行、nullable な `KoWith` 詳細表示で
-  作った動作する todo リスト
+- 利用側の要素に `useKoBind` を展開してバインドするアプリレベルの ViewModel
+- その ViewModel をどこからでも取得するための、素の React context とフック
+- ネストしたバインディングルートによる双方向の `data-bind`
+- キー付き `KoForeach` 行、素の JSX による条件分岐、選択中アイテムにバインドした
+  詳細表示で作った動作する todo リスト
 - `observableArray` のインプレース更新を React の表示につなぐ `useKoValue`
 - 余計な構成なし — `npm install` してすぐ開発可能
 
@@ -41,15 +41,17 @@ npx degit menimani/react-ko/starter/ts my-app-ts
 const itemCount = (useKoValue(vm.list) ?? []).length
 
 <ul>
-  <KoForeach items={vm.list} itemKey={(todo) => todo.id} boundaryAs="li" as="div">
-    {(_todo, index) => <div>{index + 1}. <span data-bind="text: title" /></div>}
+  <KoForeach items={vm.list} itemKey={(todo) => todo.id}>
+    {(_todo, index, bind) => (
+      <li {...bind}>{index + 1}. <span data-bind="text: title" /></li>
+    )}
   </KoForeach>
 </ul>
 ```
 
-`boundaryAs` により各行が `ul` 直下のセマンティックな `li` になり、`as` で
-内側のバインディングホストを選べます。`button` などフレージングコンテンツのみを
-許す要素内のスコープでは `boundaryAs="span" as="span"` を使います。
+各行は第 3 引数として自分のバインディングルートを受け取り、それを自分の要素に
+展開します。行は `ul` 直下のセマンティックな `li` そのものになり、DOM には何も
+追加されません。バインドしない行は第 3 引数を無視できます。
 
 完全な例は [`src/components/TodoForm.jsx`](./src/components/TodoForm.jsx)、
 API は [react-ko の README](https://github.com/menimani/react-ko/blob/main/README.ja.md) を参照してください。

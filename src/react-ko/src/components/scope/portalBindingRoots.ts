@@ -1,4 +1,5 @@
 import { DESCENDANT_BINDING_BOUNDARY } from './descendantBindingBoundary'
+import { isElementBindingRoot } from './elementBindingRoot'
 
 type ReactFiber = {
   tag?: number
@@ -55,13 +56,18 @@ export function portalBindingTargets(bindingHost: HTMLElement) {
   const roots: HTMLElement[] = []
   const seen = new Set<HTMLElement>([bindingHost])
 
+  // Ownership follows the React tree, so the walk stops at the roots inside this one:
+  // their portals are theirs. A root marks itself either as a scope component's
+  // boundary or, when it is an element the caller owns, with the binding-root
+  // attribute. Missing the second kind hands an inner root's portal to this one.
   function isNestedBoundary(candidate: ReactFiber) {
     const host = candidate.tag === HOST_COMPONENT
       ? candidate.stateNode
       : undefined
     return (
       isElement(host) &&
-      host.getAttribute('data-bind') === `${DESCENDANT_BINDING_BOUNDARY}: true`
+      (host.getAttribute('data-bind') === `${DESCENDANT_BINDING_BOUNDARY}: true` ||
+        isElementBindingRoot(host))
     )
   }
 

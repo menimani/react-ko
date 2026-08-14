@@ -2,7 +2,8 @@ import * as React from 'react'
 import { describe, it, expect } from 'vitest'
 import { render, screen, act } from '@testing-library/react'
 import ko from 'knockout'
-import { RootKnockoutProvider, KoForeach } from '@/index'
+import { KoForeach } from '@/index'
+import { BindingHost } from '../../fixtures/bindingHost'
 
 type Row = { name: ko.Observable<string> }
 
@@ -25,11 +26,11 @@ describe('KoForeach', () => {
     const vm = { items: ko.observableArray(['A', 'B', 'C']) }
 
     render(
-      <RootKnockoutProvider viewModel={{}}>
+      <BindingHost viewModel={{}}>
         <KoForeach items={vm.items}>
           {(item) => <span>{item}</span>}
         </KoForeach>
-      </RootKnockoutProvider>
+      </BindingHost>
     )
 
     expect(screen.getByText('A')).toBeDefined()
@@ -41,11 +42,11 @@ describe('KoForeach', () => {
     const vm = { items: ko.observableArray<string>([]) }
 
     render(
-      <RootKnockoutProvider viewModel={{}}>
+      <BindingHost viewModel={{}}>
         <KoForeach items={vm.items}>
           {(item) => <span>{item}</span>}
         </KoForeach>
-      </RootKnockoutProvider>
+      </BindingHost>
     )
 
     expect(screen.queryByText(/./)).toBeNull()
@@ -55,11 +56,11 @@ describe('KoForeach', () => {
     const vm = { items: ko.observableArray(['A', 'B']) }
 
     render(
-      <RootKnockoutProvider viewModel={{}}>
+      <BindingHost viewModel={{}}>
         <KoForeach items={vm.items}>
           {(item, index) => <span>{`${index}:${item}`}</span>}
         </KoForeach>
-      </RootKnockoutProvider>
+      </BindingHost>
     )
 
     expect(screen.getByText('0:A')).toBeDefined()
@@ -71,11 +72,11 @@ describe('KoForeach', () => {
     const vm = { items: ko.observableArray([first]) }
 
     render(
-      <RootKnockoutProvider viewModel={{}}>
+      <BindingHost viewModel={{}}>
         <KoForeach items={vm.items}>
-          {() => <span data-bind="text: name" />}
+          {(_item, _index, bind) => <span {...bind} data-bind="text: name" />}
         </KoForeach>
-      </RootKnockoutProvider>
+      </BindingHost>
     )
 
     expect(screen.getByText('A')).toBeDefined()
@@ -91,11 +92,11 @@ describe('KoForeach', () => {
     const vm = { items: ko.observableArray([row('A')]) }
 
     render(
-      <RootKnockoutProvider viewModel={{}}>
+      <BindingHost viewModel={{}}>
         <KoForeach items={vm.items}>
-          {() => <span data-bind="text: name" />}
+          {(_item, _index, bind) => <span {...bind} data-bind="text: name" />}
         </KoForeach>
-      </RootKnockoutProvider>
+      </BindingHost>
     )
 
     act(() => {
@@ -111,11 +112,11 @@ describe('KoForeach', () => {
     const vm = { items: ko.observableArray([first, second]) }
 
     render(
-      <RootKnockoutProvider viewModel={{}}>
+      <BindingHost viewModel={{}}>
         <KoForeach items={vm.items}>
-          {() => <span data-bind="text: name" />}
+          {(_item, _index, bind) => <span {...bind} data-bind="text: name" />}
         </KoForeach>
-      </RootKnockoutProvider>
+      </BindingHost>
     )
 
     expect(first.name.getSubscriptionsCount()).toBeGreaterThan(0)
@@ -134,11 +135,11 @@ describe('KoForeach', () => {
     const vm = { upper: ko.computed(() => source().map((item) => item.toUpperCase())) }
 
     render(
-      <RootKnockoutProvider viewModel={{}}>
+      <BindingHost viewModel={{}}>
         <KoForeach items={vm.upper}>
           {(item) => <span>{item}</span>}
         </KoForeach>
-      </RootKnockoutProvider>
+      </BindingHost>
     )
 
     expect(screen.getByText('A')).toBeDefined()
@@ -154,11 +155,11 @@ describe('KoForeach', () => {
     const items = ko.observable<string[]>(['A'])
 
     render(
-      <RootKnockoutProvider viewModel={{}}>
+      <BindingHost viewModel={{}}>
         <KoForeach items={items}>
           {(item) => <span>{item}</span>}
         </KoForeach>
-      </RootKnockoutProvider>
+      </BindingHost>
     )
 
     act(() => {
@@ -176,11 +177,11 @@ describe('KoForeach', () => {
       const items = ko.observable<string[] | null | undefined>(['A'])
 
       render(
-        <RootKnockoutProvider viewModel={{}}>
+        <BindingHost viewModel={{}}>
           <KoForeach items={items}>
             {(item) => <span>{item}</span>}
           </KoForeach>
-        </RootKnockoutProvider>
+        </BindingHost>
       )
 
       act(() => {
@@ -201,9 +202,9 @@ describe('KoForeach', () => {
     'renders nothing for an initially %s plain value',
     (items) => {
       render(
-        <RootKnockoutProvider viewModel={{}}>
+        <BindingHost viewModel={{}}>
           <KoForeach items={items}>{() => <span>Unexpected row</span>}</KoForeach>
-        </RootKnockoutProvider>
+        </BindingHost>
       )
 
       expect(screen.queryByText('Unexpected row')).toBeNull()
@@ -217,11 +218,11 @@ describe('KoForeach', () => {
       const items = ko.computed(() => source())
 
       render(
-        <RootKnockoutProvider viewModel={{}}>
+        <BindingHost viewModel={{}}>
           <KoForeach items={items}>
             {(item) => <span>{item}</span>}
           </KoForeach>
-        </RootKnockoutProvider>
+        </BindingHost>
       )
 
       expect(screen.getByText('A')).toBeDefined()
@@ -242,11 +243,11 @@ describe('KoForeach', () => {
 
   it('renders plain arrays', () => {
     render(
-      <RootKnockoutProvider viewModel={{}}>
+      <BindingHost viewModel={{}}>
         <KoForeach items={['A', 'B']}>
           {(item) => <span>{item}</span>}
         </KoForeach>
-      </RootKnockoutProvider>
+      </BindingHost>
     )
 
     expect(screen.getByText('A')).toBeDefined()
@@ -256,11 +257,11 @@ describe('KoForeach', () => {
   it('re-renders when the plain array prop changes', () => {
     function Harness({ items }: { items: string[] }) {
       return (
-        <RootKnockoutProvider viewModel={{}}>
+        <BindingHost viewModel={{}}>
           <KoForeach items={items}>
             {(item) => <span>{item}</span>}
           </KoForeach>
-        </RootKnockoutProvider>
+        </BindingHost>
       )
     }
 
@@ -279,11 +280,11 @@ describe('KoForeach', () => {
 
     function Harness({ items }: { items: ko.ObservableArray<string> }) {
       return (
-        <RootKnockoutProvider viewModel={{}}>
+        <BindingHost viewModel={{}}>
           <KoForeach items={items}>
             {(item) => <span>{item}</span>}
           </KoForeach>
-        </RootKnockoutProvider>
+        </BindingHost>
       )
     }
 
@@ -314,11 +315,11 @@ describe('KoForeach', () => {
     const vm = { items: ko.observableArray([first, second]) }
 
     render(
-      <RootKnockoutProvider viewModel={{}}>
+      <BindingHost viewModel={{}}>
         <KoForeach items={vm.items}>
-          {() => <span data-bind="text: name" />}
+          {(_item, _index, bind) => <span {...bind} data-bind="text: name" />}
         </KoForeach>
-      </RootKnockoutProvider>
+      </BindingHost>
     )
 
     const node = screen.getByText('A')
@@ -336,11 +337,11 @@ describe('KoForeach', () => {
     const items = ko.observableArray([before, shared, shared])
 
     render(
-      <RootKnockoutProvider viewModel={{}}>
+      <BindingHost viewModel={{}}>
         <KoForeach items={items}>
           {(_, index) => <StatefulIndex index={index} />}
         </KoForeach>
-      </RootKnockoutProvider>
+      </BindingHost>
     )
 
     act(() => {
@@ -356,11 +357,11 @@ describe('KoForeach', () => {
     const item = row('Row')
 
     render(
-      <RootKnockoutProvider viewModel={appVm}>
+      <BindingHost viewModel={appVm}>
         <KoForeach items={[item]}>
-          {() => <span data-bind="text: $root.name" />}
+          {(_item, _index, bind) => <span {...bind} data-bind="text: $root.name" />}
         </KoForeach>
-      </RootKnockoutProvider>
+      </BindingHost>
     )
 
     expect(screen.getByText('Row')).toBeDefined()
@@ -371,11 +372,11 @@ describe('KoForeach', () => {
     const vm = { items: ko.observableArray(['A', 'B']) }
 
     render(
-      <RootKnockoutProvider viewModel={{}}>
+      <BindingHost viewModel={{}}>
         <KoForeach items={vm.items} itemKey={(item) => item}>
           {(item) => <span>{item}</span>}
         </KoForeach>
-      </RootKnockoutProvider>
+      </BindingHost>
     )
 
     const node = screen.getByText('A')
@@ -391,14 +392,14 @@ describe('KoForeach', () => {
     const items = ko.observableArray(['A', 'B', 'C'])
 
     render(
-      <RootKnockoutProvider viewModel={{}}>
+      <BindingHost viewModel={{}}>
         <KoForeach items={items}>
           {(item) => <StatefulItem item={item} list="default" />}
         </KoForeach>
         <KoForeach items={items} itemKey={(item) => item}>
           {(item) => <StatefulItem item={item} list="keyed" />}
         </KoForeach>
-      </RootKnockoutProvider>
+      </BindingHost>
     )
 
     act(() => {
@@ -431,7 +432,7 @@ describe('KoForeach', () => {
     }
 
     render(
-      <RootKnockoutProvider viewModel={{}}>
+      <BindingHost viewModel={{}}>
         <KoForeach items={vm.groups}>
           {(group) => (
             <KoForeach items={group.members}>
@@ -439,7 +440,7 @@ describe('KoForeach', () => {
             </KoForeach>
           )}
         </KoForeach>
-      </RootKnockoutProvider>
+      </BindingHost>
     )
 
     expect(screen.getByText('G1-x')).toBeDefined()
@@ -451,11 +452,11 @@ describe('KoForeach', () => {
     const items = ko.observableArray(['A'])
 
     const { unmount } = render(
-      <RootKnockoutProvider viewModel={{}}>
+      <BindingHost viewModel={{}}>
         <KoForeach items={items}>
           {(item) => <span>{item}</span>}
         </KoForeach>
-      </RootKnockoutProvider>
+      </BindingHost>
     )
 
     expect(items.getSubscriptionsCount()).toBe(1)

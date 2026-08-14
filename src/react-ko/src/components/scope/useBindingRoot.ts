@@ -13,6 +13,9 @@ import {
   assertNoReactUnsafeBindings,
 } from './applyBindingsSafely'
 import {
+  bindPendingDescendantRoots,
+  cancelPendingBinding,
+  deferBindingUntilAncestorBinds,
   observeBindingDescendants,
   prepareBindingDescendants,
   reconcileBindingDescendants,
@@ -34,8 +37,6 @@ type ActiveBinding = {
   parentGeneration: number
 }
 
-const UNBOUND_BINDING = Symbol('unbound')
-
 function BindingCommitMarker({
   onCommit,
   onActivate,
@@ -54,21 +55,22 @@ function BindingCommitMarker({
 export function useBindingRoot(
   viewModel: unknown,
   parentGeneration: number,
-  onError: (error: unknown) => void,
-  notifyBindingEstablished = false,
-  bindingIdentity: unknown = undefined
+  onError: (error: unknown) => void
 ) {
   const containerNode = useRef<HTMLElement | null>(null)
   const activeBinding = useRef<ActiveBinding | null>(null)
   const pendingBindingReplacement = useRef(false)
   const replacedBinding = useRef(false)
-  const bindingEstablishedIdentity = useRef<unknown>(UNBOUND_BINDING)
   const synchronizeBindingForCommit = useRef(synchronizeBinding)
   const refreshInitialBinding = useRef(false)
-  const [, setBindingEstablishedVersion] = useState(0)
   const [generation, setGeneration] = useState(0)
 
   function disposeBinding() {
+    const host = containerNode.current
+    // A root waiting for an ancestor is dropped rather than left to bind into a tree
+    // it is no longer part of.
+    if (host !== null) cancelPendingBinding(host)
+
     const active = activeBinding.current
     if (active === null) {
       return
@@ -126,14 +128,6 @@ export function useBindingRoot(
       for (const node of nodes) unregisterBindingRoot(node)
       throw error
     }
-    if (
-      notifyBindingEstablished &&
-      !Object.is(bindingEstablishedIdentity.current, bindingIdentity)
-    ) {
-      bindingEstablishedIdentity.current = bindingIdentity
-      setBindingEstablishedVersion((current) => current + 1)
-    }
-
     if (replacing) {
       // Cleaning an ancestor also cleans nested binding roots. Restore them now
       // so their layout effects never observe a temporarily unbound subtree.
@@ -210,6 +204,18 @@ export function useBindingRoot(
       return
     }
 
+    // A caller that renders the bound element conditionally keeps this hook mounted
+    // while the element itself leaves the document. Detaching a ref reports no reason,
+    // so the removal is recognised here instead: a disconnected host can hold no live
+    // binding, and rebinding it would leave subscriptions on a node nobody can see.
+    // Checking the node rather than the ref call also leaves a same-commit re-attach
+    // alone, where the ref is detached and reattached around a node that never left.
+    if (!node.isConnected) {
+      containerNode.current = null
+      disposeBinding()
+      return
+    }
+
     const active = activeBinding.current
     if (active !== null) {
       if (
@@ -226,11 +232,27 @@ export function useBindingRoot(
 
       disposeBinding()
       pendingBindingReplacement.current = false
-      bind(bindingRoots(node), true)
+      bindWhenAncestorsHave(node, true)
       return
     }
 
-    bind(bindingRoots(node), false)
+    bindWhenAncestorsHave(node, false)
+  }
+
+  /**
+   * Knockout refuses a pass that reaches an already-bound element, and refuses it
+   * before this library's own exclusions are consulted, so a root inside another one
+   * cannot bind first. React attaches refs from the bottom up, which is exactly that
+   * order, so a root whose ancestor is still waiting steps aside and is bound by the
+   * ancestor once it has finished its own pass.
+   */
+  function bindWhenAncestorsHave(node: HTMLElement, replacing: boolean) {
+    const run = () => {
+      bind(bindingRoots(node), replacing)
+      bindPendingDescendantRoots(node)
+    }
+    if (deferBindingUntilAncestorBinds(node, run)) return
+    run()
   }
 
   // The inert template precedes the binding host inside the structural
@@ -260,7 +282,15 @@ export function useBindingRoot(
   // On updates, refs are already attached and insertion effects run before all
   // layout effects. The layout pass remains as a fallback for the host ref and
   // for commits where the first-child marker did not attach.
-  useInsertionEffect(synchronizeBinding)
+  useInsertionEffect(() => {
+    // A caller that attaches the host from a ref of its own renders no commit marker,
+    // so this is where its commit-time closure is refreshed. Insertion effects run in
+    // the mutation phase and refs attach in the layout phase, so a host attached this
+    // commit still binds against the view model this commit was rendered with rather
+    // than the one the previous commit left behind.
+    synchronizeBindingForCommit.current = synchronizeBinding
+    synchronizeBinding()
+  })
 
   useLayoutEffect(() => {
     synchronizeBinding()
@@ -300,9 +330,5 @@ export function useBindingRoot(
     bindingContainer: activateBindingHost,
     bindingCommitMarker,
     generation,
-    bindingEstablished: Object.is(
-      bindingEstablishedIdentity.current,
-      bindingIdentity
-    ),
   }
 }

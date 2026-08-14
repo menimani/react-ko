@@ -4,16 +4,8 @@ import { hydrateRoot, type Root } from 'react-dom/client'
 import { renderToString } from 'react-dom/server'
 import ko from 'knockout'
 import { describe, expect, it, vi } from 'vitest'
-import {
-  AppViewModelContext,
-  KoForeach,
-  KoIf,
-  KoIfNot,
-  KoWith,
-  KnockoutScope,
-  RootKnockoutProvider,
-  useKoValue,
-} from '@/index'
+import { KoForeach, useKoValue } from '@/index'
+import { BindingHost } from '../../fixtures/bindingHost'
 
 type ViewModel = {
   label: ko.Observable<string>
@@ -27,21 +19,11 @@ type ScopeFactory = (
 
 const scopes: Array<[string, ScopeFactory]> = [
   [
-    'RootKnockoutProvider',
+    'BindingHost',
     (viewModel, children, as) => (
-      <RootKnockoutProvider viewModel={viewModel} as={as as never}>
+      <BindingHost viewModel={viewModel} as={as as never}>
         {children}
-      </RootKnockoutProvider>
-    ),
-  ],
-  [
-    'KnockoutScope',
-    (viewModel, children, as) => (
-      <AppViewModelContext.Provider value={{}}>
-        <KnockoutScope viewModel={viewModel} as={as as never}>
-          {children}
-        </KnockoutScope>
-      </AppViewModelContext.Provider>
+      </BindingHost>
     ),
   ],
 ]
@@ -121,16 +103,6 @@ describe.each(scopes)('%s server rendering', (_, createScope) => {
       }
       container.remove()
     }
-  })
-
-  it('rejects <script> as a semantic host during server rendering', () => {
-    const tree = createScope(
-      { label: ko.observable('Server') },
-      'Inert host child',
-      'script'
-    )
-
-    expect(() => renderToString(tree)).toThrow('inert children')
   })
 
   it('defers bindings inside a dehydrated Suspense boundary', async () => {
@@ -217,11 +189,11 @@ it('clears deferred Suspense polling when the binding root unmounts', async () =
   }
 
   const tree = (
-    <RootKnockoutProvider viewModel={{ label: 'Deferred' }}>
+    <BindingHost viewModel={{ label: 'Deferred' }}>
       <Suspense fallback={null}>
         <UnresolvedChild />
       </Suspense>
-    </RootKnockoutProvider>
+    </BindingHost>
   )
   const container = serverContainer(tree)
   document.body.appendChild(container)
@@ -286,91 +258,15 @@ describe('useKoValue server rendering', () => {
 })
 
 describe('structural components server rendering', () => {
-  it('renders KoIf server markup from an observable condition', () => {
-    const condition = ko.observable(true)
-    const tree = (
-      <RootKnockoutProvider viewModel={{}}>
-        <KoIf condition={condition}>
-          <span>Visible on server</span>
-        </KoIf>
-      </RootKnockoutProvider>
-    )
-
-    expect(serverContainer(tree).textContent).toBe('Visible on server')
-  })
-
-  it('hydrates KoIf and reacts to its observable condition', async () => {
-    const condition = ko.observable(true)
-    const tree = (
-      <RootKnockoutProvider viewModel={{}}>
-        <KoIf condition={condition}>
-          <span>Conditional content</span>
-        </KoIf>
-      </RootKnockoutProvider>
-    )
-    const hydrated = await hydrate(tree)
-
-    try {
-      expect(hydrated.container.textContent).toBe('Conditional content')
-
-      act(() => {
-        condition(false)
-      })
-
-      expect(hydrated.container.textContent).toBe('')
-    } finally {
-      hydrated.unmount()
-    }
-  })
-
-  it('renders KoIfNot server markup from a computed condition', () => {
-    const enabled = ko.observable(false)
-    const condition = ko.pureComputed(() => enabled())
-    const tree = (
-      <RootKnockoutProvider viewModel={{}}>
-        <KoIfNot condition={condition}>
-          <span>Visible while false</span>
-        </KoIfNot>
-      </RootKnockoutProvider>
-    )
-
-    expect(serverContainer(tree).textContent).toBe('Visible while false')
-  })
-
-  it('hydrates KoIfNot and reacts to its computed condition', async () => {
-    const enabled = ko.observable(false)
-    const condition = ko.pureComputed(() => enabled())
-    const tree = (
-      <RootKnockoutProvider viewModel={{}}>
-        <KoIfNot condition={condition}>
-          <span>Inverse content</span>
-        </KoIfNot>
-      </RootKnockoutProvider>
-    )
-    const hydrated = await hydrate(tree)
-
-    try {
-      expect(hydrated.container.textContent).toBe('Inverse content')
-
-      act(() => {
-        enabled(true)
-      })
-
-      expect(hydrated.container.textContent).toBe('')
-    } finally {
-      hydrated.unmount()
-    }
-  })
-
   it('renders KoForeach server markup from computed items', () => {
     const source = ko.observableArray(['alpha', 'beta'])
     const items = ko.pureComputed(() => source().map((item) => item.toUpperCase()))
     const tree = (
-      <RootKnockoutProvider viewModel={{}}>
+      <BindingHost viewModel={{}}>
         <KoForeach items={items}>
           {(item) => <span data-testid="row">{item}</span>}
         </KoForeach>
-      </RootKnockoutProvider>
+      </BindingHost>
     )
     const container = serverContainer(tree)
 
@@ -384,11 +280,11 @@ describe('structural components server rendering', () => {
   it('hydrates KoForeach and reacts to an in-place observable array update', async () => {
     const items = ko.observableArray(['alpha'])
     const tree = (
-      <RootKnockoutProvider viewModel={{}}>
+      <BindingHost viewModel={{}}>
         <KoForeach items={items}>
           {(item) => <span data-testid="row">{item}</span>}
         </KoForeach>
-      </RootKnockoutProvider>
+      </BindingHost>
     )
     const hydrated = await hydrate(tree)
 
@@ -410,41 +306,4 @@ describe('structural components server rendering', () => {
     }
   })
 
-  it('renders KoWith server markup from an observable value', () => {
-    const value = ko.observable({ label: 'Server selection' })
-    const tree = (
-      <RootKnockoutProvider viewModel={{}}>
-        <KoWith value={value}>
-          {(current) => <span>{current.label}</span>}
-        </KoWith>
-      </RootKnockoutProvider>
-    )
-
-    expect(serverContainer(tree).textContent).toBe('Server selection')
-  })
-
-  it('hydrates KoWith and reacts to a computed value', async () => {
-    const selected = ko.observable({ label: 'First selection' })
-    const value = ko.pureComputed(() => selected())
-    const tree = (
-      <RootKnockoutProvider viewModel={{}}>
-        <KoWith value={value}>
-          {(current) => <span>{current.label}</span>}
-        </KoWith>
-      </RootKnockoutProvider>
-    )
-    const hydrated = await hydrate(tree)
-
-    try {
-      expect(hydrated.container.textContent).toBe('First selection')
-
-      act(() => {
-        selected({ label: 'Second selection' })
-      })
-
-      expect(hydrated.container.textContent).toBe('Second selection')
-    } finally {
-      hydrated.unmount()
-    }
-  })
 })

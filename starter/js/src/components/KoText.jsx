@@ -1,15 +1,17 @@
 import React from 'react'
-import { KnockoutScope, useKoValue } from 'react-ko'
+import { useKoBind, useKoValue } from 'react-ko'
 
 import styles from '../css/KoText.module.css'
 
 export const KoText = React.memo(function KoText({ text, color }) {
-  const vm = { text, color }
+  const bind = useKoBind({ text, color })
 
   return (
-    <KnockoutScope viewModel={vm} boundaryAs="span" as="span">
-      <span className={styles.text} data-bind="text: text, style: { color: color }"></span>
-    </KnockoutScope>
+    <span
+      {...bind}
+      className={styles.text}
+      data-bind="text: text, style: { color: color }"
+    ></span>
   )
 })
 

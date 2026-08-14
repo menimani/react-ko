@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="{{ page.lang | default: 'en' }}">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ page.title | default: site.title }}</title>
+<meta name="description" content="{{ page.description | default: site.description }}">
+<style>
+  :root {
+    --ink: #1f2430;
+    --sub: #5b6472;
+    --accent: #2563eb;
+    --accent-soft: #eff4ff;
+    --line: #e3e7ee;
+    --bg: #ffffff;
+    --panel: #f7f9fc;
+    --mono: "Consolas", "SFMono-Regular", "Cascadia Code", monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Meiryo", system-ui, sans-serif;
+    color: var(--ink);
+    background: var(--bg);
+    line-height: 1.85;
+    font-size: 15.5px;
+  }
+  .page { max-width: 860px; margin: 0 auto; padding: 0 28px 96px; }
+
+  /* The first heading of a page is its masthead. */
+  .page > h1 {
+    font-size: 1.9rem;
+    line-height: 1.4;
+    border-bottom: 3px solid var(--accent);
+    padding: 56px 0 22px;
+    margin-bottom: 22px;
+  }
+
+  h2 {
+    font-size: 1.35rem;
+    padding-left: 14px;
+    border-left: 5px solid var(--accent);
+    margin: 48px 0 20px;
+    line-height: 1.4;
+    scroll-margin-top: 20px;
+  }
+  h3 { font-size: 1.05rem; margin: 26px 0 12px; }
+  p { margin-bottom: 14px; }
+  strong { color: var(--ink); }
+  em { font-style: normal; background: linear-gradient(transparent 62%, #fde68a 62%); }
+
+  a { color: var(--accent); }
+  a:hover { text-decoration: underline; }
+
+  /* The language switch, then the table of contents the page marks with {: .toc}. */
+  .page > h1 + p {
+    color: var(--sub);
+    font-size: 0.88rem;
+  }
+  ul.toc {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 20px 26px 20px 46px;
+    margin-bottom: 48px;
+    columns: 2;
+    column-gap: 40px;
+  }
+  ul.toc li { break-inside: avoid; margin-bottom: 2px; }
+  ul.toc a { color: var(--ink); text-decoration: none; }
+  ul.toc a:hover { color: var(--accent); text-decoration: underline; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 16px 0 22px;
+    font-size: 0.92rem;
+    display: block;
+    overflow-x: auto;
+  }
+  th, td { border: 1px solid var(--line); padding: 9px 13px; text-align: left; vertical-align: top; }
+  th { background: var(--panel); font-weight: 700; white-space: nowrap; }
+  tr:nth-child(even) td { background: #fcfdfe; }
+
+  ul, ol { margin: 0 0 16px 1.4em; }
+  li { margin-bottom: 7px; }
+
+  pre {
+    background: #0f172a;
+    color: #dbe4f3;
+    border-radius: 10px;
+    padding: 18px 22px;
+    overflow-x: auto;
+    font-family: var(--mono);
+    font-size: 0.83rem;
+    line-height: 1.7;
+    margin: 16px 0 22px;
+  }
+  code {
+    font-family: var(--mono);
+    font-size: 0.88em;
+    background: var(--accent-soft);
+    color: #1e40af;
+    border-radius: 4px;
+    padding: 1px 6px;
+  }
+  pre code { background: none; color: inherit; padding: 0; }
+
+  hr { border: 0; border-top: 1px solid var(--line); margin: 44px 0; }
+
+  footer {
+    border-top: 1px solid var(--line);
+    margin-top: 56px;
+    padding-top: 20px;
+    color: var(--sub);
+    font-size: 0.82rem;
+  }
+  footer a { color: var(--sub); }
+
+  @media (max-width: 640px) {
+    body { font-size: 15px; }
+    ul.toc { columns: 1; }
+  }
+  @media print {
+    .page { max-width: none; padding: 0 8mm; }
+    pre { white-space: pre-wrap; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+{{ content }}
+<footer>
+  react-ko is published under the MIT licence.
+  <a href="https://github.com/menimani/react-ko">Source on GitHub</a>.
+</footer>
+</div>
+</body>
+</html>

@@ -3,6 +3,7 @@
     "target": "ES2020",
     "module": "ESNext",
     "moduleResolution": "Node",
+    "jsx": "react-jsx",
     "strict": true,
     "noEmit": true,
     "esModuleInterop": false,
@@ -11,9 +12,8 @@
   },
   "files": [
     "../../dist/index.d.ts",
-    "app-view-model-context.ts",
     "ko-foreach.ts",
-    "semantic-host.ts",
+    "use-ko-bind.tsx",
     "use-ko-value.ts"
   ]
 }
