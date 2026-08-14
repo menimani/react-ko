@@ -61,6 +61,11 @@ ViewModel を取得できます。ネストしたスコープは、それぞれ�
 `data-bind` が届かない場所 — JSX 補間・props・effect の依存配列 — に Knockout の値を
 持ち込みます。
 
+リストの行に `data-bind` がなければ、それは通常の React のリストです。
+`useKoValue(vm.items)` で読み、通常の React の key を付けて `.map(...)` してください。
+`KoForeach` が追加するのは行ごとの Knockout バインディングルートだけなので、この場合は何も
+付け加えません。
+
 ランタイムのエクスポートは 5 つ：`KnockoutScope`、`useKoViewModel`、`useKoValue`、リスト用の
 `KoForeach`、そしてラッパーを使えないときに特定の既存要素をバインディングルートにする
 `useKoBind`。closed shadow root 内や `DocumentFragment` などの切り離されたツリー内のホストは
