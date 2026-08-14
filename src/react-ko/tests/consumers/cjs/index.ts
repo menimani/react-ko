@@ -4,6 +4,11 @@ import ReactKo = require('react-ko')
 
 function expectType<Expected>(_value: Expected): void {}
 
+type Equal<Left, Right> =
+  (<T>() => T extends Left ? 1 : 2) extends
+  (<T>() => T extends Right ? 1 : 2) ? true : false
+type Assert<T extends true> = T
+
 type ViewModel = {
   title: string
   count: ko.Observable<number>
@@ -78,6 +83,10 @@ ReactKo.KoForeach({ items: rows, children: () => null, itemKey: () => ({}) })
 expectType<number>(ReactKo.useKoValue(1))
 expectType<number>(ReactKo.useKoValue(viewModel.count))
 expectType<number>(ReactKo.useKoValue(ko.pureComputed(() => viewModel.count())))
-expectType<Row[] | null | undefined>(ReactKo.useKoValue(observableRows))
+const nullableRowsValue = ReactKo.useKoValue(nullableObservableRows)
+type NullableRowsValue = Assert<
+  Equal<typeof nullableRowsValue, Row[] | null | undefined>
+>
+void (true satisfies NullableRowsValue)
 // @ts-expect-error An explicit result type must agree with the source.
 ReactKo.useKoValue<number>('not a number')
