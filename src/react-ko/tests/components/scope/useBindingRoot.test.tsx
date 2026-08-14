@@ -7,11 +7,9 @@ import {
   useLayoutEffect,
   useRef,
   useState,
-  type ReactElement,
   type ReactNode,
 } from 'react'
 import ko from 'knockout'
-import { KnockoutScope, KoForeach } from '@/index'
 import { KnockoutScope } from '@/index'
 import { BindingHost } from '../../fixtures/bindingHost'
 
@@ -68,26 +66,28 @@ describe('useBindingRoot', () => {
     expect(screen.getByTestId('late-child')).toHaveProperty('textContent', 'First')
   })
 
-  const bindingRoots = ['BindingHost', 'BindingHost'] as const
+  const scopeCases = [
+    ['direct scope', false],
+    ['nested scope', true],
+  ] as const
   const childUpdates = ['mounts', 'rebinds'] as const
 
-  it.each(bindingRoots)(
+  it.each(scopeCases)(
     '%s preserves direct child identity and order in its binding host',
-    (bindingRoot) => {
+    (_scopeCase, nested) => {
       const children = (
         <>
           <span data-testid="first-direct-child" />
           <button data-testid="second-direct-child" />
         </>
       )
-      const tree =
-        bindingRoot === 'BindingHost' ? (
+      const tree = nested ? (
+        <KnockoutScope viewModel={{}}>
           <KnockoutScope viewModel={{}}>{children}</KnockoutScope>
-        ) : (
-          <KnockoutScope viewModel={{}}>
-            <KnockoutScope viewModel={{}}>{children}</KnockoutScope>
-          </KnockoutScope>
-        )
+        </KnockoutScope>
+      ) : (
+        <KnockoutScope viewModel={{}}>{children}</KnockoutScope>
+      )
 
       render(tree)
 
@@ -100,9 +100,9 @@ describe('useBindingRoot', () => {
     }
   )
 
-  it.each(bindingRoots)(
+  it.each(scopeCases)(
     '%s mounts descendant refs in the initial commit seen by an ancestor layout effect',
-    (bindingRoot) => {
+    (_scopeCase, nested) => {
       const viewModel = { label: ko.observable('Bound') }
       let observed: HTMLSpanElement | null = null
 
@@ -112,12 +112,12 @@ describe('useBindingRoot', () => {
           observed = descendant.current
         }, [])
         const child = <span ref={descendant} data-bind="text: label" />
-        return bindingRoot === 'BindingHost' ? (
-          <KnockoutScope viewModel={viewModel}>{child}</KnockoutScope>
-        ) : (
+        return nested ? (
           <KnockoutScope viewModel={{}}>
             <KnockoutScope viewModel={viewModel}>{child}</KnockoutScope>
           </KnockoutScope>
+        ) : (
+          <KnockoutScope viewModel={viewModel}>{child}</KnockoutScope>
         )
       }
 
@@ -129,12 +129,12 @@ describe('useBindingRoot', () => {
   )
 
   it.each(
-    bindingRoots.flatMap((bindingRoot) =>
-      childUpdates.map((childUpdate) => [bindingRoot, childUpdate] as const)
+    scopeCases.flatMap(([scopeCase, nested]) =>
+      childUpdates.map((childUpdate) => [scopeCase, childUpdate, nested] as const)
     )
   )(
     '%s uses the replacement ViewModel when it %s a child in the same commit',
-    (bindingRoot, childUpdate) => {
+    (_scopeCase, childUpdate, nested) => {
       const first = { firstLabel: ko.observable('First') }
       const second = { secondLabel: ko.observable('Second') }
 
@@ -156,12 +156,12 @@ describe('useBindingRoot', () => {
         replacement: boolean
       }) {
         const child = <BoundChild replacement={replacement} />
-        return bindingRoot === 'BindingHost' ? (
-          <KnockoutScope viewModel={viewModel}>{child}</KnockoutScope>
-        ) : (
+        return nested ? (
           <KnockoutScope viewModel={{}}>
             <KnockoutScope viewModel={viewModel}>{child}</KnockoutScope>
           </KnockoutScope>
+        ) : (
+          <KnockoutScope viewModel={viewModel}>{child}</KnockoutScope>
         )
       }
 
