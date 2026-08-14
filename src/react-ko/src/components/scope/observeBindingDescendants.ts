@@ -30,6 +30,7 @@ type BindingObserverState = {
   ) => boolean
   refreshAfterLayout: () => void
   onError: (error: unknown) => void
+  recoverAfterCommit?: () => void
 }
 
 type BindingRootRegistry = {
@@ -2316,7 +2317,8 @@ export function observeBindingDescendants(
   onError: (error: unknown) => void,
   bindingStates: BindingStateStore = prepareBindingDescendants(root),
   shouldDeferReconciliation?: () => boolean,
-  deferredSuspenseBindings: readonly DeferredSuspenseBinding[] = []
+  deferredSuspenseBindings: readonly DeferredSuspenseBinding[] = [],
+  recoverAfterCommit?: () => void
 ) {
   const registry = bindingRootRegistry(root)
   registry.bindingRoots.set(root, viewModel)
@@ -2381,6 +2383,7 @@ export function observeBindingDescendants(
     reconcile,
     shouldDeferReconciliation,
     onError,
+    recoverAfterCommit,
     // React sets data-bind before clearing the host's previous text or HTML.
     // Let that host mutation finish so stale current props do not make the
     // newly empty element appear contested during its binding handoff.
@@ -2650,6 +2653,7 @@ export function reconcileBindingDescendants(root: HTMLElement) {
     // Retire Knockout now so an effect cannot update a content binding and
     // detach the child whose insertion just failed validation.
     ko.cleanNode(root)
+    state.recoverAfterCommit?.()
     throw error
   } finally {
     registry.reconcilingRoots.delete(root)

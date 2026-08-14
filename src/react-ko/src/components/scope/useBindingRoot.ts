@@ -69,6 +69,7 @@ export function useBindingRoot(
   const synchronizeBindingForCommit = useRef(synchronizeBinding)
   const refreshInitialBinding = useRef(false)
   const connectedHosts = useRef(new WeakSet<HTMLElement>())
+  const scheduledRecoveries = useRef(new WeakSet<ActiveBinding>())
   const synchronizingPortalTopology = useRef(false)
   const [generation, setGeneration] = useState(0)
 
@@ -105,16 +106,35 @@ export function useBindingRoot(
     return [node, ...roots]
   }
 
+  function recoverBindingAfterCommit(binding: ActiveBinding) {
+    if (scheduledRecoveries.current.has(binding)) return
+    scheduledRecoveries.current.add(binding)
+    queueMicrotask(() => {
+      if (activeBinding.current !== binding) return
+      const node = containerNode.current
+      if (node === null) return
+
+      try {
+        disposeBinding()
+        bindWhenAncestorsHave(node, true)
+        setGeneration((current) => current + 1)
+      } catch (error) {
+        onError(error)
+      }
+    })
+  }
+
   function bind(nodes: HTMLElement[], replacing: boolean) {
     if (replacing) assertBindingRootsCanBeRetired(nodes)
     for (const node of nodes) registerBindingRoot(node, viewModel)
     const roots: ActiveRootBinding[] = []
-    activeBinding.current = {
+    const binding: ActiveBinding = {
       roots,
       viewModel,
       parentGeneration,
       stopObservingPortalTopology: () => undefined,
     }
+    activeBinding.current = binding
     try {
       for (const node of nodes) {
         if (replacing || ko.contextFor(node) !== undefined) ko.cleanNode(node)
@@ -133,7 +153,8 @@ export function useBindingRoot(
           onError,
           bindingStates,
           () => pendingBindingReplacement.current,
-          deferredSuspenseBindings
+          deferredSuspenseBindings,
+          recoverBindingAfterCommit.bind(undefined, binding)
         )
         roots.push({ node, stopObserving })
       }
@@ -258,7 +279,8 @@ export function useBindingRoot(
             onError,
             bindingStates,
             () => pendingBindingReplacement.current,
-            deferredSuspenseBindings
+            deferredSuspenseBindings,
+            recoverBindingAfterCommit.bind(undefined, active)
           ),
         })
       }
@@ -321,6 +343,12 @@ export function useBindingRoot(
 
     const active = activeBinding.current
     if (active !== null) {
+      // A synchronous reconciliation failure is waiting for React to finish
+      // replacing the failed subtree with its error-boundary fallback.
+      if (scheduledRecoveries.current.has(active)) {
+        pendingBindingReplacement.current = false
+        return
+      }
       if (
         active.roots[0]?.node === node &&
         Object.is(active.viewModel, viewModel) &&

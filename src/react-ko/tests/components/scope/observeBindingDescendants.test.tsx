@@ -5,7 +5,11 @@ import ko from 'knockout'
 import { BindingHost } from '../../fixtures/bindingHost'
 
 class ErrorBoundary extends Component<
-  { children: ReactNode; onError?: (error: unknown) => void },
+  {
+    children: ReactNode
+    fallback?: ReactNode
+    onError?: (error: unknown) => void
+  },
   { failed: boolean }
 > {
   state = { failed: false }
@@ -19,7 +23,9 @@ class ErrorBoundary extends Component<
   }
 
   render() {
-    return this.state.failed ? <span>Binding failed</span> : this.props.children
+    return this.state.failed
+      ? (this.props.fallback ?? <span>Binding failed</span>)
+      : this.props.children
   }
 }
 
@@ -220,6 +226,61 @@ describe('observeBindingDescendants', () => {
     mounted.rerender(<Harness replaced />)
 
     await waitFor(() => expect(screen.getByText('Binding failed')).toBeDefined())
+  })
+
+  it('rebinds a surviving scope after a nested boundary catches a reconciliation error', async () => {
+    const vm = { label: ko.observable('Fallback bound') }
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    function Fallback() {
+      const [showLate, setShowLate] = useState(false)
+      return (
+        <>
+          <span data-bind="text: label" />
+          <button onClick={() => setShowLate(true)}>Show late binding</button>
+          {showLate ? (
+            <span data-testid="late-fallback" data-bind="text: label" />
+          ) : null}
+        </>
+      )
+    }
+
+    function InvalidBinding() {
+      const owner = useRef<HTMLDivElement>(null)
+      useLayoutEffect(() => {
+        owner.current?.setAttribute('data-bind', 'text: label')
+      }, [])
+      return (
+        <div ref={owner}>
+          <span>React-owned child</span>
+        </div>
+      )
+    }
+
+    function Harness() {
+      const [invalid, setInvalid] = useState(false)
+      return (
+        <BindingHost viewModel={vm}>
+          <button onClick={() => setInvalid(true)}>Introduce invalid binding</button>
+          <ErrorBoundary fallback={<Fallback />}>
+            {invalid ? <InvalidBinding /> : <span>Valid child</span>}
+          </ErrorBoundary>
+        </BindingHost>
+      )
+    }
+
+    try {
+      render(<Harness />)
+      act(() => screen.getByText('Introduce invalid binding').click())
+
+      await waitFor(() => expect(screen.getByText('Fallback bound')).toBeDefined())
+      act(() => screen.getByText('Show late binding').click())
+      await waitFor(() =>
+        expect(screen.getByTestId('late-fallback').textContent).toBe('Fallback bound')
+      )
+    } finally {
+      consoleError.mockRestore()
+    }
   })
 
   it('retires a click binding with its handlerless Bubble option when data-bind is removed', () => {
