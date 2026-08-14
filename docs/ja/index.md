@@ -210,7 +210,7 @@ return items.map((item) => <Row key={item.id} item={item} />)
 ```tsx
 const visible = useKoValue(vm.visible)
 
-return visible ? <section {...bind}>…</section> : null
+return visible ? <section>…</section> : null
 ```
 
 ---

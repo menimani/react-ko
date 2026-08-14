@@ -214,7 +214,7 @@ Conditionals need no component, because `useKoValue` already gives you the value
 ```tsx
 const visible = useKoValue(vm.visible)
 
-return visible ? <section {...bind}>…</section> : null
+return visible ? <section>…</section> : null
 ```
 
 ---
