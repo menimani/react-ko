@@ -282,7 +282,7 @@ disabled state, the implicit radio name — are restored.
 | `<KnockoutScope viewModel={vm}>…</KnockoutScope>` | `<div {...useKoBind(vm)}>…</div>`, or keep `KnockoutScope` when a view-model replacement and a child or portal update share a commit |
 | `<KoIf condition={c}>…</KoIf>` | `useKoValue(c) ? … : null` |
 | `<KoIfNot condition={c}>…</KoIfNot>` | `useKoValue(c) ? null : …` |
-| `<KoWith value={v}>{(x) => …}</KoWith>` | `const x = useKoValue(v)`, then `x ? <div {...useKoBind(x)}>…</div> : null` |
+| `<KoWith value={v}>{(x) => …}</KoWith>` | `const x = useKoValue(v); const bind = useKoBind(x)`, then `x ? <div {...bind}>…</div> : null` |
 | `<KoForeach>{(item, i) => …}</KoForeach>` | `<KoForeach>{(item, i, bind) => …}</KoForeach>` |
 | `boundaryAs`, `as`, `bindingMode` | Gone. The element is yours, so its tag is too |
 | `SemanticHost`, `SemanticHostProps` | Gone with them |
