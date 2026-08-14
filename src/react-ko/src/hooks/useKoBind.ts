@@ -32,11 +32,29 @@ function isReactOwnedHost(host: HTMLElement) {
   )
 }
 
-function hostsAcrossOpenRoots(root: Document | ShadowRoot, selector: string) {
+function hostsAcrossOpenRoots(
+  root: Document | ShadowRoot,
+  selector: string,
+  visited = new Set<Document | ShadowRoot>()
+) {
+  if (visited.has(root)) return []
+  visited.add(root)
+
   const hosts = Array.from(root.querySelectorAll<HTMLElement>(selector))
   for (const element of root.querySelectorAll<HTMLElement>('*')) {
     if (element.shadowRoot !== null) {
-      hosts.push(...hostsAcrossOpenRoots(element.shadowRoot, selector))
+      hosts.push(...hostsAcrossOpenRoots(element.shadowRoot, selector, visited))
+    }
+    if (element.localName === 'iframe') {
+      let frameDocument: Document | null = null
+      try {
+        frameDocument = (element as HTMLIFrameElement).contentDocument
+      } catch {
+        // Cross-origin and sandboxed frames may reject document access.
+      }
+      if (frameDocument !== null) {
+        hosts.push(...hostsAcrossOpenRoots(frameDocument, selector, visited))
+      }
     }
   }
   return hosts
@@ -83,9 +101,9 @@ function useKoBindRoot<T>(viewModel: T, bindable: boolean): KoBindProps {
         (hostOwners.get(candidate) === undefined ||
           hostOwners.get(candidate) === hostOwner.current)
     )
-    // A host rendered into another document, a closed shadow root, or a container React
-    // has not put in one yet is not reachable from here. Multiple roots can also share
-    // a useId, so only prebind when React ownership identifies one eligible host
+    // A host in an inaccessible document, a closed shadow root, or a container React has
+    // not put in one yet is not reachable from here. Multiple roots can also share a
+    // useId, so only prebind when React ownership identifies one eligible host
     // unambiguously. Otherwise its ref still arrives in the layout phase.
     if (hosts.length !== 1) return
     const host = hosts[0]
