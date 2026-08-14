@@ -543,6 +543,64 @@ describe('applyBindingsSafely', () => {
     }
   })
 
+  it('restores React children mutated by a custom init without a descendant-control flag', () => {
+    const binding = 'destructiveCustomInit'
+    ko.bindingHandlers[binding] = {
+      init(element) {
+        element.replaceChildren(document.createElement('strong'))
+      },
+    }
+
+    try {
+      const { container } = render(
+        <section data-bind={`${binding}: true`}>
+          <span>React child</span>
+        </section>
+      )
+      const child = container.querySelector('span')
+
+      expect(() => applyBindingsSafely({}, container)).toThrow(
+        `react-ko cannot apply the Knockout "${binding}" binding because its custom handler mutated React-owned child nodes.`
+      )
+      expect(container.querySelector('span')).toBe(child)
+      expect(container.querySelector('strong')).toBeNull()
+    } finally {
+      delete ko.bindingHandlers[binding]
+    }
+  })
+
+  it('restores React children mutated by a custom update after an observable changes', () => {
+    const binding = 'destructiveCustomUpdate'
+    const mode = ko.observable('keep')
+    ko.bindingHandlers[binding] = {
+      update(element, valueAccessor) {
+        if (ko.unwrap(valueAccessor()) === 'replace') {
+          element.replaceChildren(document.createElement('strong'))
+        }
+      },
+    }
+
+    const { container, unmount } = render(
+      <section data-bind={`${binding}: mode`}>
+        <span>React child</span>
+      </section>
+    )
+    const child = container.querySelector('span')
+
+    try {
+      expect(() => applyBindingsSafely({ mode }, container)).not.toThrow()
+      expect(() => mode('replace')).toThrow(
+        `react-ko cannot apply the Knockout "${binding}" binding because its custom handler mutated React-owned child nodes.`
+      )
+      expect(container.querySelector('span')).toBe(child)
+      expect(container.querySelector('strong')).toBeNull()
+    } finally {
+      ko.cleanNode(container)
+      unmount()
+      delete ko.bindingHandlers[binding]
+    }
+  })
+
   it('restores a React-owned virtual range removed by a rejected custom init', () => {
     const binding = 'destructiveVirtualDescendantController'
     const init = vi.fn((start: Node) => {
