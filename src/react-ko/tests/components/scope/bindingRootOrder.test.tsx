@@ -45,6 +45,30 @@ describe('binding root order', () => {
     expect(container.textContent).toBe('outer changedinner changed')
   })
 
+  it.each([null, undefined])(
+    'binds and disposes a root inside a disabled %s root',
+    (missingViewModel) => {
+      const inner = { label: ko.observable('inner') }
+
+      const { container, unmount } = render(
+        <Host viewModel={missingViewModel}>
+          <Host viewModel={inner}>
+            <span data-bind="text: label" />
+          </Host>
+        </Host>
+      )
+
+      expect(container.textContent).toBe('inner')
+      expect(inner.label.getSubscriptionsCount()).toBeGreaterThan(0)
+
+      act(() => inner.label('inner changed'))
+      expect(container.textContent).toBe('inner changed')
+
+      unmount()
+      expect(inner.label.getSubscriptionsCount()).toBe(0)
+    }
+  )
+
   it('binds every level of a three-deep nest', () => {
     const a = { a: ko.observable('A') }
     const b = { b: ko.observable('B') }

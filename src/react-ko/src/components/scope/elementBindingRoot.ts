@@ -1,5 +1,7 @@
 export const ELEMENT_BINDING_ROOT_ATTRIBUTE = 'data-react-ko-scope'
 
+/** An empty marker belongs to a disabled useKoBind host, not a binding root. */
 export function isElementBindingRoot(element: Element) {
-  return element.hasAttribute(ELEMENT_BINDING_ROOT_ATTRIBUTE)
+  const id = element.getAttribute(ELEMENT_BINDING_ROOT_ATTRIBUTE)
+  return id !== null && id !== ''
 }
