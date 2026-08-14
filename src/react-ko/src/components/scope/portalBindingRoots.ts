@@ -45,6 +45,36 @@ function isElement(value: unknown): value is HTMLElement {
   return node.nodeType === node.ELEMENT_NODE
 }
 
+function isNestedBoundary(candidate: ReactFiber) {
+  const host = candidate.tag === HOST_COMPONENT
+    ? candidate.stateNode
+    : undefined
+  return (
+    isElement(host) &&
+    (host.getAttribute('data-bind') === `${DESCENDANT_BINDING_BOUNDARY}: true` ||
+      isElementBindingRoot(host))
+  )
+}
+
+/** Whether a newly mutated portal host node belongs to this binding root. */
+export function ownsPortalRoot(
+  bindingHost: HTMLElement,
+  portalRoot: HTMLElement
+) {
+  let candidate: ReactFiber | null | undefined = hostFiber(portalRoot)
+  let crossedPortal = false
+  while (candidate !== null && candidate !== undefined) {
+    if (candidate.tag === HOST_PORTAL) {
+      crossedPortal = true
+    } else if (crossedPortal && candidate.tag === HOST_COMPONENT) {
+      if (candidate.stateNode === bindingHost) return true
+      if (isNestedBoundary(candidate)) return false
+    }
+    candidate = candidate.return
+  }
+  return false
+}
+
 /** Returns the containers and top-level host elements of owned portals. */
 export function portalBindingTargets(bindingHost: HTMLElement) {
   const fiber = hostFiber(bindingHost)
@@ -60,17 +90,6 @@ export function portalBindingTargets(bindingHost: HTMLElement) {
   // their portals are theirs. A root marks itself either as a scope component's
   // boundary or, when it is an element the caller owns, with the binding-root
   // attribute. Missing the second kind hands an inner root's portal to this one.
-  function isNestedBoundary(candidate: ReactFiber) {
-    const host = candidate.tag === HOST_COMPONENT
-      ? candidate.stateNode
-      : undefined
-    return (
-      isElement(host) &&
-      (host.getAttribute('data-bind') === `${DESCENDANT_BINDING_BOUNDARY}: true` ||
-        isElementBindingRoot(host))
-    )
-  }
-
   function collectPortalContainer(candidate: ReactFiber) {
     const container = (candidate.stateNode as PortalStateNode | null)
       ?.containerInfo

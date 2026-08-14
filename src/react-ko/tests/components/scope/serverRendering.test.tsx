@@ -202,6 +202,75 @@ describe('BindingHost server rendering', () => {
   })
 })
 
+it('binds hydrated Suspense markup despite continuous sibling mutations', async () => {
+  vi.useFakeTimers()
+  const label = ko.observable('Knockout value')
+  let hydrating = false
+  let ready = false
+  let resolveChild: () => void = () => undefined
+  const suspended = new Promise<void>((resolve) => {
+    resolveChild = resolve
+  })
+
+  function DelayedChild() {
+    if (hydrating && !ready) throw suspended
+    return (
+      <span
+        data-testid="suspended-bound"
+        data-bind="attr: { title: label }"
+        title="Server value"
+      />
+    )
+  }
+
+  const tree = (
+    <BindingHost viewModel={{ label }}>
+      <span data-testid="mutating-sibling" />
+      <Suspense fallback={null}>
+        <DelayedChild />
+      </Suspense>
+    </BindingHost>
+  )
+  const container = serverContainer(tree)
+  const bound = container.querySelector('[data-testid="suspended-bound"]')
+  const sibling = container.querySelector('[data-testid="mutating-sibling"]')
+  document.body.appendChild(container)
+  hydrating = true
+  let root: Root | undefined
+
+  try {
+    await act(async () => {
+      root = hydrateRoot(container, tree)
+    })
+
+    await act(async () => {
+      ready = true
+      resolveChild()
+      await suspended
+    })
+
+    expect(bound).toHaveProperty('title', 'Server value')
+    expect(label.getSubscriptionsCount()).toBe(0)
+
+    for (let tick = 1; tick <= 5; tick += 1) {
+      await act(async () => {
+        sibling?.setAttribute('data-tick', String(tick))
+        await Promise.resolve()
+        await vi.advanceTimersByTimeAsync(4)
+      })
+    }
+
+    expect(bound).toHaveProperty('title', 'Knockout value')
+    expect(label.getSubscriptionsCount()).toBe(1)
+  } finally {
+    if (root !== undefined && container.isConnected) {
+      act(() => root?.unmount())
+    }
+    container.remove()
+    vi.useRealTimers()
+  }
+})
+
 describe('KnockoutScope server rendering', () => {
   it('provides server context and preserves its bound children during hydration', async () => {
     const boundLabel = ko.observable('Hydrated')
@@ -293,6 +362,171 @@ it('clears deferred Suspense polling when the binding root unmounts', async () =
     container.remove()
     setTimeout.mockRestore()
     clearTimeout.mockRestore()
+    vi.useRealTimers()
+  }
+})
+
+it('stops deferred Suspense polling when the boundary is removed', async () => {
+  vi.useFakeTimers()
+  const setTimeout = vi.spyOn(window, 'setTimeout')
+  const label = ko.observable('Still mounted')
+  const viewModel = { label }
+  let hydrating = false
+  let removeBoundary: () => void = () => undefined
+  const suspended = new Promise<void>(() => undefined)
+
+  function UnresolvedChild() {
+    if (hydrating) throw suspended
+    return <span data-testid="deferred-child" data-bind="text: label" />
+  }
+
+  function App() {
+    const [showBoundary, setShowBoundary] = useState(true)
+    removeBoundary = () => setShowBoundary(false)
+    return (
+      <BindingHost viewModel={viewModel}>
+        <span data-testid="mounted-sibling" data-bind="text: label" />
+        {showBoundary && (
+          <Suspense fallback={null}>
+            <UnresolvedChild />
+          </Suspense>
+        )}
+      </BindingHost>
+    )
+  }
+
+  const tree = <App />
+  const container = serverContainer(tree)
+  document.body.appendChild(container)
+  hydrating = true
+  let root: Root | undefined
+  const pollingDelays = new Set([16, 32, 64, 128, 256, 512, 1000])
+
+  try {
+    await act(async () => {
+      root = hydrateRoot(container, tree)
+    })
+
+    expect(
+      setTimeout.mock.calls.filter(([, delay]) => pollingDelays.has(delay ?? 0))
+    ).toHaveLength(1)
+
+    await act(async () => {
+      removeBoundary()
+      await Promise.resolve()
+      await vi.advanceTimersByTimeAsync(16)
+    })
+
+    expect(container.querySelector('[data-testid="deferred-child"]')).toBeNull()
+    expect(
+      container.querySelector('[data-testid="mounted-sibling"]')?.textContent
+    ).toBe('Still mounted')
+    expect(label.getSubscriptionsCount()).toBe(1)
+    const settledPollingCalls = setTimeout.mock.calls.filter(([, delay]) =>
+      pollingDelays.has(delay ?? 0)
+    ).length
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000)
+    })
+
+    expect(
+      setTimeout.mock.calls.filter(([, delay]) => pollingDelays.has(delay ?? 0))
+    ).toHaveLength(settledPollingCalls)
+
+    act(() => label('Updated while mounted'))
+    expect(
+      container.querySelector('[data-testid="mounted-sibling"]')?.textContent
+    ).toBe('Updated while mounted')
+  } finally {
+    if (root !== undefined && container.isConnected) {
+      act(() => root?.unmount())
+    }
+    container.remove()
+    setTimeout.mockRestore()
+    vi.useRealTimers()
+  }
+})
+
+it('reports a binding failure from newly hydrated Suspense markup and cleans up', async () => {
+  vi.useFakeTimers()
+  const setTimeout = vi.spyOn(window, 'setTimeout')
+  const disconnect = vi.spyOn(MutationObserver.prototype, 'disconnect')
+  const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+  const label = ko.observable('Bound before failure')
+  let hydrating = false
+  let ready = false
+  let resolveChild: () => void = () => undefined
+  const suspended = new Promise<void>((resolve) => {
+    resolveChild = resolve
+  })
+
+  function DelayedInvalidChild() {
+    if (hydrating && !ready) throw suspended
+    return (
+      <section>
+        <span data-bind="text: label" />
+        <span data-bind="text: missing.value" />
+      </section>
+    )
+  }
+
+  const tree = (
+    <ErrorBoundary>
+      <BindingHost viewModel={{ label }}>
+        <Suspense fallback={null}>
+          <DelayedInvalidChild />
+        </Suspense>
+      </BindingHost>
+    </ErrorBoundary>
+  )
+  const container = serverContainer(tree)
+  document.body.appendChild(container)
+  hydrating = true
+  let root: Root | undefined
+  const pollingDelays = new Set([16, 32, 64, 128, 256, 512, 1000])
+
+  try {
+    await act(async () => {
+      root = hydrateRoot(container, tree)
+    })
+
+    expect(label.getSubscriptionsCount()).toBe(0)
+
+    await act(async () => {
+      ready = true
+      resolveChild()
+      await suspended
+    })
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(16)
+    })
+
+    expect(
+      container.querySelector('[data-testid="binding-error"]')?.textContent
+    ).toContain('missing is not defined')
+    expect(disconnect).toHaveBeenCalled()
+    expect(label.getSubscriptionsCount()).toBe(0)
+    const settledPollingCalls = setTimeout.mock.calls.filter(([, delay]) =>
+      pollingDelays.has(delay ?? 0)
+    ).length
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000)
+    })
+
+    expect(
+      setTimeout.mock.calls.filter(([, delay]) => pollingDelays.has(delay ?? 0))
+    ).toHaveLength(settledPollingCalls)
+  } finally {
+    if (root !== undefined && container.isConnected) {
+      act(() => root?.unmount())
+    }
+    container.remove()
+    setTimeout.mockRestore()
+    disconnect.mockRestore()
+    consoleError.mockRestore()
     vi.useRealTimers()
   }
 })

@@ -135,6 +135,49 @@ describe('useKoBind', () => {
     expect(screen.getByTestId('value').textContent).toBe('Second view model')
   })
 
+  it('rejects replacement before rerunning a custom binding initializer', async () => {
+    const binding = 'appendOnInitForUseKoBindReplacement'
+    const init = vi.fn((element: HTMLElement) => {
+      element.appendChild(document.createElement('i'))
+    })
+    ko.bindingHandlers[binding] = { init }
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    function Host() {
+      const [viewModel, setViewModel] = useState({ version: 1 })
+      const bind = useKoBind(viewModel)
+      return (
+        <div {...bind}>
+          <button type="button" onClick={() => setViewModel({ version: 2 })}>
+            replace custom root
+          </button>
+          <span data-testid="custom-owner" data-bind={`${binding}: true`} />
+        </div>
+      )
+    }
+
+    try {
+      render(
+        <ErrorBoundary>
+          <Host />
+        </ErrorBoundary>
+      )
+      expect(screen.getByTestId('custom-owner').children).toHaveLength(1)
+
+      act(() => screen.getByRole('button').click())
+
+      await waitFor(() =>
+        expect(screen.getByTestId('failure').textContent).toContain(
+          `react-ko cannot replace the Knockout "${binding}" binding because its DOM effects cannot be safely retired.`
+        )
+      )
+      expect(init).toHaveBeenCalledOnce()
+    } finally {
+      delete ko.bindingHandlers[binding]
+      consoleError.mockRestore()
+    }
+  })
+
   it('retires the binding when the element unmounts while the hook stays mounted', () => {
     const label = ko.observable('Present')
     const vm = { label }

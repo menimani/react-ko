@@ -65,6 +65,40 @@ describe('KnockoutScope', () => {
     }
   })
 
+  it('retires listeners after replacement and unmount in a document without a window', () => {
+    const secondaryDocument = document.implementation.createHTMLDocument('secondary')
+    expect(secondaryDocument.defaultView).toBeNull()
+    const container = secondaryDocument.createElement('div')
+    secondaryDocument.body.appendChild(container)
+    const root = createRoot(container)
+    const first = vi.fn()
+    const second = vi.fn()
+
+    function Scope({ handle }: { handle: () => void }) {
+      return (
+        <KnockoutScope viewModel={{ handle }}>
+          <button data-bind="click: handle" />
+        </KnockoutScope>
+      )
+    }
+
+    act(() => root.render(<Scope handle={first} />))
+    const button = container.querySelector('button')!
+    button.click()
+    expect(first).toHaveBeenCalledOnce()
+
+    act(() => root.render(<Scope handle={second} />))
+    button.click()
+    expect(first).toHaveBeenCalledOnce()
+    expect(second).toHaveBeenCalledOnce()
+
+    act(() => root.unmount())
+    expect(button.isConnected).toBe(false)
+    button.click()
+    expect(first).toHaveBeenCalledOnce()
+    expect(second).toHaveBeenCalledOnce()
+  })
+
   it('keeps one live subscription through StrictMode replay and disposes it on unmount', () => {
     const vm = { label: ko.observable('Strict') }
 
@@ -140,6 +174,50 @@ describe('KnockoutScope', () => {
     expect(screen.getByTestId('outer').textContent).toBe('second')
     act(() => inner.inner('inner changed'))
     expect(screen.getByTestId('inner').textContent).toBe('inner changed')
+  })
+
+  it('validates nested roots before replacing an outer scope', async () => {
+    const binding = 'appendOnInitForNestedScopeReplacement'
+    const init = vi.fn((element: HTMLElement) => {
+      element.appendChild(document.createElement('i'))
+    })
+    ko.bindingHandlers[binding] = { init }
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    function Harness() {
+      const [outer, setOuter] = useState({ version: 1 })
+      return (
+        <KnockoutScope viewModel={outer}>
+          <button type="button" onClick={() => setOuter({ version: 2 })}>
+            replace outer scope
+          </button>
+          <KnockoutScope viewModel={{}}>
+            <span data-testid="nested-custom-owner" data-bind={`${binding}: true`} />
+          </KnockoutScope>
+        </KnockoutScope>
+      )
+    }
+
+    try {
+      render(
+        <ErrorBoundary>
+          <Harness />
+        </ErrorBoundary>
+      )
+      expect(screen.getByTestId('nested-custom-owner').children).toHaveLength(1)
+
+      act(() => screen.getByRole('button').click())
+
+      await waitFor(() =>
+        expect(screen.getByTestId('failure').textContent).toContain(
+          `react-ko cannot replace the Knockout "${binding}" binding because its DOM effects cannot be safely retired.`
+        )
+      )
+      expect(init).toHaveBeenCalledOnce()
+    } finally {
+      delete ko.bindingHandlers[binding]
+      consoleError.mockRestore()
+    }
   })
 
   it('sends a rebind failure that arrives after the layout phase to an error boundary', async () => {
@@ -231,6 +309,42 @@ describe('KnockoutScope', () => {
     expect(screen.getByTestId('late').textContent).toBe('Late')
     act(() => vm.label('Late changed'))
     expect(screen.getByTestId('late').textContent).toBe('Late changed')
+  })
+
+  it('binds a late child before layout in a document without a window', () => {
+    const secondaryDocument = document.implementation.createHTMLDocument('secondary')
+    const container = secondaryDocument.createElement('div')
+    secondaryDocument.body.appendChild(container)
+    expect(secondaryDocument.defaultView).toBeNull()
+
+    const root = createRoot(container)
+    const layoutText = vi.fn()
+
+    function LateChild() {
+      const element = useRef<HTMLSpanElement>(null)
+      useLayoutEffect(() => {
+        layoutText(element.current?.textContent)
+      }, [])
+      return <span ref={element} data-bind="text: label" />
+    }
+
+    function Harness({ show }: { show: boolean }) {
+      return (
+        <KnockoutScope viewModel={{ label: 'Bound before layout' }}>
+          {show ? <LateChild /> : null}
+        </KnockoutScope>
+      )
+    }
+
+    try {
+      act(() => root.render(<Harness show={false} />))
+      act(() => root.render(<Harness show />))
+
+      expect(layoutText).toHaveBeenCalledWith('Bound before layout')
+      expect(container.textContent).toBe('Bound before layout')
+    } finally {
+      act(() => root.unmount())
+    }
   })
 })
 

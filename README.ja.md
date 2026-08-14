@@ -62,6 +62,9 @@ ViewModel を提供します。Knockout は React がレンダーした子孫の
 その構造は React と `useKoValue` でレンダーするか、リストには `KoForeach` を使用してください。
 `text`、`html`、`component`、`options` など要素の内容を置き換えるバインディングでは、内容を
 Knockout だけが所有できるように、JSX で空のホスト要素を指定する必要があります。
+スコープの ViewModel を置き換えるときは、クリーンアップ対象となるすべてのバインディングルートが
+事前に検証されます。安全に終了できないカスタムバインディングまたは上書きされたバインディングが
+ある場合、initializer を再実行せずに置換を拒否します。
 `useKoValue` は
 `data-bind` が届かない場所 — JSX 補間・props・effect の依存配列 — に Knockout の値を
 持ち込みます。

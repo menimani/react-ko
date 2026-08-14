@@ -13,10 +13,12 @@ import {
   assertNoReactUnsafeBindings,
 } from './applyBindingsSafely'
 import {
+  assertBindingRootsCanBeRetired,
   bindPendingDescendantRoots,
   cancelPendingBinding,
   deferBindingUntilAncestorBinds,
   observeBindingDescendants,
+  observePortalTopology,
   prepareBindingDescendants,
   reconcileBindingDescendants,
   refreshBindingDescendantsAfterLayout,
@@ -24,7 +26,7 @@ import {
   restoreDescendantBindingRoots,
   unregisterBindingRoot,
 } from './observeBindingDescendants'
-import { portalBindingTargets } from './portalBindingRoots'
+import { ownsPortalRoot, portalBindingTargets } from './portalBindingRoots'
 
 type ActiveRootBinding = {
   node: HTMLElement
@@ -35,6 +37,7 @@ type ActiveBinding = {
   roots: ActiveRootBinding[]
   viewModel: unknown
   parentGeneration: number
+  stopObservingPortalTopology: () => void
 }
 
 function BindingCommitMarker({
@@ -66,9 +69,10 @@ export function useBindingRoot(
   const synchronizeBindingForCommit = useRef(synchronizeBinding)
   const refreshInitialBinding = useRef(false)
   const connectedHosts = useRef(new WeakSet<HTMLElement>())
+  const synchronizingPortalTopology = useRef(false)
   const [generation, setGeneration] = useState(0)
 
-  function disposeBinding() {
+  function disposeBinding(validateRetirement = false) {
     const host = containerNode.current
     // A root waiting for an ancestor is dropped rather than left to bind into a tree
     // it is no longer part of.
@@ -79,7 +83,12 @@ export function useBindingRoot(
       return
     }
 
+    if (validateRetirement) {
+      assertBindingRootsCanBeRetired(active.roots.map(({ node }) => node))
+    }
+
     activeBinding.current = null
+    active.stopObservingPortalTopology()
     for (const root of active.roots) {
       root.stopObserving()
     }
@@ -97,12 +106,14 @@ export function useBindingRoot(
   }
 
   function bind(nodes: HTMLElement[], replacing: boolean) {
+    if (replacing) assertBindingRootsCanBeRetired(nodes)
     for (const node of nodes) registerBindingRoot(node, viewModel)
     const roots: ActiveRootBinding[] = []
     activeBinding.current = {
       roots,
       viewModel,
       parentGeneration,
+      stopObservingPortalTopology: () => undefined,
     }
     try {
       for (const node of nodes) {
@@ -126,6 +137,52 @@ export function useBindingRoot(
         )
         roots.push({ node, stopObserving })
       }
+      const active = activeBinding.current
+      if (active !== null) {
+        active.stopObservingPortalTopology = observePortalTopology(nodes[0], (
+          parent,
+          added,
+          removed
+        ) => {
+          if (synchronizingPortalTopology.current) return
+          const current = activeBinding.current
+          const host = containerNode.current
+          if (current !== active || host === null) return
+          const addedElements: HTMLElement[] = []
+          if (added !== null && added.nodeType === added.ELEMENT_NODE) {
+            addedElements.push(added as HTMLElement)
+          } else if (added !== null) {
+            for (const child of added.childNodes) {
+              if (child.nodeType === child.ELEMENT_NODE) {
+                addedElements.push(child as HTMLElement)
+              }
+            }
+          }
+          const addedRoots = addedElements.filter((candidate) =>
+            ownsPortalRoot(host, candidate)
+          )
+          const removesActiveRoot =
+            removed !== null &&
+            active.roots.some(
+              (root) => root.node !== host && removed.contains(root.node)
+            )
+          if (addedRoots.length === 0 && !removesActiveRoot) return
+          synchronizingPortalTopology.current = true
+          try {
+            if (
+              addedRoots.length > 0 &&
+              parent.nodeType === parent.ELEMENT_NODE
+            ) {
+              assertNoReactUnsafeBindings(parent as HTMLElement, false, false)
+            }
+            synchronizePortalRoots(host, active, addedRoots, removed)
+          } catch (error) {
+            onError(error)
+          } finally {
+            synchronizingPortalTopology.current = false
+          }
+        })
+      }
     } catch (error) {
       disposeBinding()
       for (const node of nodes) unregisterBindingRoot(node)
@@ -145,8 +202,21 @@ export function useBindingRoot(
     }
   }
 
-  function synchronizePortalRoots(node: HTMLElement, active: ActiveBinding) {
-    const nodes = bindingRoots(node)
+  function synchronizePortalRoots(
+    node: HTMLElement,
+    active: ActiveBinding,
+    addedRoots: readonly HTMLElement[] = [],
+    removedSubtree: Node | null = null
+  ) {
+    const nodes = bindingRoots(node).filter(
+      (candidate) =>
+        candidate === node ||
+        removedSubtree === null ||
+        !removedSubtree.contains(candidate)
+    )
+    for (const addedRoot of addedRoots) {
+      if (!nodes.includes(addedRoot)) nodes.push(addedRoot)
+    }
     const current = new Map(active.roots.map((root) => [root.node, root]))
     const removed = active.roots.filter((root) => !nodes.includes(root.node))
 
@@ -263,7 +333,7 @@ export function useBindingRoot(
         return
       }
 
-      disposeBinding()
+      disposeBinding(true)
       pendingBindingReplacement.current = false
       bindWhenAncestorsHave(node, true)
       return

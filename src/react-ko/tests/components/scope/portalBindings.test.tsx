@@ -397,6 +397,73 @@ describe('portal bindings', () => {
     expect(vm.label.getSubscriptionsCount()).toBe(0)
   })
 
+  it.each(['KnockoutScope', 'useKoBind'] as const)(
+    'tracks portals changed by descendant-local state for %s',
+    (rootApi) => {
+      const target = portalTarget()
+      const label = ko.observable('Initial')
+      let setVisible: (visible: boolean) => void = () => undefined
+
+      function HookBindingRoot({
+        viewModel,
+        children,
+      }: {
+        viewModel: unknown
+        children: ReactNode
+      }) {
+        const bind = useKoBind(viewModel)
+        return <section {...bind}>{children}</section>
+      }
+
+      function LocalPortal() {
+        const [visible, updateVisible] = useState(false)
+        setVisible = updateVisible
+        const input = useRef<HTMLInputElement>(null)
+        useLayoutEffect(() => {
+          if (input.current === null) return
+          input.current.value = 'Changed during layout'
+          input.current.dispatchEvent(new Event('input', { bubbles: true }))
+        }, [visible])
+        return visible
+          ? createPortal(
+              <input
+                ref={input}
+                data-testid="local-state-portal"
+                data-bind="textInput: label"
+              />,
+              target
+            )
+          : null
+      }
+
+      render(
+        <BindingHost viewModel={{}}>
+          {rootApi === 'KnockoutScope' ? (
+            <KnockoutScope viewModel={{ label }}>
+              <LocalPortal />
+            </KnockoutScope>
+          ) : (
+            <HookBindingRoot viewModel={{ label }}>
+              <LocalPortal />
+            </HookBindingRoot>
+          )}
+        </BindingHost>
+      )
+
+      act(() => setVisible(true))
+      expect(screen.getByTestId('local-state-portal')).toHaveProperty(
+        'value',
+        'Changed during layout'
+      )
+      expect(label()).toBe('Changed during layout')
+      expect(label.getSubscriptionsCount()).toBeGreaterThan(0)
+
+      act(() => setVisible(false))
+      expect(screen.queryByTestId('local-state-portal')).toBeNull()
+      expect(label.getSubscriptionsCount()).toBe(0)
+    }
+  )
+
   it('manages the complete portal lifecycle in an iframe realm', () => {
     const iframe = document.createElement('iframe')
     document.body.appendChild(iframe)

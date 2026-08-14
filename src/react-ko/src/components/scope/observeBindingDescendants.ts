@@ -18,11 +18,16 @@ import { isElementBindingRoot } from './elementBindingRoot'
 
 type BindingObserverState = {
   observer: MutationObserver
+  bindingStates: BindingStateStore
   reconcile: (records: MutationRecord[], reactCommitInProgress?: boolean) => void
   shouldDeferReconciliation?: () => boolean
   shouldDeferDataBindChange: (element: Element) => boolean
   shouldDeferInsertion: (parent: Node) => boolean
-  shouldReconcileDirectTextWrite: (element: HTMLElement) => boolean
+  shouldReconcileDirectTextWrite: (
+    element: HTMLElement,
+    kind?: 'text' | 'html',
+    value?: string
+  ) => boolean
   refreshAfterLayout: () => void
   onError: (error: unknown) => void
 }
@@ -67,9 +72,11 @@ type ChildListInterceptor = {
   appendChild: typeof Node.prototype.appendChild
   insertBefore: typeof Node.prototype.insertBefore
   replaceChild: typeof Node.prototype.replaceChild
+  removeChild: typeof Node.prototype.removeChild
   interceptedAppendChild: typeof Node.prototype.appendChild
   interceptedInsertBefore: typeof Node.prototype.insertBefore
   interceptedReplaceChild: typeof Node.prototype.replaceChild
+  interceptedRemoveChild: typeof Node.prototype.removeChild
 }
 type DirectTextInterceptor = {
   owners: Map<InterceptorOwner, number>
@@ -85,7 +92,16 @@ type InterceptorOwner = {
   reconcileChangedProperty: (element: Element) => void
   hasReactOwnership: (node: Node, parent?: Element) => boolean
   reconcileInsertedChildren: (parent: Node, reactOwned: boolean) => void
-  reconcileDirectTextWrite: (node: Node) => void
+  reconcilePortalTopology: (
+    parent: Node,
+    added: Node | null,
+    removed: Node | null
+  ) => void
+  reconcileDirectTextWrite: (
+    node: Node,
+    kind?: 'text' | 'html',
+    value?: string
+  ) => void
 }
 type PrototypeInterceptorRegistry = {
   attribute?: AttributeInterceptor
@@ -97,14 +113,81 @@ const INTERCEPTOR_REGISTRY = Symbol.for(
   'react-ko.observeBindingDescendants.prototypeInterceptors'
 )
 
-function interceptorRegistry(view: Window & typeof globalThis) {
-  const registries = view as unknown as {
+function interceptorRegistry(owner: object) {
+  const registries = owner as {
     [key: symbol]: PrototypeInterceptorRegistry | undefined
   }
   return (registries[INTERCEPTOR_REGISTRY] ??= {})
 }
 
+type DomPrototypes = {
+  registryOwner: object
+  element: typeof Element.prototype
+  node: typeof Node.prototype
+  characterData: typeof CharacterData.prototype
+  formProperties: Array<[object, string]>
+}
+
+function prototypeDefining(value: object, name: string) {
+  let prototype = Object.getPrototypeOf(value) as object | null
+  while (prototype !== null) {
+    if (Object.prototype.hasOwnProperty.call(prototype, name)) return prototype
+    prototype = Object.getPrototypeOf(prototype) as object | null
+  }
+  throw new Error(`react-ko could not find the DOM prototype for ${name}.`)
+}
+
+function domPrototypes(root: HTMLElement): DomPrototypes {
+  const document = root.ownerDocument
+  const view = document.defaultView
+  if (view !== null) {
+    return {
+      registryOwner: view.Node.prototype,
+      element: view.Element.prototype,
+      node: view.Node.prototype,
+      characterData: view.CharacterData.prototype,
+      formProperties: [
+        [view.HTMLInputElement.prototype, 'value'],
+        [view.HTMLInputElement.prototype, 'checked'],
+        [view.HTMLTextAreaElement.prototype, 'value'],
+        [view.HTMLSelectElement.prototype, 'value'],
+        [view.HTMLOptionElement.prototype, 'selected'],
+      ],
+    }
+  }
+
+  const input = document.createElement('input')
+  return {
+    registryOwner: prototypeDefining(root, 'appendChild'),
+    element: prototypeDefining(root, 'setAttribute') as typeof Element.prototype,
+    node: prototypeDefining(root, 'appendChild') as typeof Node.prototype,
+    characterData: prototypeDefining(
+      document.createTextNode(''),
+      'data'
+    ) as typeof CharacterData.prototype,
+    formProperties: [
+      [prototypeDefining(input, 'value'), 'value'],
+      [prototypeDefining(input, 'checked'), 'checked'],
+      [prototypeDefining(document.createElement('textarea'), 'value'), 'value'],
+      [prototypeDefining(document.createElement('select'), 'value'), 'value'],
+      [prototypeDefining(document.createElement('option'), 'selected'), 'selected'],
+    ],
+  }
+}
+
 const detachedBindingRoots = createBindingRootRegistry()
+const portalTopologyObservers = new Map<
+  HTMLElement,
+  (parent: Node, added: Node | null, removed: Node | null) => void
+>()
+
+export function observePortalTopology(
+  root: HTMLElement,
+  synchronize: (parent: Node, added: Node | null, removed: Node | null) => void
+) {
+  portalTopologyObservers.set(root, synchronize)
+  return () => portalTopologyObservers.delete(root)
+}
 
 function createBindingRootRegistry(): BindingRootRegistry {
   return {
@@ -450,20 +533,29 @@ function hasDirectReactContentTransition(
   )
 }
 
-function hasActiveDirectReactTextWrite(
+function hasActiveDirectReactContentWrite(
   element: HTMLElement,
-  previousProps: ReadonlyMap<string, unknown>
+  previousProps: ReadonlyMap<string, unknown>,
+  writtenKind?: 'text' | 'html',
+  writtenValue?: string
 ) {
   const currentProps = currentReactHostProps(element, true)
   const current = directReactContent(currentProps)
+  const renderedContent =
+    writtenKind === undefined
+      ? current?.kind === 'html'
+        ? element.innerHTML
+        : element.textContent
+      : writtenValue
 
   // After a commit, the alternate describes the previous render but remains
-  // reachable. A later Knockout text notification must not be mistaken for
-  // that stale render: an active React write produces the pending text and
+  // reachable. A later Knockout content notification must not be mistaken for
+  // that stale render: an active React write produces the pending content and
   // keeps the binding source currently reflected in the DOM.
   return (
-    current?.kind === 'text' &&
-    current.value === element.textContent &&
+    current !== null &&
+    (writtenKind === undefined || current.kind === writtenKind) &&
+    current.value === renderedContent &&
     (currentProps?.['data-bind'] ?? null) === element.getAttribute('data-bind') &&
     hasDirectReactContentTransition(element, previousProps, true)
   )
@@ -607,7 +699,21 @@ function reconcileInsertedChildren(parent: Node, reactOwned: boolean) {
   }
 }
 
-function reconcileDirectTextWrite(node: Node) {
+function reconcilePortalTopology(
+  parent: Node,
+  added: Node | null,
+  removed: Node | null
+) {
+  for (const synchronize of [...portalTopologyObservers.values()]) {
+    synchronize(parent, added, removed)
+  }
+}
+
+function reconcileDirectTextWrite(
+  node: Node,
+  kind?: 'text' | 'html',
+  value?: string
+) {
   const element =
     node.nodeType === Node.ELEMENT_NODE
       ? (node as HTMLElement)
@@ -620,7 +726,7 @@ function reconcileDirectTextWrite(node: Node) {
   if (
     root !== undefined &&
     state !== undefined &&
-    state.shouldReconcileDirectTextWrite(element) &&
+    state.shouldReconcileDirectTextWrite(element, kind, value) &&
     !registry.reconcilingRoots.has(root)
   ) {
     reconcileBindingDescendants(root)
@@ -632,6 +738,7 @@ const interceptorOwner: InterceptorOwner = {
   reconcileChangedProperty,
   hasReactOwnership,
   reconcileInsertedChildren,
+  reconcilePortalTopology,
   reconcileDirectTextWrite,
 }
 
@@ -650,8 +757,8 @@ function releaseInterceptorOwner(owners: Map<InterceptorOwner, number>) {
   return owners.size === 0
 }
 
-function releaseAttributeInterceptor(view: Window & typeof globalThis) {
-  const registry = interceptorRegistry(view)
+function releaseAttributeInterceptor(prototypes: DomPrototypes) {
+  const registry = interceptorRegistry(prototypes.registryOwner)
   const interceptor = registry.attribute
   if (interceptor === undefined) {
     return
@@ -661,7 +768,7 @@ function releaseAttributeInterceptor(view: Window & typeof globalThis) {
     return
   }
 
-  const prototype = view.Element.prototype
+  const prototype = prototypes.element
   if (prototype.setAttribute === interceptor.interceptedSetAttribute) {
     prototype.setAttribute = interceptor.setAttribute
   }
@@ -763,18 +870,11 @@ function releaseReactTrackedChecked(
 }
 
 function interceptFormProperties(
-  view: Window & typeof globalThis,
+  prototypes: DomPrototypes,
   owners: Map<InterceptorOwner, number>
 ) {
   const intercepted: AttributeInterceptor['formProperties'] = []
-  const properties: Array<[object, string]> = [
-    [view.HTMLInputElement.prototype, 'value'],
-    [view.HTMLInputElement.prototype, 'checked'],
-    [view.HTMLTextAreaElement.prototype, 'value'],
-    [view.HTMLSelectElement.prototype, 'value'],
-    [view.HTMLOptionElement.prototype, 'selected'],
-  ]
-  for (const [prototype, name] of properties) {
+  for (const [prototype, name] of prototypes.formProperties) {
     const descriptor = Object.getOwnPropertyDescriptor(prototype, name)
     if (descriptor?.set === undefined) continue
     const set = descriptor.set
@@ -794,17 +894,13 @@ function interceptFormProperties(
 }
 
 function interceptDataBindChanges(root: HTMLElement) {
-  const view = root.ownerDocument.defaultView
-  if (view === null) {
-    return () => undefined
-  }
-
-  const registry = interceptorRegistry(view)
-  const prototype = view.Element.prototype
+  const prototypes = domPrototypes(root)
+  const registry = interceptorRegistry(prototypes.registryOwner)
+  const prototype = prototypes.element
   const existing = registry.attribute
   if (existing !== undefined) {
     addInterceptorOwner(existing.owners)
-    return () => releaseAttributeInterceptor(view)
+    return () => releaseAttributeInterceptor(prototypes)
   }
 
   const setAttribute = prototype.setAttribute
@@ -834,7 +930,7 @@ function interceptDataBindChanges(root: HTMLElement) {
   }
   prototype.setAttribute = interceptedSetAttribute
   prototype.removeAttribute = interceptedRemoveAttribute
-  const formProperties = interceptFormProperties(view, owners)
+  const formProperties = interceptFormProperties(prototypes, owners)
   registry.attribute = {
     owners,
     setAttribute,
@@ -844,11 +940,11 @@ function interceptDataBindChanges(root: HTMLElement) {
     formProperties,
   }
 
-  return () => releaseAttributeInterceptor(view)
+  return () => releaseAttributeInterceptor(prototypes)
 }
 
-function releaseChildListInterceptor(view: Window & typeof globalThis) {
-  const registry = interceptorRegistry(view)
+function releaseChildListInterceptor(prototypes: DomPrototypes) {
+  const registry = interceptorRegistry(prototypes.registryOwner)
   const interceptor = registry.childList
   if (interceptor === undefined) {
     return
@@ -858,7 +954,7 @@ function releaseChildListInterceptor(view: Window & typeof globalThis) {
     return
   }
 
-  const prototype = view.Node.prototype
+  const prototype = prototypes.node
   if (prototype.appendChild === interceptor.interceptedAppendChild) {
     prototype.appendChild = interceptor.appendChild
   }
@@ -868,26 +964,26 @@ function releaseChildListInterceptor(view: Window & typeof globalThis) {
   if (prototype.replaceChild === interceptor.interceptedReplaceChild) {
     prototype.replaceChild = interceptor.replaceChild
   }
+  if (prototype.removeChild === interceptor.interceptedRemoveChild) {
+    prototype.removeChild = interceptor.removeChild
+  }
   delete registry.childList
 }
 
 function interceptChildListInsertions(root: HTMLElement) {
-  const view = root.ownerDocument.defaultView
-  if (view === null) {
-    return () => undefined
-  }
-
-  const registry = interceptorRegistry(view)
-  const prototype = view.Node.prototype
+  const prototypes = domPrototypes(root)
+  const registry = interceptorRegistry(prototypes.registryOwner)
+  const prototype = prototypes.node
   const existing = registry.childList
   if (existing !== undefined) {
     addInterceptorOwner(existing.owners)
-    return () => releaseChildListInterceptor(view)
+    return () => releaseChildListInterceptor(prototypes)
   }
 
   const appendChild = prototype.appendChild
   const insertBefore = prototype.insertBefore
   const replaceChild = prototype.replaceChild
+  const removeChild = prototype.removeChild
   const owners = new Map([[interceptorOwner, 1]])
   const interceptedAppendChild: typeof prototype.appendChild = function <T extends Node>(
     this: Node,
@@ -901,6 +997,7 @@ function interceptChildListInsertions(root: HTMLElement) {
     const inserted = appendChild.call(this, child) as T
     for (const [owner, reactOwned] of ownership) {
       owner.reconcileInsertedChildren(this, reactOwned)
+      if (reactOwned) owner.reconcilePortalTopology(this, child, null)
     }
     return inserted
   }
@@ -917,6 +1014,7 @@ function interceptChildListInsertions(root: HTMLElement) {
     const inserted = insertBefore.call(this, child, referenceChild) as T
     for (const [owner, reactOwned] of ownership) {
       owner.reconcileInsertedChildren(this, reactOwned)
+      if (reactOwned) owner.reconcilePortalTopology(this, child, null)
     }
     return inserted
   }
@@ -933,27 +1031,45 @@ function interceptChildListInsertions(root: HTMLElement) {
     const replaced = replaceChild.call(this, child, replacedChild) as T
     for (const [owner, reactOwned] of ownership) {
       owner.reconcileInsertedChildren(this, reactOwned)
+      if (reactOwned) owner.reconcilePortalTopology(this, child, replacedChild)
     }
     return replaced
+  }
+  const interceptedRemoveChild: typeof prototype.removeChild = function <T extends Node>(
+    this: Node,
+    child: T
+  ): T {
+    const reactOwned = Array.from(owners.keys(), (owner) => [
+      owner,
+      owner.hasReactOwnership(child),
+    ] as const)
+    const removed = removeChild.call(this, child) as T
+    for (const [owner, owned] of reactOwned) {
+      if (owned) owner.reconcilePortalTopology(this, null, child)
+    }
+    return removed
   }
   prototype.appendChild = interceptedAppendChild
   prototype.insertBefore = interceptedInsertBefore
   prototype.replaceChild = interceptedReplaceChild
+  prototype.removeChild = interceptedRemoveChild
   registry.childList = {
     owners,
     appendChild,
     insertBefore,
     replaceChild,
+    removeChild,
     interceptedAppendChild,
     interceptedInsertBefore,
     interceptedReplaceChild,
+    interceptedRemoveChild,
   }
 
-  return () => releaseChildListInterceptor(view)
+  return () => releaseChildListInterceptor(prototypes)
 }
 
-function releaseDirectTextInterceptor(view: Window & typeof globalThis) {
-  const registry = interceptorRegistry(view)
+function releaseDirectTextInterceptor(prototypes: DomPrototypes) {
+  const registry = interceptorRegistry(prototypes.registryOwner)
   const interceptor = registry.directText
   if (interceptor === undefined) return
 
@@ -973,34 +1089,35 @@ function releaseDirectTextInterceptor(view: Window & typeof globalThis) {
 }
 
 function interceptDirectTextWrites(root: HTMLElement) {
-  const view = root.ownerDocument.defaultView
-  if (view === null) return () => undefined
-
-  const registry = interceptorRegistry(view)
-  const prototype = view.Node.prototype
+  const prototypes = domPrototypes(root)
+  const registry = interceptorRegistry(prototypes.registryOwner)
+  const prototype = prototypes.node
   const existing = registry.directText
   if (existing !== undefined) {
     addInterceptorOwner(existing.owners)
-    return () => releaseDirectTextInterceptor(view)
+    return () => releaseDirectTextInterceptor(prototypes)
   }
 
   const owners = new Map([[interceptorOwner, 1]])
   const properties: DirectTextInterceptor['properties'] = []
-  // React can update a direct text child without calling a child-list method.
+  // React can update direct text or HTML without calling a child-list method.
   // Observe every DOM setter it uses before sibling layout effects can notify
   // the content binding that still owns the host's current child nodes.
   for (const [propertyPrototype, name] of [
     [prototype, 'nodeValue'],
     [prototype, 'textContent'],
-    [view.CharacterData.prototype, 'data'],
+    [prototypes.characterData, 'data'],
+    [prototypes.element, 'innerHTML'],
   ] as Array<[object, string]>) {
     const descriptor = Object.getOwnPropertyDescriptor(propertyPrototype, name)
     if (descriptor?.set === undefined) continue
     const set = descriptor.set
     const interceptedSet = function (this: Node, value: unknown) {
       set.call(this, value)
+      const kind = name === 'innerHTML' ? 'html' : 'text'
+      const writtenValue = value === null || value === undefined ? '' : String(value)
       for (const owner of owners.keys()) {
-        owner.reconcileDirectTextWrite(this)
+        owner.reconcileDirectTextWrite(this, kind, writtenValue)
       }
     }
     Object.defineProperty(propertyPrototype, name, {
@@ -1011,7 +1128,7 @@ function interceptDirectTextWrites(root: HTMLElement) {
   }
   registry.directText = { owners, properties }
 
-  return () => releaseDirectTextInterceptor(view)
+  return () => releaseDirectTextInterceptor(prototypes)
 }
 
 function isKnockoutOwnedContentAddition(
@@ -1951,6 +2068,45 @@ function assertBindingsCanBeRetired(state: BindingState) {
   }
 }
 
+function assertBindingTreeCanBeRetired(
+  element: HTMLElement,
+  root: HTMLElement,
+  bindingStates: BindingStateStore
+) {
+  if (
+    element !== root &&
+    bindingRootRegistry(root).bindingRoots.has(element)
+  ) {
+    return
+  }
+
+  const state = bindingStates.get(element)
+  if (state !== undefined) assertBindingsCanBeRetired(state)
+  for (const child of element.children) {
+    assertBindingTreeCanBeRetired(child as HTMLElement, root, bindingStates)
+  }
+}
+
+/** Validates a complete root replacement before any of its bindings are disposed. */
+export function assertBindingRootsCanBeRetired(roots: readonly HTMLElement[]) {
+  const validatedRoots = new Set<HTMLElement>()
+  for (const replacementRoot of roots) {
+    const registry = bindingRootRegistry(replacementRoot)
+    const affectedRoots = [...registry.bindingRoots.keys()].filter(
+      (candidate) =>
+        candidate === replacementRoot || replacementRoot.contains(candidate)
+    )
+    for (const root of affectedRoots) {
+      if (validatedRoots.has(root)) continue
+      validatedRoots.add(root)
+      const state = registry.bindingObservers.get(root)
+      if (state !== undefined) {
+        assertBindingTreeCanBeRetired(root, root, state.bindingStates)
+      }
+    }
+  }
+}
+
 function restoreRetiredDomEffects(element: HTMLElement, state: BindingState) {
   assertBindingsCanBeRetired(state)
   const names = bindingNames(state.source)
@@ -2246,6 +2402,7 @@ export function observeBindingDescendants(
   })
   registry.bindingObservers.set(root, {
     observer,
+    bindingStates,
     reconcile,
     shouldDeferReconciliation,
     onError,
@@ -2284,12 +2441,12 @@ export function observeBindingDescendants(
 
       return currentReactHostProps(element, true)?.['data-bind'] !== state.source
     },
-    shouldReconcileDirectTextWrite: (element) => {
+    shouldReconcileDirectTextWrite: (element, kind, value) => {
       const state = bindingStates.get(element)
       return (
         state !== undefined &&
         state.ownedContent !== null &&
-        hasActiveDirectReactTextWrite(element, state.reactProps)
+        hasActiveDirectReactContentWrite(element, state.reactProps, kind, value)
       )
     },
     refreshAfterLayout: () => {
@@ -2354,6 +2511,7 @@ export function observeBindingDescendants(
   const maximumHydrationDelay = 1000
   let hydrationDelay = initialHydrationDelay
   let hydrationTimer: number | null = null
+  let hydrationDeadline: number | null = null
   let stopped = false
 
   const scheduleHydrationCheck = (domChanged = false) => {
@@ -2364,16 +2522,23 @@ export function observeBindingDescendants(
 
     if (domChanged) {
       hydrationDelay = initialHydrationDelay
-      if (hydrationTimer !== null) {
-        view.clearTimeout(hydrationTimer)
-        hydrationTimer = null
-      }
     }
-    if (hydrationTimer !== null) return
 
     const scheduledDelay = hydrationDelay
+    const scheduledDeadline = Date.now() + scheduledDelay
+    if (
+      hydrationTimer !== null &&
+      hydrationDeadline !== null &&
+      hydrationDeadline <= scheduledDeadline
+    ) {
+      return
+    }
+    if (hydrationTimer !== null) view.clearTimeout(hydrationTimer)
+
+    hydrationDeadline = scheduledDeadline
     hydrationTimer = view.setTimeout(() => {
       hydrationTimer = null
+      hydrationDeadline = null
       hydrationDelay = Math.min(scheduledDelay * 2, maximumHydrationDelay)
       checkHydratedSuspenseBindings()
     }, scheduledDelay)
