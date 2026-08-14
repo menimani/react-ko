@@ -47,7 +47,9 @@ function Greeting() {
 ```
 
 `useKoBind` は、既に描画した要素をバインディングルートにします。その内側のすべての
-`data-bind` が ViewModel に対して適用され、DOM には何も追加されません。`useKoValue` は
+`data-bind` が ViewModel に対して適用され、DOM には何も追加されません。
+closed shadow root 内のホストでは、子孫の layout effect より前にバインディングを完了できるよう、
+代わりに `KnockoutScope` を使用してください。`useKoValue` は
 `data-bind` が届かない場所 — JSX 補間・props・effect の依存配列 — に Knockout の値を
 持ち込みます。
 

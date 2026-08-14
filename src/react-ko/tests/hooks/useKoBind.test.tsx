@@ -326,6 +326,55 @@ describe('useKoBind', () => {
     }
   })
 
+  it('rejects a host inside a closed shadow root before binding too late', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const handleClick = vi.fn()
+    const shadowHost = document.createElement('div')
+    const shadowRoot = shadowHost.attachShadow({ mode: 'closed' })
+    document.body.appendChild(shadowHost)
+    const root = createRoot(shadowRoot)
+
+    function ClickOnMount() {
+      const button = useRef<HTMLButtonElement>(null)
+
+      useLayoutEffect(() => {
+        button.current?.click()
+      }, [])
+
+      return <button ref={button} data-bind="click: handleClick" />
+    }
+
+    function Host() {
+      const bind = useKoBind({ handleClick })
+      return (
+        <div {...bind}>
+          <ClickOnMount />
+        </div>
+      )
+    }
+
+    try {
+      await act(async () =>
+        root.render(
+          <ErrorBoundary>
+            <Host />
+          </ErrorBoundary>
+        )
+      )
+
+      expect(handleClick).not.toHaveBeenCalled()
+      await waitFor(() =>
+        expect(shadowRoot.querySelector('[data-testid="failure"]')?.textContent).toBe(
+          'react-ko: useKoBind cannot bind a host inside a closed ShadowRoot before descendant layout effects run. Use KnockoutScope inside the shadow root instead.'
+        )
+      )
+    } finally {
+      act(() => root.unmount())
+      shadowHost.remove()
+      consoleError.mockRestore()
+    }
+  })
+
   it('renders the binding-root attribute on the server without binding', () => {
     function Host() {
       const bind = useKoBind({ label: 'Server' })

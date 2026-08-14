@@ -48,6 +48,8 @@ function Greeting() {
 
 `useKoBind` makes the element you already rendered a binding root: every `data-bind`
 inside it is applied against the view model, and nothing is added to the DOM.
+For a host inside a closed shadow root, use `KnockoutScope` instead so bindings are
+ready before descendant layout effects run.
 `useKoValue` brings a Knockout value into React, for the places `data-bind` cannot
 reach — JSX interpolation, props, effect dependencies.
 
