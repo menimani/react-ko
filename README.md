@@ -51,8 +51,9 @@ inside it is applied against the view model, and nothing is added to the DOM.
 `useKoValue` brings a Knockout value into React, for the places `data-bind` cannot
 reach — JSX interpolation, props, effect dependencies.
 
-Four exports in total: `useKoBind`, `useKoValue`, `KoForeach` for lists, and
-`KnockoutScope` for children that arrive after the scope has bound. The
+There are four runtime exports: `useKoBind`, `useKoValue`, `KoForeach` for lists,
+and `KnockoutScope` for children that arrive after the scope has bound. TypeScript
+users can also import `KoBindProps`, the type of the props returned by `useKoBind`. The
 [documentation](https://menimani.github.io/react-ko/) covers each.
 
 ---
