@@ -13,6 +13,7 @@ import {
   assertNoReactUnsafeBindings,
 } from './applyBindingsSafely'
 import {
+  assertBindingRootsCanBeRetired,
   bindPendingDescendantRoots,
   cancelPendingBinding,
   deferBindingUntilAncestorBinds,
@@ -71,7 +72,7 @@ export function useBindingRoot(
   const synchronizingPortalTopology = useRef(false)
   const [generation, setGeneration] = useState(0)
 
-  function disposeBinding() {
+  function disposeBinding(validateRetirement = false) {
     const host = containerNode.current
     // A root waiting for an ancestor is dropped rather than left to bind into a tree
     // it is no longer part of.
@@ -80,6 +81,10 @@ export function useBindingRoot(
     const active = activeBinding.current
     if (active === null) {
       return
+    }
+
+    if (validateRetirement) {
+      assertBindingRootsCanBeRetired(active.roots.map(({ node }) => node))
     }
 
     activeBinding.current = null
@@ -101,6 +106,7 @@ export function useBindingRoot(
   }
 
   function bind(nodes: HTMLElement[], replacing: boolean) {
+    if (replacing) assertBindingRootsCanBeRetired(nodes)
     for (const node of nodes) registerBindingRoot(node, viewModel)
     const roots: ActiveRootBinding[] = []
     activeBinding.current = {
@@ -327,7 +333,7 @@ export function useBindingRoot(
         return
       }
 
-      disposeBinding()
+      disposeBinding(true)
       pendingBindingReplacement.current = false
       bindWhenAncestorsHave(node, true)
       return
