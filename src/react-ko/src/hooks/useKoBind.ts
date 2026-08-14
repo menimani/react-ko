@@ -42,6 +42,10 @@ function hostsAcrossOpenRoots(root: Document | ShadowRoot, selector: string) {
   return hosts
 }
 
+function isClosedShadowRoot(root: Node): root is ShadowRoot {
+  return root.nodeType === 11 && 'host' in root && (root as ShadowRoot).mode === 'closed'
+}
+
 function useKoBindRoot<T>(viewModel: T, bindable: boolean): KoBindProps {
   const parentGeneration = useContext(ScopeBindGenerationContext)
   const [failure, setFailure] = useState<{ error: unknown } | null>(null)
@@ -99,6 +103,12 @@ function useKoBindRoot<T>(viewModel: T, bindable: boolean): KoBindProps {
         }
         boundHost.current = null
         return
+      }
+
+      if (bindable && isClosedShadowRoot(node.getRootNode())) {
+        throw new Error(
+          'react-ko: useKoBind cannot bind a host inside a closed ShadowRoot before descendant layout effects run. Use KnockoutScope inside the shadow root instead.'
+        )
       }
 
       // One call binds one element. Spreading the same props twice would leave the
