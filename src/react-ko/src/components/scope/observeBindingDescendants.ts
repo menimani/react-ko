@@ -2106,7 +2106,6 @@ function restoreRetiredDomEffects(element: HTMLElement, state: BindingState) {
     value?: unknown
     checked?: boolean
     disabled?: boolean
-    selected?: boolean
   }
 
   if (names.has('class') || names.has('css')) {
@@ -2144,9 +2143,6 @@ function restoreRetiredDomEffects(element: HTMLElement, state: BindingState) {
     state.beforeBinding.disabled !== undefined
   ) {
     properties.disabled = state.beforeBinding.disabled
-  }
-  if (names.has('selectedOptions') && state.beforeBinding.selected !== undefined) {
-    properties.selected = state.beforeBinding.selected
   }
   if (names.has('hasFocus') || names.has('hasfocus')) {
     if (state.beforeBinding.focused) {
