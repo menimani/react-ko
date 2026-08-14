@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { useKoBind } from '@/index'
+import { useKoBindFallback } from '@/hooks/useKoBind'
 
 type Props<T> = {
   viewModel: T
@@ -8,6 +8,6 @@ type Props<T> = {
 } & Record<string, unknown>
 
 export function BindingHost<T>({ viewModel, children, as, ...rest }: Props<T>) {
-  const bind = useKoBind(viewModel)
+  const bind = useKoBindFallback(viewModel)
   return React.createElement(as ?? 'div', { ...bind, ...rest }, children)
 }

@@ -66,8 +66,10 @@ only adds a per-row Knockout binding root, so it adds nothing in that case.
 
 There are five runtime exports: `KnockoutScope`, `useKoViewModel`, `useKoValue`,
 `KoForeach` for lists, and `useKoBind` for making a particular existing element the
-binding root when a wrapper cannot be used. A `useKoBind` host inside a closed shadow root or a detached tree such as a
-`DocumentFragment` is rejected; use `KnockoutScope` there. Hosts in reachable same-origin
+binding root when a wrapper cannot be used. A host that cannot be discovered during
+React's insertion phase is rejected; this includes closed shadow roots, detached trees
+such as a `DocumentFragment`, and secondary `Document` objects not reachable from the
+page. Use `KnockoutScope` at those render locations. Hosts in reachable same-origin
 iframes are supported. TypeScript users can also import
 `KoBindProps`, the type returned by `useKoBind`. The
 [documentation](https://menimani.github.io/react-ko/) covers each.
