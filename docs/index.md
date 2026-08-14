@@ -39,8 +39,8 @@ npm install react-ko knockout
 
 ## The whole API
 
-Four exports. Two are the bridge between the libraries, one is a list, and one covers
-the case the bridge cannot.
+Four runtime exports. Two are the bridge between the libraries, one is a list, and one
+covers the case the bridge cannot. The public API also exports the `KoBindProps` type.
 
 | Export | Direction | What it is for |
 |--------|-----------|----------------|
@@ -48,6 +48,7 @@ the case the bridge cannot.
 | `useKoValue` | Knockout → React | Reads an observable as React state |
 | `KoForeach` | — | A row per item, each bound to that item |
 | `KnockoutScope` | — | A scope that renders its own host and commit marker |
+| `KoBindProps` | — | The props type returned by `useKoBind` |
 
 The rule the API follows: the library holds what a caller cannot write, and the
 elements are the caller's.
