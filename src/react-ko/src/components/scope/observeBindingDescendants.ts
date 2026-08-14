@@ -2449,6 +2449,7 @@ export function observeBindingDescendants(
   const maximumHydrationDelay = 1000
   let hydrationDelay = initialHydrationDelay
   let hydrationTimer: number | null = null
+  let hydrationDeadline: number | null = null
   let stopped = false
 
   const scheduleHydrationCheck = (domChanged = false) => {
@@ -2459,16 +2460,23 @@ export function observeBindingDescendants(
 
     if (domChanged) {
       hydrationDelay = initialHydrationDelay
-      if (hydrationTimer !== null) {
-        view.clearTimeout(hydrationTimer)
-        hydrationTimer = null
-      }
     }
-    if (hydrationTimer !== null) return
 
     const scheduledDelay = hydrationDelay
+    const scheduledDeadline = Date.now() + scheduledDelay
+    if (
+      hydrationTimer !== null &&
+      hydrationDeadline !== null &&
+      hydrationDeadline <= scheduledDeadline
+    ) {
+      return
+    }
+    if (hydrationTimer !== null) view.clearTimeout(hydrationTimer)
+
+    hydrationDeadline = scheduledDeadline
     hydrationTimer = view.setTimeout(() => {
       hydrationTimer = null
+      hydrationDeadline = null
       hydrationDelay = Math.min(scheduledDelay * 2, maximumHydrationDelay)
       checkHydratedSuspenseBindings()
     }, scheduledDelay)
