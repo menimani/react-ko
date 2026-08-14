@@ -15,23 +15,6 @@ these requirements at the same time:
 At the end of stage one, the structural components were therefore not changed.
 Its range approaches remain rejected.
 
-## Issue #23 outcome
-
-Stage two took the non-range route the raw Fragment result left open:
-`KoForeach`, `KoIf`, `KoIfNot`, and `KoWith` now have an explicit
-`bindingMode="element"`. Each component requires one intrinsic HTML element in
-that mode and binds it through its ref. A pending element-scope marker makes an
-enclosing binding pass skip the element until that ref attaches; afterward the
-element is an independently registered binding root whose React lifecycle owns
-its cleanup.
-
-The resulting contract adds no host, delimiter, portal, or alternate React
-container. The server/hydration and remove/reorder/reinsert coverage is in
-`tests/components/structural/restrictedParent.test.tsx`. The standalone React
-prototype cases were removed from the Vitest suite because they import no
-react-ko code and should not gate releases. Their findings remain documented
-below because they explain why the delimited-range approach is still closed.
-
 ## Prototype: `Option` under `select`
 
 These cases were originally explored as standalone React experiments.
@@ -98,5 +81,4 @@ The existing `KnockoutScope` hosts are also the descendant-binding boundary and
 the per-scope binding root. Removing those hosts without an equivalent range
 would let the enclosing Knockout root bind rows with the wrong view model, or
 would require react-ko to clean and rebind React-owned nodes. The raw Fragment
-success therefore is not enough to preserve the current `KoIf`, `KoIfNot`, and
-`KoForeach` behavior.
+success therefore is not enough to preserve the current `KoForeach` behavior.
