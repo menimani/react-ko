@@ -131,8 +131,11 @@
 <div class="page">
 {{ content }}
 <footer>
+  {% if page.lang == 'ja' %}
+  react-ko は MIT ライセンスの下で公開されています。
+  {% else %}
   react-ko is published under the MIT licence.
-  <a href="https://github.com/menimani/react-ko">Source on GitHub</a>.
+  {% endif %}
 </footer>
 </div>
 </body>
