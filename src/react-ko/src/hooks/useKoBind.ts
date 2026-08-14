@@ -111,6 +111,12 @@ function useKoBindRoot<T>(viewModel: T, bindable: boolean): KoBindProps {
         )
       }
 
+      if (bindable && !node.isConnected) {
+        throw new Error(
+          'react-ko: useKoBind cannot bind a detached host before descendant layout effects run. Use KnockoutScope inside the detached tree instead.'
+        )
+      }
+
       // One call binds one element. Spreading the same props twice would leave the
       // first element bound and unreachable, because a binding root keeps a single
       // host: the second attachment would silently take the first one's place.

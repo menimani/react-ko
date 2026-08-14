@@ -8,6 +8,7 @@ import {
   useState,
   type ReactNode,
 } from 'react'
+import { createRoot } from 'react-dom/client'
 import ko from 'knockout'
 import { KnockoutScope } from '@/index'
 
@@ -40,6 +41,28 @@ describe('KnockoutScope', () => {
     expect(screen.getByTestId('value').textContent).toBe('First')
     act(() => vm.label('Second'))
     expect(screen.getByTestId('value').textContent).toBe('Second')
+  })
+
+  it('binds inside a detached DocumentFragment', () => {
+    const label = ko.observable('Detached')
+    const fragment = document.createDocumentFragment()
+    const root = createRoot(fragment)
+
+    try {
+      act(() =>
+        root.render(
+          <KnockoutScope viewModel={{ label }}>
+            <span data-bind="text: label" />
+          </KnockoutScope>
+        )
+      )
+
+      expect(fragment.textContent).toBe('Detached')
+      act(() => label('Updated'))
+      expect(fragment.textContent).toBe('Updated')
+    } finally {
+      act(() => root.unmount())
+    }
   })
 
   it('keeps one live subscription through StrictMode replay and disposes it on unmount', () => {

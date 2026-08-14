@@ -375,6 +375,40 @@ describe('useKoBind', () => {
     }
   })
 
+  it('rejects a host rendered into a detached DocumentFragment', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const fragment = document.createDocumentFragment()
+    const root = createRoot(fragment)
+
+    function Host() {
+      const bind = useKoBind({ label: 'Detached' })
+      return (
+        <div {...bind}>
+          <span data-bind="text: label" />
+        </div>
+      )
+    }
+
+    try {
+      await act(async () =>
+        root.render(
+          <ErrorBoundary>
+            <Host />
+          </ErrorBoundary>
+        )
+      )
+
+      await waitFor(() =>
+        expect(fragment.querySelector('[data-testid="failure"]')?.textContent).toBe(
+          'react-ko: useKoBind cannot bind a detached host before descendant layout effects run. Use KnockoutScope inside the detached tree instead.'
+        )
+      )
+    } finally {
+      act(() => root.unmount())
+      consoleError.mockRestore()
+    }
+  })
+
   it('renders the binding-root attribute on the server without binding', () => {
     function Host() {
       const bind = useKoBind({ label: 'Server' })
