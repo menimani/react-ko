@@ -191,7 +191,21 @@ export function useBindingRoot(
         })
       }
     } catch (error) {
-      active.roots = roots
+      const liveRoots = new Map(
+        active.roots
+          .filter((root) => !removed.includes(root))
+          .map((root) => [root.node, root])
+      )
+      for (const root of roots) liveRoots.set(root.node, root)
+      for (const portalRoot of added) {
+        if (!liveRoots.has(portalRoot)) {
+          liveRoots.set(portalRoot, {
+            node: portalRoot,
+            stopObserving: () => undefined,
+          })
+        }
+      }
+      active.roots = [...liveRoots.values()]
       disposeBinding()
       for (const portalRoot of added) unregisterBindingRoot(portalRoot)
       throw error
