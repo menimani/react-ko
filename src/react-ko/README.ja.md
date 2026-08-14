@@ -25,38 +25,45 @@ npm install react-ko knockout
 
 ```tsx
 import ko from 'knockout'
-import { useKoBind, useKoValue } from 'react-ko'
+import { KnockoutScope, useKoValue, useKoViewModel } from 'react-ko'
 
-const vm = {
+const viewModel = {
   name: ko.observable('Knockout'),
   items: ko.observableArray<string>([]),
 }
 
 function Greeting() {
-  const bind = useKoBind(vm)
+  const vm = useKoViewModel<typeof viewModel>()
   const count = (useKoValue(vm.items) ?? []).length
 
   return (
-    <section {...bind}>
+    <section>
       <input data-bind="value: name, valueUpdate: 'input'" />
       <p data-bind="text: name" />
       <p>{count} items（React が描画）</p>
     </section>
   )
 }
+
+function App() {
+  return (
+    <KnockoutScope viewModel={viewModel}>
+      <Greeting />
+    </KnockoutScope>
+  )
+}
 ```
 
-`useKoBind` は、既に描画した要素をバインディングルートにします。その内側のすべての
-`data-bind` が ViewModel に対して適用され、DOM には何も追加されません。
-closed shadow root 内のホストでは、子孫の layout effect より前にバインディングを完了できるよう、
-代わりに `KnockoutScope` を使用してください。`useKoValue` は
+`KnockoutScope` はスコープを作る通常の方法です。内側のすべての `data-bind` が ViewModel に
+対して適用され、スコープ内のどの React コンポーネントからでも `useKoViewModel` でその
+ViewModel を取得できます。ネストしたスコープは、それぞれの ViewModel を提供します。
+`useKoValue` は
 `data-bind` が届かない場所 — JSX 補間・props・effect の依存配列 — に Knockout の値を
 持ち込みます。
 
-ランタイムのエクスポートは 4 つ：`useKoBind`、`useKoValue`、リスト用の `KoForeach`、そして
-ViewModel の差し替えと子や portal の変更が同じコミットになる場合、または `useKoBind` が返す
-props を渡せる既存のホストがない場合の `KnockoutScope`。TypeScript では、その props の型である
-`KoBindProps` もインポートできます。詳細は
+ランタイムのエクスポートは 5 つ：`KnockoutScope`、`useKoViewModel`、`useKoValue`、リスト用の
+`KoForeach`、そしてラッパーを使えないときに特定の既存要素をバインディングルートにする
+`useKoBind`。TypeScript では、`useKoBind` が返す型 `KoBindProps` もインポートできます。詳細は
 [ドキュメント](https://menimani.github.io/react-ko/ja/)にあります。
 
 ---

@@ -32,6 +32,7 @@ React.createElement('div', bind)
 expectType<(node: HTMLElement | null) => void>(bind.ref)
 ReactKo.useKoBind<ViewModel | null>(null)
 ReactKo.useKoBind(undefined)
+expectType<ViewModel>(ReactKo.useKoViewModel<ViewModel>())
 
 ReactKo.KoForeach({
   items: rows,

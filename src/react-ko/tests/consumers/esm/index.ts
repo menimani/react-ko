@@ -1,6 +1,12 @@
 import { createElement } from 'react'
 import ko from 'knockout'
-import { KoForeach, useKoBind, useKoValue, type KoBindProps } from 'react-ko'
+import {
+  KoForeach,
+  useKoBind,
+  useKoValue,
+  useKoViewModel,
+  type KoBindProps,
+} from 'react-ko'
 
 function expectType<Expected>(_value: Expected): void {}
 
@@ -32,6 +38,7 @@ createElement('div', bind)
 expectType<(node: HTMLElement | null) => void>(bind.ref)
 useKoBind<ViewModel | null>(null)
 useKoBind(undefined)
+expectType<ViewModel>(useKoViewModel<ViewModel>())
 
 KoForeach({
   items: rows,

@@ -25,38 +25,45 @@ npm install react-ko knockout
 
 ```tsx
 import ko from 'knockout'
-import { useKoBind, useKoValue } from 'react-ko'
+import { KnockoutScope, useKoValue, useKoViewModel } from 'react-ko'
 
-const vm = {
+const viewModel = {
   name: ko.observable('Knockout'),
   items: ko.observableArray<string>([]),
 }
 
 function Greeting() {
-  const bind = useKoBind(vm)
+  const vm = useKoViewModel<typeof viewModel>()
   const count = (useKoValue(vm.items) ?? []).length
 
   return (
-    <section {...bind}>
+    <section>
       <input data-bind="value: name, valueUpdate: 'input'" />
       <p data-bind="text: name" />
       <p>{count} items (rendered by React)</p>
     </section>
   )
 }
+
+function App() {
+  return (
+    <KnockoutScope viewModel={viewModel}>
+      <Greeting />
+    </KnockoutScope>
+  )
+}
 ```
 
-`useKoBind` makes the element you already rendered a binding root: every `data-bind`
-inside it is applied against the view model, and nothing is added to the DOM.
-For a host inside a closed shadow root, use `KnockoutScope` instead so bindings are
-ready before descendant layout effects run.
+`KnockoutScope` is the ordinary way to establish a scope: every `data-bind` inside it
+is applied against the view model, and `useKoViewModel` retrieves that model from any
+React component in the scope. Nested scopes provide their own model.
 `useKoValue` brings a Knockout value into React, for the places `data-bind` cannot
 reach — JSX interpolation, props, effect dependencies.
 
-There are four runtime exports: `useKoBind`, `useKoValue`, `KoForeach` for lists, and
-`KnockoutScope` for a view-model replacement that shares a commit with child or portal
-changes, or when no existing host can receive the props from `useKoBind`. TypeScript users
-can also import `KoBindProps`, the type of those props. The
+There are five runtime exports: `KnockoutScope`, `useKoViewModel`, `useKoValue`,
+`KoForeach` for lists, and `useKoBind` for making a particular existing element the
+binding root when a wrapper cannot be used. TypeScript users can also import
+`KoBindProps`, the type returned by `useKoBind`. The
 [documentation](https://menimani.github.io/react-ko/) covers each.
 
 ---
