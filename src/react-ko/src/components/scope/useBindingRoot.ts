@@ -65,6 +65,7 @@ export function useBindingRoot(
   const replacedBinding = useRef(false)
   const synchronizeBindingForCommit = useRef(synchronizeBinding)
   const refreshInitialBinding = useRef(false)
+  const connectedHosts = useRef(new WeakSet<HTMLElement>())
   const [generation, setGeneration] = useState(0)
 
   function disposeBinding() {
@@ -222,11 +223,11 @@ export function useBindingRoot(
 
     // A caller that renders the bound element conditionally keeps this hook mounted
     // while the element itself leaves the document. Detaching a ref reports no reason,
-    // so the removal is recognised here instead: a disconnected host can hold no live
-    // binding, and rebinding it would leave subscriptions on a node nobody can see.
-    // Checking the node rather than the ref call also leaves a same-commit re-attach
-    // alone, where the ref is detached and reattached around a node that never left.
-    if (!node.isConnected) {
+    // so a host that was connected and no longer is gets recognised as removed here.
+    // An initially detached host remains valid for KnockoutScope, whose leading marker
+    // still establishes the binding before descendant layout effects run.
+    if (node.isConnected) connectedHosts.current.add(node)
+    if (!node.isConnected && connectedHosts.current.has(node)) {
       containerNode.current = null
       disposeBinding()
       return
