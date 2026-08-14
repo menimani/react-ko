@@ -54,9 +54,14 @@ function App() {
 }
 ```
 
-`KnockoutScope` is the ordinary way to establish a scope: every `data-bind` inside it
-is applied against the view model, and `useKoViewModel` retrieves that model from any
-React component in the scope. Nested scopes provide their own model.
+`KnockoutScope` is the ordinary way to establish a scope: supported `data-bind`
+attributes inside it are applied against the view model, and `useKoViewModel`
+retrieves that model from any React component in the scope. Nested scopes provide
+their own model. Knockout cannot take ownership of descendants rendered by React, so
+the structural `if`, `ifnot`, `foreach`, `template`, and `with` bindings are rejected;
+render that structure with React and `useKoValue`, or use `KoForeach` for lists.
+Bindings that replace an element's contents, including `text`, `html`, `component`,
+and `options`, require an empty host in JSX so Knockout exclusively owns the contents.
 `useKoValue` brings a Knockout value into React, for the places `data-bind` cannot
 reach — JSX interpolation, props, effect dependencies.
 
