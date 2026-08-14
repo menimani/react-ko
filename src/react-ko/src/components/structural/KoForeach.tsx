@@ -1,6 +1,7 @@
 import * as React from 'react'
 import type * as ko from 'knockout'
-import { useKoBind, useKoValue, type KoBindProps } from '@/index'
+import { useKoValue, type KoBindProps } from '@/index'
+import { useKoBindAlways } from '@/hooks/useKoBind'
 
 type NullableItems<T> =
   | ko.Observable<T[] | null | undefined>
@@ -59,7 +60,7 @@ function defaultItemKey(
 }
 
 /**
- * A row exists so that `useKoBind` can be called once per item: a hook cannot be
+ * A row exists so that the binding hook can be called once per item: a hook cannot be
  * called from inside a loop, which is the whole reason this component is not a hook.
  */
 function KoForeachRow<T>({
@@ -71,7 +72,7 @@ function KoForeachRow<T>({
   index: number
   render: (item: T, index: number, bind: KoBindProps) => React.ReactNode
 }) {
-  const bind = useKoBind(item)
+  const bind = useKoBindAlways(item)
   return <>{render(item, index, bind)}</>
 }
 

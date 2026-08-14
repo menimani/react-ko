@@ -48,7 +48,7 @@ describe('applyBindingsSafely', () => {
 
       expect(() => applyBindingsSafely({ value: true }, container)).toThrow(
         `react-ko cannot apply the Knockout "${binding}" binding because it controls React-owned child nodes. ` +
-          'Use KoIf, KoIfNot, KoForeach, or KoWith instead.'
+          'Use React rendering with useKoValue, useKoBind for a Knockout binding root, or KoForeach for lists instead.'
       )
       expect(container.querySelector('span')?.textContent).toBe('React markup')
     }
@@ -246,7 +246,9 @@ describe('applyBindingsSafely', () => {
 
   it('runs a custom binding preprocessor once while applying its validated expression', () => {
     const binding = 'preprocessedTooltip'
-    const preprocess = vi.fn((expression: string) => `{ title: ${expression} }`)
+    const preprocess = vi.fn(
+      (expression: string | undefined) => `{ title: ${expression} }`
+    )
     ko.bindingHandlers[binding] = {
       preprocess,
       update(element, valueAccessor) {
@@ -310,14 +312,14 @@ describe('applyBindingsSafely', () => {
         : null
     )
     ko.bindingProvider.instance = {
-      nodeHasBindings(node) {
+      nodeHasBindings(node: Node) {
         return (
           node.nodeType === Node.ELEMENT_NODE &&
           (node as Element).hasAttribute('data-bind')
         )
       },
       getBindings,
-    } as ko.IBindingProvider
+    } as unknown as ko.IBindingProvider
 
     try {
       const { container } = render(

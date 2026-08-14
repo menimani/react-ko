@@ -158,7 +158,7 @@ describe('observeBindingDescendants', () => {
       },
       update(element, valueAccessor) {
         if (ko.unwrap(valueAccessor())) {
-          ko.utils.emptyDomNode(element)
+          ko.virtualElements.emptyNode(element)
         }
       },
     }

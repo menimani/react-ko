@@ -51,8 +51,9 @@ function Greeting() {
 `data-bind` が届かない場所 — JSX 補間・props・effect の依存配列 — に Knockout の値を
 持ち込みます。
 
-エクスポートは 4 つ：`useKoBind`、`useKoValue`、リスト用の `KoForeach`、そしてスコープが
-バインドした後に現れる子のための `KnockoutScope`。詳細は
+ランタイムのエクスポートは 4 つ：`useKoBind`、`useKoValue`、リスト用の `KoForeach`、そして
+スコープがバインドした後に現れる子のための `KnockoutScope`。TypeScript では、`useKoBind` が
+返す props の型である `KoBindProps` もインポートできます。詳細は
 [ドキュメント](https://menimani.github.io/react-ko/ja/)にあります。
 
 ---

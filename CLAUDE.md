@@ -58,8 +58,8 @@ that shared rejected set.
 The library's premise is absorbing Knockout into JSX without multiplying components:
 users write `data-bind` attributes inside a `KnockoutScope`, and the component set stays
 minimal. The v2 decision (2026-08) added exactly one React-side bridge: `useKoValue`,
-the sanctioned route for reading a Knockout value as React state, which `KoForeach`,
-`KoIf`, and `KoIfNot` also use internally. Any further React-side alternative to
+the sanctioned route for reading a Knockout value as React state, which `KoForeach`
+also uses internally. Any further React-side alternative to
 `data-bind` (`observer`-style wrappers, write-side hooks) still changes the library's
 identity and needs agreement first. Internal use of such mechanisms inside a component
 is fine; exporting them is the decision.

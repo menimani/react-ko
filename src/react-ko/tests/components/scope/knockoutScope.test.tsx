@@ -1,6 +1,13 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, act, waitFor } from '@testing-library/react'
-import { Component, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import {
+  Component,
+  StrictMode,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react'
 import ko from 'knockout'
 import { KnockoutScope } from '@/index'
 
@@ -33,6 +40,25 @@ describe('KnockoutScope', () => {
     expect(screen.getByTestId('value').textContent).toBe('First')
     act(() => vm.label('Second'))
     expect(screen.getByTestId('value').textContent).toBe('Second')
+  })
+
+  it('keeps one live subscription through StrictMode replay and disposes it on unmount', () => {
+    const vm = { label: ko.observable('Strict') }
+
+    const { unmount } = render(
+      <StrictMode>
+        <KnockoutScope viewModel={vm}>
+          <span data-testid="strict-value" data-bind="text: label" />
+        </KnockoutScope>
+      </StrictMode>
+    )
+
+    expect(screen.getByTestId('strict-value').textContent).toBe('Strict')
+    expect(vm.label.getSubscriptionsCount()).toBe(1)
+
+    unmount()
+
+    expect(vm.label.getSubscriptionsCount()).toBe(0)
   })
 
   it('sends a binding failure to a React error boundary', async () => {

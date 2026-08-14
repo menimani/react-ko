@@ -88,6 +88,25 @@ describe('KoForeach', () => {
     expect(screen.getByText('Z')).toBeDefined()
   })
 
+  it('binds nullish row items as $data through the supplied binding root', () => {
+    render(
+      <BindingHost viewModel={{}}>
+        <KoForeach items={[null, undefined]}>
+          {(_item, index, bind) => (
+            <span
+              {...bind}
+              data-testid={`row-${index}`}
+              data-bind="text: $data === null ? 'null' : typeof $data"
+            />
+          )}
+        </KoForeach>
+      </BindingHost>
+    )
+
+    expect(screen.getByTestId('row-0').textContent).toBe('null')
+    expect(screen.getByTestId('row-1').textContent).toBe('undefined')
+  })
+
   it('binds rows added after the initial render', () => {
     const vm = { items: ko.observableArray([row('A')]) }
 

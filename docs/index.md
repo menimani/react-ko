@@ -11,7 +11,7 @@ en English | [ja Japanese](./ja/)
 
 A minimal bridge to use Knockout.js inside React components. Knockout keeps the
 reactivity and the `data-bind` attributes; React keeps the components, the tree, and
-every element in it.
+the elements it renders.
 
 - [The whole API](#the-whole-api)
 - [useKoBind](#usekobind)
@@ -39,15 +39,16 @@ npm install react-ko knockout
 
 ## The whole API
 
-Four exports. Two are the bridge between the libraries, one is a list, and one covers
-the case the bridge cannot.
+Four runtime exports. Two are the bridge between the libraries, one is a list, and one
+covers the case the bridge cannot. The public API also exports the `KoBindProps` type.
 
 | Export | Direction | What it is for |
 |--------|-----------|----------------|
 | `useKoBind` | React → Knockout | Makes an element you rendered a binding root |
 | `useKoValue` | Knockout → React | Reads an observable as React state |
 | `KoForeach` | — | A row per item, each bound to that item |
-| `KnockoutScope` | — | A scope that renders its own host, for children that arrive later |
+| `KnockoutScope` | — | A scope that renders its own host and commit marker |
+| `KoBindProps` | — | The props type returned by `useKoBind` |
 
 The rule the API follows: the library holds what a caller cannot write, and the
 elements are the caller's.
@@ -134,8 +135,8 @@ function useKoValue<T>(source: ko.Observable<T> | ko.Computed<T> | T): T
 function useKoValue<T>(source: ko.Observable<T> | ko.Computed<T> | T | undefined): T | undefined
 ```
 
-`data-bind` covers what lives on a DOM attribute. Everything else — JSX
-interpolation, props of a React component, an effect's dependency list — needs the
+`data-bind` covers DOM behavior that Knockout owns. React-rendered values — JSX
+interpolation, props of a React component, an effect's dependency list — need the
 value itself:
 
 ```tsx
@@ -211,18 +212,14 @@ return visible ? <section {...bind}>…</section> : null
 </KnockoutScope>
 ```
 
-`useKoBind` binds the element it is given, from a ref. React attaches refs from the
-bottom up and runs a component's effects after its subtree's, so a root taken from a
-ref learns about its subtree last. That is invisible in most trees, and matters in
-two places:
+`useKoBind` finds its marked host in the mutation phase, before descendant layout
+effects run. It also observes descendants added after the initial binding pass.
 
-- a descendant whose own layout effect writes to Knockout-owned DOM on the very first
-  commit — setting an input's value and dispatching the event, say;
-- a view model replaced in the same commit as a child that arrives with it.
-
-`KnockoutScope` renders an inert marker before its host, and a first child's ref and
-effects run before its siblings' — which is the position that binds those cases
-correctly. A hook has no such position.
+`KnockoutScope` covers the narrower case that needs a component-owned position in the
+tree. It renders an inert marker before its host, so it can announce a view-model
+replacement before a child or portal added or rebound by the same commit is observed.
+It is also available when there is no single existing element on which to spread the
+props returned by `useKoBind`.
 
 Its hosts are plain `div`s with `display: contents`, and it does not let you choose
 them. An element that has to be something else is yours, through `useKoBind`.
@@ -251,11 +248,13 @@ Both starters show it in place, next to the root binding.
 
 ## Server rendering and hydration
 
-A binding root renders its children on the server and adds nothing of its own. Refs
+A `useKoBind` root renders on the server without adding an element of its own. Refs
 do not run there, so no bindings are applied; the markup is exactly what the caller
 wrote, plus the binding-root attribute. Hydration reuses those elements and attaches
 the bindings afterwards, so a `select` rendered on the server contains only `option`
-elements, and hydration does not replace them.
+elements, and hydration does not replace them. `KnockoutScope`, by contrast, renders
+its two `display: contents` hosts and commit marker on the server as well as the
+children passed to it.
 
 Bindings inside a dehydrated Suspense boundary are deferred until the boundary
 resolves.
@@ -280,10 +279,10 @@ disabled state, the implicit radio name — are restored.
 | v2 | v3 |
 |----|----|
 | `<RootKnockoutProvider viewModel={vm}>…</RootKnockoutProvider>` | `<div {...useKoBind(vm)}>…</div>` |
-| `<KnockoutScope viewModel={vm}>…</KnockoutScope>` | `<div {...useKoBind(vm)}>…</div>`, or keep `KnockoutScope` for later-arriving children |
+| `<KnockoutScope viewModel={vm}>…</KnockoutScope>` | `<div {...useKoBind(vm)}>…</div>`, or keep `KnockoutScope` when a view-model replacement and a child or portal update share a commit |
 | `<KoIf condition={c}>…</KoIf>` | `useKoValue(c) ? … : null` |
 | `<KoIfNot condition={c}>…</KoIfNot>` | `useKoValue(c) ? null : …` |
-| `<KoWith value={v}>{(x) => …}</KoWith>` | `const x = useKoValue(v)`, then `x ? <div {...useKoBind(x)}>…</div> : null` |
+| `<KoWith value={v}>{(x) => …}</KoWith>` | `const x = useKoValue(v); const bind = useKoBind(x)`, then `x ? <div {...bind}>…</div> : null` |
 | `<KoForeach>{(item, i) => …}</KoForeach>` | `<KoForeach>{(item, i, bind) => …}</KoForeach>` |
 | `boundaryAs`, `as`, `bindingMode` | Gone. The element is yours, so its tag is too |
 | `SemanticHost`, `SemanticHostProps` | Gone with them |

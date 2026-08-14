@@ -10,7 +10,7 @@ description: React コンポーネントの中で Knockout.js を使うための
 [English](../) | 日本語
 
 React コンポーネントの中で Knockout.js を使うための最小のブリッジ。リアクティビティと
-`data-bind` は Knockout が持ち、コンポーネント・ツリー・その中のすべての要素は React が
+`data-bind` は Knockout が持ち、コンポーネント・ツリー・React が描画する要素は React が
 持ちます。
 
 - [API の全体](#api-の全体)
@@ -40,15 +40,16 @@ npm install react-ko knockout
 
 ## API の全体
 
-エクスポートは 4 つ。2 つが 2 つのライブラリを橋渡しし、1 つがリスト、1 つは橋渡しでは
-賄えない場合を受け持ちます。
+ランタイムのエクスポートは 4 つ。2 つが 2 つのライブラリを橋渡しし、1 つがリスト、1 つは
+橋渡しでは賄えない場合を受け持ちます。公開 API は型 `KoBindProps` もエクスポートします。
 
 | エクスポート | 向き | 役割 |
 |--------------|------|------|
 | `useKoBind` | React → Knockout | 自分が描画した要素をバインディングルートにする |
 | `useKoValue` | Knockout → React | observable を React の state として読む |
 | `KoForeach` | — | アイテムごとに 1 行を描画し、その行をアイテムにバインドする |
-| `KnockoutScope` | — | 自前のホストを描画するスコープ。子が後から現れる場合向け |
+| `KnockoutScope` | — | 自前のホストとコミットマーカーを描画するスコープ |
+| `KoBindProps` | — | `useKoBind` が返す props の型 |
 
 API が従っている原則は 1 つ — **ライブラリは利用側が書けないものだけを持ち、要素は利用側の
 もの**。
@@ -133,8 +134,8 @@ function useKoValue<T>(source: ko.Observable<T> | ko.Computed<T> | T): T
 function useKoValue<T>(source: ko.Observable<T> | ko.Computed<T> | T | undefined): T | undefined
 ```
 
-`data-bind` が扱えるのは DOM 属性になるものだけです。それ以外 — JSX 補間、React
-コンポーネントの props、effect の依存配列 — には値そのものが要ります:
+`data-bind` は Knockout が所有する DOM の振る舞いを扱います。React が描画する値 — JSX
+補間、React コンポーネントの props、effect の依存配列 — には値そのものが要ります:
 
 ```tsx
 function Greeting({ name }: { name: ko.Observable<string> }) {
@@ -207,16 +208,14 @@ return visible ? <section {...bind}>…</section> : null
 </KnockoutScope>
 ```
 
-`useKoBind` は渡された要素を ref 経由でバインドします。React は ref を子から順に attach し、
-コンポーネント自身の effect は子孫の後に走るため、ref から取ったルートは自分のサブツリーを
-最後に知ります。ほとんどのツリーでは見えませんが、2 つの場合に効いてきます:
+`useKoBind` は印を付けたホストを mutation フェーズで見つけ、子孫の layout effect より前に
+バインドします。最初のバインディング処理より後に追加された子孫も監視します。
 
-- 初回コミットで、子孫の layout effect が Knockout 所有の DOM に書き込む場合
-  （input に値を入れてイベントを発火する、など）
-- 子が現れるのと同じコミットで ViewModel が差し替わる場合
-
-`KnockoutScope` はホストの前に不活性なマーカーを描画します。最初の子の ref と effect は
-兄弟より先に走るので、この位置が上記を正しくバインドします。hook にはこの位置がありません。
+`KnockoutScope` は、ツリー上にコンポーネント所有の位置が必要になる、より限定された場合を
+受け持ちます。ホストの前に不活性なマーカーを描画するため、ViewModel の差し替えと同じ
+コミットで子や portal が追加・再バインドされても、その子や portal が監視される前に
+差し替えを通知できます。`useKoBind` が返す props を展開できる既存の要素が 1 つもない場合にも
+使えます。
 
 ホストは `display: contents` を付けた素の `div` で、選ぶことはできません。それ以外の要素に
 したい場合は `useKoBind` で利用側の要素を使ってください。
@@ -245,11 +244,12 @@ export function useAppViewModel() {
 
 ## サーバーレンダリングと hydration
 
-バインディングルートはサーバーでは children をそのまま描画し、自分では何も足しません。ref は
-サーバーで走らないのでバインディングも適用されず、出力されるマークアップは利用側が書いた
-ものにバインディングルート属性が付いただけです。hydration はそれらの要素を再利用し、後から
+`useKoBind` のルートは、サーバーでは自前の要素を追加せずに描画されます。ref はサーバーで
+走らないのでバインディングも適用されず、出力されるマークアップは利用側が書いたものに
+バインディングルート属性が付いただけです。hydration はそれらの要素を再利用し、後から
 バインディングを取り付けます。そのため、サーバーが描画した `select` の直下には `option`
-しかなく、hydration がそれらを置き換えることもありません。
+しかなく、hydration がそれらを置き換えることもありません。一方 `KnockoutScope` は、渡された
+children に加え、`display: contents` の 2 つのホストとコミットマーカーもサーバーで描画します。
 
 dehydrated な Suspense 境界の内側のバインディングは、境界が解決するまで保留されます。
 
@@ -273,10 +273,10 @@ radio の暗黙の name — は復元されます。
 | v2 | v3 |
 |----|----|
 | `<RootKnockoutProvider viewModel={vm}>…</RootKnockoutProvider>` | `<div {...useKoBind(vm)}>…</div>` |
-| `<KnockoutScope viewModel={vm}>…</KnockoutScope>` | `<div {...useKoBind(vm)}>…</div>`。後から現れる子がある場合は `KnockoutScope` のまま |
+| `<KnockoutScope viewModel={vm}>…</KnockoutScope>` | `<div {...useKoBind(vm)}>…</div>`。ViewModel の差し替えと子や portal の更新が同じコミットになる場合は `KnockoutScope` のまま |
 | `<KoIf condition={c}>…</KoIf>` | `useKoValue(c) ? … : null` |
 | `<KoIfNot condition={c}>…</KoIfNot>` | `useKoValue(c) ? null : …` |
-| `<KoWith value={v}>{(x) => …}</KoWith>` | `const x = useKoValue(v)` の後 `x ? <div {...useKoBind(x)}>…</div> : null` |
+| `<KoWith value={v}>{(x) => …}</KoWith>` | `const x = useKoValue(v); const bind = useKoBind(x)` の後 `x ? <div {...bind}>…</div> : null` |
 | `<KoForeach>{(item, i) => …}</KoForeach>` | `<KoForeach>{(item, i, bind) => …}</KoForeach>` |
 | `boundaryAs`・`as`・`bindingMode` | 廃止。要素が利用側のものなら、そのタグも利用側のもの |
 | `SemanticHost`・`SemanticHostProps` | 上記と一緒に廃止 |

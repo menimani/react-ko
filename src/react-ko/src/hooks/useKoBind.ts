@@ -22,6 +22,102 @@ function hostSelector(id: string) {
   return `[${ELEMENT_BINDING_ROOT_ATTRIBUTE}="${id.replace(/["\\]/g, '\\$&')}"]`
 }
 
+// Independently rendered roots receive the same default useId sequence. Remember which
+// matching SSR host each hook claimed so a later root can select its own unclaimed host.
+const hostOwners = new WeakMap<HTMLElement, object>()
+
+function isReactOwnedHost(host: HTMLElement) {
+  return Object.getOwnPropertyNames(host).some(
+    (name) => name.startsWith('__reactFiber$') || name.startsWith('__reactProps$')
+  )
+}
+
+function useKoBindRoot<T>(viewModel: T, bindable: boolean): KoBindProps {
+  const parentGeneration = useContext(ScopeBindGenerationContext)
+  const [failure, setFailure] = useState<{ error: unknown } | null>(null)
+  const handleBindingError = useCallback((error: unknown) => {
+    setFailure({ error })
+  }, [])
+
+  // A nullish view model still runs the binding root: hooks cannot be skipped, and
+  // holding one root across the value arriving is what lets the caller keep the props
+  // on an element it renders conditionally. The root itself binds nothing while the
+  // view model is nullish, and retires a binding it already had.
+  const { bindingContainer } = useBindingRoot(
+    viewModel,
+    parentGeneration,
+    handleBindingError,
+    bindable
+  )
+
+  const boundHost = useRef<HTMLElement | null>(null)
+  const hostOwner = useRef<object>({})
+  const hostId = useId()
+
+  // React attaches refs from the bottom up, so a host taken from a ref is bound after
+  // its own descendants have run their layout effects -- late enough for one of them to
+  // write to Knockout-owned DOM that nothing is watching yet. The scope components
+  // solved this with an inert element rendered before the host, which a hook cannot do.
+  // The attribute is the marker instead: insertion effects run in the mutation phase,
+  // with the host already in the document and every layout effect still ahead. Binding
+  // a root inside another one first is what the binding root's own ordering handles.
+  useInsertionEffect(() => {
+    if (!bindable || boundHost.current !== null) return
+    const hosts = Array.from(
+      document.querySelectorAll<HTMLElement>(hostSelector(hostId))
+    ).filter(
+      (candidate) =>
+        isReactOwnedHost(candidate) &&
+        (hostOwners.get(candidate) === undefined ||
+          hostOwners.get(candidate) === hostOwner.current)
+    )
+    // A host rendered into another document, or into a container React has not put in
+    // one yet, is not reachable from here. Multiple roots can also share a useId, so
+    // only prebind when React ownership identifies one eligible host unambiguously.
+    // Otherwise its ref still arrives in the layout phase.
+    if (hosts.length !== 1) return
+    const host = hosts[0]
+    hostOwners.set(host, hostOwner.current)
+    boundHost.current = host
+    bindingContainer(host)
+  })
+
+  const ref = useCallback(
+    (node: HTMLElement | null) => {
+      if (node === null) {
+        const held = boundHost.current
+        if (held !== null && hostOwners.get(held) === hostOwner.current) {
+          hostOwners.delete(held)
+        }
+        boundHost.current = null
+        return
+      }
+
+      // One call binds one element. Spreading the same props twice would leave the
+      // first element bound and unreachable, because a binding root keeps a single
+      // host: the second attachment would silently take the first one's place.
+      const held = boundHost.current
+      if (held !== null && held !== node && held.isConnected) {
+        setFailure({
+          error: new Error(
+            'react-ko: the props returned by one useKoBind call are spread onto more than one element. Call useKoBind once per element.'
+          ),
+        })
+        return
+      }
+
+      hostOwners.set(node, hostOwner.current)
+      boundHost.current = node
+      if (bindable) bindingContainer(node)
+    },
+    [bindingContainer, bindable]
+  )
+
+  if (failure !== null) throw failure.error
+
+  return { ref, [ELEMENT_BINDING_ROOT_ATTRIBUTE]: bindable ? hostId : '' }
+}
+
 /**
  * Makes the caller's own element a Knockout binding root for the given view model:
  * `data-bind` inside it is applied against that view model, reapplied when the view
@@ -43,69 +139,10 @@ function hostSelector(id: string) {
  * ```
  */
 export function useKoBind<T>(viewModel: T | null | undefined): KoBindProps {
-  const parentGeneration = useContext(ScopeBindGenerationContext)
-  const [failure, setFailure] = useState<{ error: unknown } | null>(null)
-  const handleBindingError = useCallback((error: unknown) => {
-    setFailure({ error })
-  }, [])
+  return useKoBindRoot(viewModel, viewModel !== null && viewModel !== undefined)
+}
 
-  // A nullish view model still runs the binding root: hooks cannot be skipped, and
-  // holding one root across the value arriving is what lets the caller keep the props
-  // on an element it renders conditionally. Nothing binds until a host is attached.
-  const { bindingContainer } = useBindingRoot(
-    viewModel,
-    parentGeneration,
-    handleBindingError
-  )
-
-  const boundHost = useRef<HTMLElement | null>(null)
-  const bindable = viewModel !== null && viewModel !== undefined
-  const hostId = useId()
-
-  // React attaches refs from the bottom up, so a host taken from a ref is bound after
-  // its own descendants have run their layout effects -- late enough for one of them to
-  // write to Knockout-owned DOM that nothing is watching yet. The scope components
-  // solved this with an inert element rendered before the host, which a hook cannot do.
-  // The attribute is the marker instead: insertion effects run in the mutation phase,
-  // with the host already in the document and every layout effect still ahead. Binding
-  // a root inside another one first is what the binding root's own ordering handles.
-  useInsertionEffect(() => {
-    if (!bindable || boundHost.current !== null) return
-    const host = document.querySelector<HTMLElement>(hostSelector(hostId))
-    // A host rendered into another document, or into a container React has not put in
-    // one yet, is not reachable from here. Its ref still arrives in the layout phase.
-    if (host === null) return
-    boundHost.current = host
-    bindingContainer(host)
-  })
-
-  const ref = useCallback(
-    (node: HTMLElement | null) => {
-      if (node === null) {
-        boundHost.current = null
-        return
-      }
-
-      // One call binds one element. Spreading the same props twice would leave the
-      // first element bound and unreachable, because a binding root keeps a single
-      // host: the second attachment would silently take the first one's place.
-      const held = boundHost.current
-      if (held !== null && held !== node && held.isConnected) {
-        setFailure({
-          error: new Error(
-            'react-ko: the props returned by one useKoBind call are spread onto more than one element. Call useKoBind once per element.'
-          ),
-        })
-        return
-      }
-
-      boundHost.current = node
-      if (bindable) bindingContainer(node)
-    },
-    [bindingContainer, bindable]
-  )
-
-  if (failure !== null) throw failure.error
-
-  return { ref, [ELEMENT_BINDING_ROOT_ATTRIBUTE]: hostId }
+/** Internal binding path for structural rows, whose data may itself be nullish. */
+export function useKoBindAlways<T>(viewModel: T): KoBindProps {
+  return useKoBindRoot(viewModel, true)
 }

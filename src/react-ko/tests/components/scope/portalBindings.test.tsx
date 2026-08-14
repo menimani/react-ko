@@ -91,7 +91,11 @@ describe('portal bindings', () => {
     render(
       <BindingHost viewModel={{}}>
         <BindingHost viewModel={outer}>
-          <div ref={(node) => node?.appendChild(target)} />
+          <div
+            ref={(node) => {
+              node?.appendChild(target)
+            }}
+          />
         </BindingHost>
         <BindingHost viewModel={inner}>
           {createPortal(
@@ -331,6 +335,56 @@ describe('portal bindings', () => {
     rerender(<Harness visible={false} />)
     expect(screen.queryByTestId('late-portal')).toBeNull()
     expect(vm.label.getSubscriptionsCount()).toBe(0)
+  })
+
+  it('disposes every portal root when binding a newly added portal fails', () => {
+    const firstTarget = portalTarget()
+    const secondTarget = portalTarget()
+    const added = ko.observable('Added')
+    const existing = ko.observable('Existing')
+    const binding = 'throwDuringPortalBinding'
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    ko.bindingHandlers[binding] = {
+      init() {
+        throw new Error('Portal binding failed')
+      },
+    }
+
+    function Harness({ addFailingPortal }: { addFailingPortal: boolean }) {
+      return (
+        <ErrorBoundary>
+          <BindingHost viewModel={{ added, existing }}>
+            {addFailingPortal
+              ? createPortal(
+                  <div>
+                    <input data-bind="value: added" />
+                    <span data-bind={`${binding}: true`} />
+                  </div>,
+                  firstTarget
+                )
+              : null}
+            {createPortal(
+              <input data-bind="value: existing" />,
+              secondTarget
+            )}
+          </BindingHost>
+        </ErrorBoundary>
+      )
+    }
+
+    try {
+      const { rerender } = render(<Harness addFailingPortal={false} />)
+      expect(existing.getSubscriptionsCount()).toBeGreaterThan(0)
+
+      rerender(<Harness addFailingPortal />)
+
+      expect(screen.getByText(/Portal binding failed/)).toBeDefined()
+      expect(added.getSubscriptionsCount()).toBe(0)
+      expect(existing.getSubscriptionsCount()).toBe(0)
+    } finally {
+      delete ko.bindingHandlers[binding]
+      consoleError.mockRestore()
+    }
   })
 
   it('leaves portals outside a binding scope unbound', () => {

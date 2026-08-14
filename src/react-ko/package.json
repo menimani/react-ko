@@ -44,7 +44,7 @@
   "homepage": "https://github.com/menimani/react-ko#readme",
   "scripts": {
     "build": "tsup && npm run test:types && npm run test:package",
-    "test:types": "tsc --project tests/declarations/tsconfig.json && tsc --project tests/consumers/esm/tsconfig.json && tsc --project tests/consumers/cjs/tsconfig.json && tsc --project tests/consumers/cjs/tsconfig.nodenext.json",
+    "test:types": "tsc --project tests/tsconfig.json && tsc --project tests/declarations/tsconfig.json && tsc --project tests/consumers/esm/tsconfig.json && tsc --project tests/consumers/cjs/tsconfig.json && tsc --project tests/consumers/cjs/tsconfig.nodenext.json",
     "test:package": "node tests/package-smoke.mjs",
     "test": "npx vitest run --reporter verbose --coverage"
   },
@@ -55,6 +55,7 @@
   },
   "devDependencies": {
     "@testing-library/react": "^16.2.0",
+    "@types/node": "^24.13.3",
     "@types/react": "^18.2.45",
     "@types/react-dom": "^18.2.17",
     "@vitest/coverage-v8": "^4.1.8",

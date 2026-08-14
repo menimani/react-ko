@@ -55,11 +55,13 @@ function BindingCommitMarker({
 export function useBindingRoot(
   viewModel: unknown,
   parentGeneration: number,
-  onError: (error: unknown) => void
+  onError: (error: unknown) => void,
+  bindable: boolean
 ) {
   const containerNode = useRef<HTMLElement | null>(null)
   const activeBinding = useRef<ActiveBinding | null>(null)
   const pendingBindingReplacement = useRef(false)
+  const bindingWasDisabled = useRef(false)
   const replacedBinding = useRef(false)
   const synchronizeBindingForCommit = useRef(synchronizeBinding)
   const refreshInitialBinding = useRef(false)
@@ -103,7 +105,7 @@ export function useBindingRoot(
     }
     try {
       for (const node of nodes) {
-        if (ko.contextFor(node) !== undefined) ko.cleanNode(node)
+        if (replacing || ko.contextFor(node) !== undefined) ko.cleanNode(node)
         const bindingStates = prepareBindingDescendants(node)
         const descendantRoots = new Set(
           nodes.filter((candidate) => candidate !== node && node.contains(candidate))
@@ -190,7 +192,21 @@ export function useBindingRoot(
         })
       }
     } catch (error) {
-      active.roots = roots
+      const liveRoots = new Map(
+        active.roots
+          .filter((root) => !removed.includes(root))
+          .map((root) => [root.node, root])
+      )
+      for (const root of roots) liveRoots.set(root.node, root)
+      for (const portalRoot of added) {
+        if (!liveRoots.has(portalRoot)) {
+          liveRoots.set(portalRoot, {
+            node: portalRoot,
+            stopObserving: () => undefined,
+          })
+        }
+      }
+      active.roots = [...liveRoots.values()]
       disposeBinding()
       for (const portalRoot of added) unregisterBindingRoot(portalRoot)
       throw error
@@ -216,6 +232,22 @@ export function useBindingRoot(
       return
     }
 
+    if (!bindable) {
+      const roots = activeBinding.current?.roots.map(({ node }) => node) ?? []
+      disposeBinding()
+      const outermostRoots = roots.filter(
+        (root) => !roots.some((candidate) => candidate !== root && candidate.contains(root))
+      )
+      for (const root of outermostRoots) {
+        // Cleaning a disabled root also cleans independently registered roots below
+        // it. They remain active even though their ancestor no longer has a binding.
+        restoreDescendantBindingRoots(root, root)
+      }
+      bindingWasDisabled.current ||= roots.length > 0
+      pendingBindingReplacement.current = false
+      return
+    }
+
     const active = activeBinding.current
     if (active !== null) {
       if (
@@ -236,7 +268,9 @@ export function useBindingRoot(
       return
     }
 
-    bindWhenAncestorsHave(node, false)
+    const restoringDescendants = bindingWasDisabled.current
+    bindingWasDisabled.current = false
+    bindWhenAncestorsHave(node, restoringDescendants)
   }
 
   /**

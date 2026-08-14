@@ -37,7 +37,8 @@ export const KnockoutScope = React.memo(function KnockoutScope<T>({
   const { container, bindingCommitMarker, generation } = useBindingRoot(
     viewModel,
     parentGeneration,
-    handleBindingError
+    handleBindingError,
+    true
   )
 
   if (bindingFailure !== null) {
