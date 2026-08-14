@@ -64,7 +64,11 @@ function isClosedShadowRoot(root: Node): root is ShadowRoot {
   return root.nodeType === 11 && 'host' in root && (root as ShadowRoot).mode === 'closed'
 }
 
-function useKoBindRoot<T>(viewModel: T, bindable: boolean): KoBindProps {
+function useKoBindRoot<T>(
+  viewModel: T,
+  bindable: boolean,
+  rejectUnclaimedHost: boolean
+): KoBindProps {
   const parentGeneration = useContext(ScopeBindGenerationContext)
   const [failure, setFailure] = useState<{ error: unknown } | null>(null)
   const handleBindingError = useCallback((error: unknown) => {
@@ -104,7 +108,8 @@ function useKoBindRoot<T>(viewModel: T, bindable: boolean): KoBindProps {
     // A host in an inaccessible document, a closed shadow root, or a container React has
     // not put in one yet is not reachable from here. Multiple roots can also share a
     // useId, so only prebind when React ownership identifies one eligible host
-    // unambiguously. Otherwise its ref still arrives in the layout phase.
+    // unambiguously. The ref rejects every other bindable attachment: binding there
+    // would happen after descendant layout effects and silently miss their work.
     if (hosts.length !== 1) return
     const host = hosts[0]
     hostOwners.set(host, hostOwner.current)
@@ -148,11 +153,23 @@ function useKoBindRoot<T>(viewModel: T, bindable: boolean): KoBindProps {
         return
       }
 
-      hostOwners.set(node, hostOwner.current)
-      boundHost.current = node
-      if (bindable) bindingContainer(node)
+      if (
+        bindable &&
+        rejectUnclaimedHost &&
+        hostOwners.get(node) !== hostOwner.current
+      ) {
+        throw new Error(
+          'react-ko: useKoBind could not claim this host during the insertion phase, so it cannot bind before descendant layout effects run. Use KnockoutScope at this render location instead.'
+        )
+      }
+
+      if (!bindable || hostOwners.get(node) !== hostOwner.current) {
+        hostOwners.set(node, hostOwner.current)
+        boundHost.current = node
+        if (bindable) bindingContainer(node)
+      }
     },
-    [bindingContainer, bindable]
+    [bindingContainer, bindable, rejectUnclaimedHost]
   )
 
   if (failure !== null) throw failure.error
@@ -181,10 +198,25 @@ function useKoBindRoot<T>(viewModel: T, bindable: boolean): KoBindProps {
  * ```
  */
 export function useKoBind<T>(viewModel: T | null | undefined): KoBindProps {
-  return useKoBindRoot(viewModel, viewModel !== null && viewModel !== undefined)
+  return useKoBindRoot(
+    viewModel,
+    viewModel !== null && viewModel !== undefined,
+    true
+  )
 }
 
 /** Internal binding path for structural rows, whose data may itself be nullish. */
 export function useKoBindAlways<T>(viewModel: T): KoBindProps {
-  return useKoBindRoot(viewModel, true)
+  return useKoBindRoot(viewModel, true, false)
+}
+
+/** Internal path for binding hosts whose early ordering is established externally. */
+export function useKoBindFallback<T>(
+  viewModel: T | null | undefined
+): KoBindProps {
+  return useKoBindRoot(
+    viewModel,
+    viewModel !== null && viewModel !== undefined,
+    false
+  )
 }

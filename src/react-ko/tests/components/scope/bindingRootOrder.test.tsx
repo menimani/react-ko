@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { render, screen, act } from '@testing-library/react'
 import { type ReactNode } from 'react'
 import ko from 'knockout'
-import { useKoBind } from '@/index'
+import { useKoBindFallback } from '@/hooks/useKoBind'
 
 function Host({
   viewModel,
@@ -13,7 +13,7 @@ function Host({
   children?: ReactNode
   testId?: string
 }) {
-  const bind = useKoBind(viewModel)
+  const bind = useKoBindFallback(viewModel)
   return (
     <div {...bind} data-testid={testId}>
       {children}
