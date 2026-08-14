@@ -109,7 +109,7 @@ describe.each(scopes)('%s server rendering', (_, createScope) => {
     const viewModel = { label: ko.observable('Knockout value') }
     let hydrating = false
     let ready = false
-    let resolve = () => undefined
+    let resolve: () => void = () => undefined
     const suspended = new Promise<void>((done) => {
       resolve = done
     })

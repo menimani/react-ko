@@ -30,10 +30,10 @@ describe('useBindingRoot', () => {
     const first = { label: ko.observable('First') }
     const second = { label: ko.observable('Second') }
     const suspended = new Promise<void>(() => undefined)
-    let replaceViewModel = () => undefined
-    let showLateChild = () => undefined
+    let replaceViewModel: () => void = () => undefined
+    let showLateChild: () => void = () => undefined
 
-    function SuspendedReplacement() {
+    function SuspendedReplacement(): ReactNode {
       throw suspended
     }
 

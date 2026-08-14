@@ -10,7 +10,6 @@ import {
   type ReactNode,
 } from 'react'
 import ko from 'knockout'
-import { useAppViewModel } from '@/index'
 import { KnockoutScope } from '@/index'
 import { BindingHost } from '../../fixtures/bindingHost'
 
@@ -74,8 +73,8 @@ describe('BindingHost', () => {
     }
 
     it.each([
-      ['an empty array', () => []],
-      ['an empty string', () => ''],
+      ['an empty array', (): ReactNode => []],
+      ['an empty string', (): ReactNode => ''],
       ['a null-rendering component', () => <NoOutput />],
     ] as const)('keeps observable updates bound for %s', async (_, renderChildren) => {
       const vm = {
@@ -179,7 +178,7 @@ describe('BindingHost', () => {
 
   it('binds a descendant inserted by local state before its layout effects run', () => {
     const vm = { name: ko.observable('Initial') }
-    let showInput = () => undefined
+    let showInput: () => void = () => undefined
 
     function ChangeInLayout() {
       const input = useRef<HTMLInputElement>(null)
@@ -359,9 +358,7 @@ describe('BindingHost', () => {
           value: (node: Node, context: ko.BindingContext) =>
             node.nodeType === Node.ELEMENT_NODE &&
             (node as Element).hasAttribute('data-provider-scope')
-              ? binding === 'using'
-                ? { using: context.$data.scoped }
-                : { let: { alias: context.$data.scoped.label } }
+              ? { let: { alias: context.$data.scoped.label } }
               : originalProvider.getBindings?.call(originalProvider, node, context),
         })
       }
@@ -567,11 +564,12 @@ describe('BindingHost', () => {
   ] as const)(
     'rejects retirement of %s when its delegated %s handler is overridden',
     async (binding, delegate, source, method) => {
-      const registered = ko.bindingHandlers[delegate]
+      const bindingHandlers = ko.bindingHandlers as Record<string, ko.BindingHandler>
+      const registered = bindingHandlers[delegate]
       const customEffect = vi.fn((element: Element) => {
         element.setAttribute('title', 'custom delegated effect')
       })
-      ko.bindingHandlers[delegate] =
+      bindingHandlers[delegate] =
         method === 'init' ? { init: customEffect } : { update: customEffect }
       const viewModel = {
         selected: ko.observable(true),
@@ -617,7 +615,7 @@ describe('BindingHost', () => {
         )
         expect(customEffect).toHaveBeenCalled()
       } finally {
-        ko.bindingHandlers[delegate] = registered
+        bindingHandlers[delegate] = registered
       }
     }
   )
@@ -807,7 +805,7 @@ describe('BindingHost', () => {
       checked: ko.observable(true),
       value: ko.observable('Knockout value'),
     }
-    let update = () => undefined
+    let update: () => void = () => undefined
 
     function LocalOwner() {
       const [next, setNext] = useState(false)
@@ -1187,7 +1185,7 @@ describe('BindingHost', () => {
   it('rejects a late React child before its layout update can let Knockout detach it', () => {
     const vm = { label: ko.observable('Knockout text') }
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
-    let showChild = () => undefined
+    let showChild: () => void = () => undefined
     let connectedAfterUpdate = false
 
     function UpdatingChild() {
@@ -1230,7 +1228,7 @@ describe('BindingHost', () => {
   it('rejects text returned by a late React child before Knockout can detach it', () => {
     const vm = { label: ko.observable('Knockout text') }
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
-    let showChild = () => undefined
+    let showChild: () => void = () => undefined
     let childTextAfterUpdate: string | null | undefined
     let connectedAfterUpdate = false
 
@@ -1280,7 +1278,7 @@ describe('BindingHost', () => {
   it('rejects a direct React text write before a sibling layout effect can overwrite it', () => {
     const vm = { label: ko.observable('Knockout text') }
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
-    let showText = () => undefined
+    let showText: () => void = () => undefined
     let textAfterUpdate: string | null | undefined
 
     function LayoutNotifier({ notify }: { notify: boolean }) {
@@ -1451,7 +1449,7 @@ describe('BindingHost', () => {
   it('retires a content binding before a newly mounted child updates its observable in a layout effect', () => {
     const vm = { label: ko.observable('Knockout text') }
     let connectedAfterUpdate = false
-    let retireBinding = () => undefined
+    let retireBinding: () => void = () => undefined
 
     function UpdatingChild() {
       const child = useRef<HTMLSpanElement>(null)
@@ -2272,7 +2270,7 @@ describe('BindingHost', () => {
           </button>
           <div
             data-testid="inert-owner"
-            inert={phase === 0}
+            {...({ inert: phase === 0 } as { inert: boolean })}
             data-bind={binding ? 'attr: { inert: inert }' : undefined}
           />
           <video
