@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, act, waitFor } from '@testing-library/react'
 import { Component, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
-import { hydrateRoot, type Root } from 'react-dom/client'
+import { createRoot, hydrateRoot, type Root } from 'react-dom/client'
 import { renderToString } from 'react-dom/server'
 import ko from 'knockout'
 import { useKoBind } from '@/index'
@@ -287,6 +287,183 @@ describe('useKoBind', () => {
       )
     } finally {
       failRebind = false
+      consoleError.mockRestore()
+    }
+  })
+
+  it('binds inside a shadow root before descendant layout effects', () => {
+    const handleClick = vi.fn()
+    const shadowHost = document.createElement('div')
+    const shadowRoot = shadowHost.attachShadow({ mode: 'open' })
+    document.body.appendChild(shadowHost)
+    const root = createRoot(shadowRoot)
+
+    function ClickOnMount() {
+      const button = useRef<HTMLButtonElement>(null)
+
+      useLayoutEffect(() => {
+        button.current?.click()
+      }, [])
+
+      return <button ref={button} data-bind="click: handleClick" />
+    }
+
+    function Host() {
+      const bind = useKoBind({ handleClick })
+      return (
+        <div {...bind}>
+          <ClickOnMount />
+        </div>
+      )
+    }
+
+    try {
+      act(() => root.render(<Host />))
+      expect(handleClick).toHaveBeenCalledOnce()
+    } finally {
+      act(() => root.unmount())
+      shadowHost.remove()
+    }
+  })
+
+  it('binds inside a same-origin iframe before descendant layout effects', () => {
+    const handleClick = vi.fn()
+    const iframe = document.createElement('iframe')
+    document.body.appendChild(iframe)
+    const container = iframe.contentDocument!.createElement('div')
+    iframe.contentDocument!.body.appendChild(container)
+    const root = createRoot(container)
+
+    function ClickOnMount() {
+      const button = useRef<HTMLButtonElement>(null)
+
+      useLayoutEffect(() => {
+        button.current?.click()
+      }, [])
+
+      return <button ref={button} data-bind="click: handleClick" />
+    }
+
+    function Host() {
+      const bind = useKoBind({ handleClick })
+      return (
+        <div {...bind}>
+          <ClickOnMount />
+        </div>
+      )
+    }
+
+    try {
+      act(() => root.render(<Host />))
+      expect(handleClick).toHaveBeenCalledOnce()
+    } finally {
+      act(() => root.unmount())
+      iframe.remove()
+    }
+  })
+
+  it('ignores an iframe whose document is inaccessible', () => {
+    const iframe = document.createElement('iframe')
+    Object.defineProperty(iframe, 'contentDocument', {
+      get() {
+        throw new DOMException('Blocked frame', 'SecurityError')
+      },
+    })
+    document.body.appendChild(iframe)
+
+    function Host() {
+      const bind = useKoBind({ label: 'Bound' })
+      return <span {...bind} data-bind="text: label" />
+    }
+
+    try {
+      const { getByText, unmount } = render(<Host />)
+      expect(getByText('Bound')).toBeDefined()
+      unmount()
+    } finally {
+      iframe.remove()
+    }
+  })
+
+  it('rejects a host inside a closed shadow root before binding too late', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const handleClick = vi.fn()
+    const shadowHost = document.createElement('div')
+    const shadowRoot = shadowHost.attachShadow({ mode: 'closed' })
+    document.body.appendChild(shadowHost)
+    const root = createRoot(shadowRoot)
+
+    function ClickOnMount() {
+      const button = useRef<HTMLButtonElement>(null)
+
+      useLayoutEffect(() => {
+        button.current?.click()
+      }, [])
+
+      return <button ref={button} data-bind="click: handleClick" />
+    }
+
+    function Host() {
+      const bind = useKoBind({ handleClick })
+      return (
+        <div {...bind}>
+          <ClickOnMount />
+        </div>
+      )
+    }
+
+    try {
+      await act(async () =>
+        root.render(
+          <ErrorBoundary>
+            <Host />
+          </ErrorBoundary>
+        )
+      )
+
+      expect(handleClick).not.toHaveBeenCalled()
+      await waitFor(() =>
+        expect(shadowRoot.querySelector('[data-testid="failure"]')?.textContent).toBe(
+          'react-ko: useKoBind cannot bind a host inside a closed ShadowRoot before descendant layout effects run. Use KnockoutScope inside the shadow root instead.'
+        )
+      )
+    } finally {
+      act(() => root.unmount())
+      shadowHost.remove()
+      consoleError.mockRestore()
+    }
+  })
+
+  it('rejects a host rendered into a detached DocumentFragment', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const fragment = document.createDocumentFragment()
+    const root = createRoot(fragment)
+
+    function Host() {
+      const bind = useKoBind({ label: 'Detached' })
+      return (
+        <div {...bind}>
+          <span data-bind="text: label" />
+        </div>
+      )
+    }
+
+    try {
+      await act(async () =>
+        root.render(
+          <ErrorBoundary>
+            <Host />
+          </ErrorBoundary>
+        )
+      )
+
+      await waitFor(() =>
+        expect(fragment.querySelector('[data-testid="failure"]')?.textContent).toBe(
+          'react-ko: useKoBind cannot bind a detached host before descendant layout effects run. Use KnockoutScope inside the detached tree instead.'
+        )
+      )
+    } finally {
+      act(() => root.unmount())
       consoleError.mockRestore()
     }
   })

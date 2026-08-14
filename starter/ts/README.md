@@ -28,8 +28,8 @@ npx degit menimani/react-ko/starter/js my-app-js
 
 - React + TypeScript + Vite (official template)
 - Knockout.js and react-ko installed
-- An app-level ViewModel bound through `useKoBind` on the app's own element
-- A plain React context and hook for reaching that ViewModel from anywhere
+- An app-level ViewModel bound and provided by `KnockoutScope`
+- `useKoViewModel` for reaching that ViewModel from anywhere in the scope
 - Nested binding roots with two-way `data-bind` bindings
 - A working todo list with keyed `KoForeach` rows, plain-JSX conditionals, and a
   detail view bound to the selected item

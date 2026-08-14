@@ -18,7 +18,7 @@ React コンポーネントの中で Knockout.js を使うための最小のブ�
 - [useKoValue](#usekovalue)
 - [KoForeach](#koforeach)
 - [KnockoutScope](#knockoutscope)
-- [ViewModel をサブツリーに配る](#viewmodel-をサブツリーに配る)
+- [useKoViewModel](#usekoviewmodel)
 - [サーバーレンダリングと hydration](#サーバーレンダリングと-hydration)
 - [Knockout が所有してよいもの・いけないもの](#knockout-が所有してよいものいけないもの)
 - [v2 からの移行](#v2-からの移行)
@@ -40,19 +40,21 @@ npm install react-ko knockout
 
 ## API の全体
 
-ランタイムのエクスポートは 4 つ。2 つが 2 つのライブラリを橋渡しし、1 つがリスト、1 つは
-橋渡しでは賄えない場合を受け持ちます。公開 API は型 `KoBindProps` もエクスポートします。
+ランタイムのエクスポートは 5 つ。`KnockoutScope` が通常のスコープを作り、2 つの hook が
+スコープと Knockout から値を読み、1 つのコンポーネントがリストを描画し、1 つの hook が
+特定の既存要素をバインドします。公開 API は型 `KoBindProps` もエクスポートします。
 
 | エクスポート | 向き | 役割 |
 |--------------|------|------|
 | `useKoBind` | React → Knockout | 自分が描画した要素をバインディングルートにする |
 | `useKoValue` | Knockout → React | observable を React の state として読む |
 | `KoForeach` | — | アイテムごとに 1 行を描画し、その行をアイテムにバインドする |
-| `KnockoutScope` | — | 自前のホストとコミットマーカーを描画するスコープ |
+| `KnockoutScope` | — | ViewModel をサブツリーにバインドして提供する |
+| `useKoViewModel` | Knockout スコープ → React | 最も近いスコープの ViewModel を読む |
 | `KoBindProps` | — | `useKoBind` が返す props の型 |
 
-API が従っている原則は 1 つ — **ライブラリは利用側が書けないものだけを持ち、要素は利用側の
-もの**。
+通常のアプリケーションスコープやネストしたスコープには `KnockoutScope` を使います。
+バインディングルートを、ラッパーを置けない特定の要素にする場合は `useKoBind` を使います。
 
 ---
 
@@ -62,7 +64,8 @@ API が従っている原則は 1 つ — **ライブラリは利用側が書け
 function useKoBind<T>(viewModel: T | null | undefined): KoBindProps
 ```
 
-バインディングルートにしたい要素へ展開するための props を返します。
+バインディングルートにする必要がある特定の既存要素へ展開する props を返します。通常の
+スコープには `KnockoutScope` を使います。
 
 ```tsx
 import ko from 'knockout'
@@ -129,7 +132,7 @@ type KoBindProps = {
 ## useKoValue
 
 ```ts
-function useKoValue<T>(source: ko.ObservableArray<T>): T[] | null | undefined
+function useKoValue<T>(source: ko.ObservableArray<T>): T[]
 function useKoValue<T>(source: ko.Observable<T> | ko.Computed<T> | T): T
 function useKoValue<T>(source: ko.Observable<T> | ko.Computed<T> | T | undefined): T | undefined
 ```
@@ -148,11 +151,12 @@ function Greeting({ name }: { name: ko.Observable<string> }) {
 `vm.name()` は 1 度読むだけです — 初回は正しい値が出て、その後静かに更新が止まります。
 
 オプショナルなソースは形を保ちます。`ko.Observable<string> | undefined` を渡せば
-`string | undefined` が返ります。observable array は `T[] | null | undefined` を返します。
-実行時に実際そうなり得るからです:
+`string | undefined` が返ります。observable array は `T[]` を返します。配列の値自体が
+nullish になり得る場合は、代わりに nullable な observable を使います:
 
 ```tsx
-const items = useKoValue(vm.items) ?? []
+const items = ko.observable<Item[] | null | undefined>(undefined)
+const value = useKoValue(items) // Item[] | null | undefined
 ```
 
 素の値はそのまま通過するので、`ko.Observable<T> | T` 型の prop はどちらでも読めます。
@@ -211,34 +215,44 @@ return visible ? <section {...bind}>…</section> : null
 `useKoBind` は印を付けたホストを mutation フェーズで見つけ、子孫の layout effect より前に
 バインドします。最初のバインディング処理より後に追加された子孫も監視します。
 
-`KnockoutScope` は、ツリー上にコンポーネント所有の位置が必要になる、より限定された場合を
-受け持ちます。ホストの前に不活性なマーカーを描画するため、ViewModel の差し替えと同じ
-コミットで子や portal が追加・再バインドされても、その子や portal が監視される前に
-差し替えを通知できます。`useKoBind` が返す props を展開できる既存の要素が 1 つもない場合にも
-使えます。
+`KnockoutScope` は通常のスコープ API です。サブツリーをバインドし、React コンポーネントへ
+`useKoViewModel` を通じて ViewModel を提供します。ツリー上にコンポーネント所有の位置を持ち、
+ホストの前に不活性なマーカーを描画するため、ViewModel の差し替えと同じコミットで子や portal
+が追加・再バインドされても、その子や portal が監視される前に差し替えを通知できます。
 
-ホストは `display: contents` を付けた素の `div` で、選ぶことはできません。それ以外の要素に
-したい場合は `useKoBind` で利用側の要素を使ってください。
+ホストは `display: contents` を付けた素の `div` で、選ぶことはできません。`option`・`tr`・
+`li` など別の要素でなければならない場合は、`useKoBind` で利用側の要素を使ってください。
 
 ---
 
-## ViewModel をサブツリーに配る
+## useKoViewModel
 
-これは普通の React なので、ライブラリは提供しません:
+```ts
+function useKoViewModel<T>(): T
+```
+
+最も近い `KnockoutScope` の ViewModel を返します:
 
 ```tsx
-import { createContext, useContext } from 'react'
+import { KnockoutScope, useKoViewModel } from 'react-ko'
 
-const AppViewModelContext = createContext<AppViewModel | null>(null)
+function Panel() {
+  const vm = useKoViewModel<AppViewModel>()
+  return <button data-bind="click: save">Save {vm.title}</button>
+}
 
-export function useAppViewModel() {
-  const viewModel = useContext(AppViewModelContext)
-  if (viewModel === null) throw new Error('Missing provider')
-  return viewModel
+function App() {
+  return (
+    <KnockoutScope viewModel={new AppViewModel()}>
+      <Panel />
+    </KnockoutScope>
+  )
 }
 ```
 
-両方のスターターに、ルートのバインドと並べた実例があります。
+型引数にはアプリケーションの ViewModel 型を指定します。React context の境界を越えて型を
+推論することはできません。`KnockoutScope` の外で呼ぶとエラーになります。`T` に含まれて
+いれば `null` と `undefined` も有効なスコープ値で、ネスト時には最も近い ViewModel を返します。
 
 ---
 
@@ -250,6 +264,8 @@ export function useAppViewModel() {
 バインディングを取り付けます。そのため、サーバーが描画した `select` の直下には `option`
 しかなく、hydration がそれらを置き換えることもありません。一方 `KnockoutScope` は、渡された
 children に加え、`display: contents` の 2 つのホストとコミットマーカーもサーバーで描画します。
+DOM のバインディングは hydration まで待ちますが、ViewModel はサーバーレンダリング中にも
+`useKoViewModel` から取得できます。
 
 dehydrated な Suspense 境界の内側のバインディングは、境界が解決するまで保留されます。
 
@@ -272,15 +288,15 @@ radio の暗黙の name — は復元されます。
 
 | v2 | v3 |
 |----|----|
-| `<RootKnockoutProvider viewModel={vm}>…</RootKnockoutProvider>` | `<div {...useKoBind(vm)}>…</div>` |
-| `<KnockoutScope viewModel={vm}>…</KnockoutScope>` | `<div {...useKoBind(vm)}>…</div>`。ViewModel の差し替えと子や portal の更新が同じコミットになる場合は `KnockoutScope` のまま |
+| `<RootKnockoutProvider viewModel={vm}>…</RootKnockoutProvider>` | `<KnockoutScope viewModel={vm}>…</KnockoutScope>` |
+| `<KnockoutScope viewModel={vm}>…</KnockoutScope>` | 変更なし。`useKoViewModel` に `vm` も提供するようになった |
 | `<KoIf condition={c}>…</KoIf>` | `useKoValue(c) ? … : null` |
 | `<KoIfNot condition={c}>…</KoIfNot>` | `useKoValue(c) ? null : …` |
 | `<KoWith value={v}>{(x) => …}</KoWith>` | `const x = useKoValue(v); const bind = useKoBind(x)` の後 `x ? <div {...bind}>…</div> : null` |
 | `<KoForeach>{(item, i) => …}</KoForeach>` | `<KoForeach>{(item, i, bind) => …}</KoForeach>` |
 | `boundaryAs`・`as`・`bindingMode` | 廃止。要素が利用側のものなら、そのタグも利用側のもの |
 | `SemanticHost`・`SemanticHostProps` | 上記と一緒に廃止 |
-| `createAppViewModelContext`・`useAppViewModel`・`AppViewModelContext` | 素の React context |
+| `createAppViewModelContext`・`useAppViewModel`・`AppViewModelContext` | `KnockoutScope` 内の `useKoViewModel<T>()` |
 | `KoScope` | 廃止。名前は `KnockoutScope` |
 
 `useKoValue` は変更ありません。

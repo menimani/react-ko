@@ -337,6 +337,83 @@ describe('portal bindings', () => {
     expect(vm.label.getSubscriptionsCount()).toBe(0)
   })
 
+  it('manages the complete portal lifecycle in an iframe realm', () => {
+    const iframe = document.createElement('iframe')
+    document.body.appendChild(iframe)
+    const foreignDocument = iframe.contentDocument!
+    const foreignWindow = iframe.contentWindow as Window & typeof globalThis
+    const target = foreignDocument.createElement('div')
+    foreignDocument.body.appendChild(target)
+    const originalAppendChild = foreignWindow.Node.prototype.appendChild
+    const originalValueSetter = Object.getOwnPropertyDescriptor(
+      foreignWindow.HTMLInputElement.prototype,
+      'value'
+    )?.set
+    const first = { label: ko.observable('First') }
+    const second = { label: ko.observable('Second') }
+
+    function Harness({
+      viewModel,
+      showLate,
+    }: {
+      viewModel: typeof first
+      showLate: boolean
+    }) {
+      return (
+        <BindingHost viewModel={{}}>
+          <BindingHost viewModel={viewModel}>
+            {createPortal(
+              <div>
+                <input data-bind="value: label" />
+                {showLate ? <span data-bind="text: label" /> : null}
+              </div>,
+              target
+            )}
+          </BindingHost>
+        </BindingHost>
+      )
+    }
+
+    let mounted: ReturnType<typeof render> | undefined
+    try {
+      mounted = render(<Harness viewModel={first} showLate={false} />)
+      const input = target.querySelector('input')
+
+      expect(input).toHaveProperty('value', 'First')
+      expect(first.label.getSubscriptionsCount()).toBeGreaterThan(0)
+      expect(foreignWindow.Node.prototype.appendChild).not.toBe(originalAppendChild)
+      expect(
+        Object.getOwnPropertyDescriptor(
+          foreignWindow.HTMLInputElement.prototype,
+          'value'
+        )?.set
+      ).not.toBe(originalValueSetter)
+
+      mounted.rerender(<Harness viewModel={first} showLate />)
+      expect(target.querySelector('span')).toHaveProperty('textContent', 'First')
+
+      mounted.rerender(<Harness viewModel={second} showLate />)
+      expect(target.querySelector('input')).toHaveProperty('value', 'Second')
+      expect(target.querySelector('span')).toHaveProperty('textContent', 'Second')
+      expect(first.label.getSubscriptionsCount()).toBe(0)
+      expect(second.label.getSubscriptionsCount()).toBeGreaterThan(0)
+
+      mounted.unmount()
+      mounted = undefined
+      expect(second.label.getSubscriptionsCount()).toBe(0)
+      expect(foreignWindow.Node.prototype.appendChild).toBe(originalAppendChild)
+      expect(
+        Object.getOwnPropertyDescriptor(
+          foreignWindow.HTMLInputElement.prototype,
+          'value'
+        )?.set
+      ).toBe(originalValueSetter)
+    } finally {
+      mounted?.unmount()
+      iframe.remove()
+    }
+  })
+
   it('disposes every portal root when binding a newly added portal fails', () => {
     const firstTarget = portalTarget()
     const secondTarget = portalTarget()

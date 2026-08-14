@@ -32,6 +32,38 @@ function isReactOwnedHost(host: HTMLElement) {
   )
 }
 
+function hostsAcrossOpenRoots(
+  root: Document | ShadowRoot,
+  selector: string,
+  visited = new Set<Document | ShadowRoot>()
+) {
+  if (visited.has(root)) return []
+  visited.add(root)
+
+  const hosts = Array.from(root.querySelectorAll<HTMLElement>(selector))
+  for (const element of root.querySelectorAll<HTMLElement>('*')) {
+    if (element.shadowRoot !== null) {
+      hosts.push(...hostsAcrossOpenRoots(element.shadowRoot, selector, visited))
+    }
+    if (element.localName === 'iframe') {
+      let frameDocument: Document | null = null
+      try {
+        frameDocument = (element as HTMLIFrameElement).contentDocument
+      } catch {
+        // Cross-origin and sandboxed frames may reject document access.
+      }
+      if (frameDocument !== null) {
+        hosts.push(...hostsAcrossOpenRoots(frameDocument, selector, visited))
+      }
+    }
+  }
+  return hosts
+}
+
+function isClosedShadowRoot(root: Node): root is ShadowRoot {
+  return root.nodeType === 11 && 'host' in root && (root as ShadowRoot).mode === 'closed'
+}
+
 function useKoBindRoot<T>(viewModel: T, bindable: boolean): KoBindProps {
   const parentGeneration = useContext(ScopeBindGenerationContext)
   const [failure, setFailure] = useState<{ error: unknown } | null>(null)
@@ -63,18 +95,16 @@ function useKoBindRoot<T>(viewModel: T, bindable: boolean): KoBindProps {
   // a root inside another one first is what the binding root's own ordering handles.
   useInsertionEffect(() => {
     if (!bindable || boundHost.current !== null) return
-    const hosts = Array.from(
-      document.querySelectorAll<HTMLElement>(hostSelector(hostId))
-    ).filter(
+    const hosts = hostsAcrossOpenRoots(document, hostSelector(hostId)).filter(
       (candidate) =>
         isReactOwnedHost(candidate) &&
         (hostOwners.get(candidate) === undefined ||
           hostOwners.get(candidate) === hostOwner.current)
     )
-    // A host rendered into another document, or into a container React has not put in
-    // one yet, is not reachable from here. Multiple roots can also share a useId, so
-    // only prebind when React ownership identifies one eligible host unambiguously.
-    // Otherwise its ref still arrives in the layout phase.
+    // A host in an inaccessible document, a closed shadow root, or a container React has
+    // not put in one yet is not reachable from here. Multiple roots can also share a
+    // useId, so only prebind when React ownership identifies one eligible host
+    // unambiguously. Otherwise its ref still arrives in the layout phase.
     if (hosts.length !== 1) return
     const host = hosts[0]
     hostOwners.set(host, hostOwner.current)
@@ -91,6 +121,18 @@ function useKoBindRoot<T>(viewModel: T, bindable: boolean): KoBindProps {
         }
         boundHost.current = null
         return
+      }
+
+      if (bindable && isClosedShadowRoot(node.getRootNode())) {
+        throw new Error(
+          'react-ko: useKoBind cannot bind a host inside a closed ShadowRoot before descendant layout effects run. Use KnockoutScope inside the shadow root instead.'
+        )
+      }
+
+      if (bindable && !node.isConnected) {
+        throw new Error(
+          'react-ko: useKoBind cannot bind a detached host before descendant layout effects run. Use KnockoutScope inside the detached tree instead.'
+        )
       }
 
       // One call binds one element. Spreading the same props twice would leave the

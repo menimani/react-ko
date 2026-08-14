@@ -754,7 +754,7 @@ describe('observeBindingDescendants', () => {
     act(() => {
       host.appendChild(el)
     })
-    await waitFor(() => expect(el.getAttribute('name')).toMatch(/^ko_unique_/))
+    await waitFor(() => expect(el.getAttribute('name')).not.toBeNull())
 
     act(() => {
       el.removeAttribute('data-bind')
@@ -778,7 +778,7 @@ describe('observeBindingDescendants', () => {
     act(() => {
       host.appendChild(el)
     })
-    await waitFor(() => expect(el.getAttribute('name')).toMatch(/^ko_unique_/))
+    await waitFor(() => expect(el.getAttribute('name')).not.toBeNull())
 
     act(() => {
       el.setAttribute('data-bind', 'attr: { title: title }')

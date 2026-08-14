@@ -18,7 +18,7 @@ the elements it renders.
 - [useKoValue](#usekovalue)
 - [KoForeach](#koforeach)
 - [KnockoutScope](#knockoutscope)
-- [Providing a ViewModel to a subtree](#providing-a-viewmodel-to-a-subtree)
+- [useKoViewModel](#usekoviewmodel)
 - [Server rendering and hydration](#server-rendering-and-hydration)
 - [What Knockout may and may not own](#what-knockout-may-and-may-not-own)
 - [Migrating from v2](#migrating-from-v2)
@@ -39,19 +39,21 @@ npm install react-ko knockout
 
 ## The whole API
 
-Four runtime exports. Two are the bridge between the libraries, one is a list, and one
-covers the case the bridge cannot. The public API also exports the `KoBindProps` type.
+Five runtime exports. `KnockoutScope` establishes the ordinary scope, two hooks read
+from it and from Knockout, one component renders lists, and one hook binds a specific
+existing element. The public API also exports the `KoBindProps` type.
 
 | Export | Direction | What it is for |
 |--------|-----------|----------------|
 | `useKoBind` | React → Knockout | Makes an element you rendered a binding root |
 | `useKoValue` | Knockout → React | Reads an observable as React state |
 | `KoForeach` | — | A row per item, each bound to that item |
-| `KnockoutScope` | — | A scope that renders its own host and commit marker |
+| `KnockoutScope` | — | Binds and provides a view model to a subtree |
+| `useKoViewModel` | Knockout scope → React | Reads the nearest scope's view model |
 | `KoBindProps` | — | The props type returned by `useKoBind` |
 
-The rule the API follows: the library holds what a caller cannot write, and the
-elements are the caller's.
+Use `KnockoutScope` for an ordinary application or nested scope. Use `useKoBind` where
+the binding root must be a particular element that a wrapper cannot contain.
 
 ---
 
@@ -61,7 +63,8 @@ elements are the caller's.
 function useKoBind<T>(viewModel: T | null | undefined): KoBindProps
 ```
 
-Returns props to spread onto the element that is to become the binding root.
+Returns props to spread onto a particular existing element that must become the
+binding root. For an ordinary scope, use `KnockoutScope`.
 
 ```tsx
 import ko from 'knockout'
@@ -130,7 +133,7 @@ than a runtime one.
 ## useKoValue
 
 ```ts
-function useKoValue<T>(source: ko.ObservableArray<T>): T[] | null | undefined
+function useKoValue<T>(source: ko.ObservableArray<T>): T[]
 function useKoValue<T>(source: ko.Observable<T> | ko.Computed<T> | T): T
 function useKoValue<T>(source: ko.Observable<T> | ko.Computed<T> | T | undefined): T | undefined
 ```
@@ -151,11 +154,12 @@ Pass the observable, not its value. `useKoValue(vm.name)` subscribes;
 first render and then quietly stops.
 
 An optional source keeps its own shape: `ko.Observable<string> | undefined` returns
-`string | undefined`. An observable array returns `T[] | null | undefined`, because
-that is what it can hold at runtime:
+`string | undefined`. An observable array returns `T[]`. If the array value itself can
+be nullish, use a nullable observable instead:
 
 ```tsx
-const items = useKoValue(vm.items) ?? []
+const items = ko.observable<Item[] | null | undefined>(undefined)
+const value = useKoValue(items) // Item[] | null | undefined
 ```
 
 Plain values pass through unchanged, so a prop typed `ko.Observable<T> | T` can be
@@ -215,34 +219,46 @@ return visible ? <section {...bind}>…</section> : null
 `useKoBind` finds its marked host in the mutation phase, before descendant layout
 effects run. It also observes descendants added after the initial binding pass.
 
-`KnockoutScope` covers the narrower case that needs a component-owned position in the
-tree. It renders an inert marker before its host, so it can announce a view-model
+`KnockoutScope` is the ordinary scoping API: it binds the subtree and provides the view
+model to React components through `useKoViewModel`. Its component-owned position in the
+tree also lets it render an inert marker before its host, so it can announce a view-model
 replacement before a child or portal added or rebound by the same commit is observed.
-It is also available when there is no single existing element on which to spread the
-props returned by `useKoBind`.
 
 Its hosts are plain `div`s with `display: contents`, and it does not let you choose
-them. An element that has to be something else is yours, through `useKoBind`.
+them. An element that has to be something else — such as an `option`, `tr`, or `li` —
+is yours, through `useKoBind`.
 
 ---
 
-## Providing a ViewModel to a subtree
+## useKoViewModel
 
-That is plain React, so the library does not ship it:
+```ts
+function useKoViewModel<T>(): T
+```
+
+Returns the view model from the nearest `KnockoutScope`:
 
 ```tsx
-import { createContext, useContext } from 'react'
+import { KnockoutScope, useKoViewModel } from 'react-ko'
 
-const AppViewModelContext = createContext<AppViewModel | null>(null)
+function Panel() {
+  const vm = useKoViewModel<AppViewModel>()
+  return <button data-bind="click: save">Save {vm.title}</button>
+}
 
-export function useAppViewModel() {
-  const viewModel = useContext(AppViewModelContext)
-  if (viewModel === null) throw new Error('Missing provider')
-  return viewModel
+function App() {
+  return (
+    <KnockoutScope viewModel={new AppViewModel()}>
+      <Panel />
+    </KnockoutScope>
+  )
 }
 ```
 
-Both starters show it in place, next to the root binding.
+The type argument states the application's view-model type; React context cannot infer
+it across the component boundary. The hook throws outside a `KnockoutScope`. `null` and
+`undefined` are valid scope values when included in `T`, and nested scopes return the
+nearest view model.
 
 ---
 
@@ -254,7 +270,8 @@ wrote, plus the binding-root attribute. Hydration reuses those elements and atta
 the bindings afterwards, so a `select` rendered on the server contains only `option`
 elements, and hydration does not replace them. `KnockoutScope`, by contrast, renders
 its two `display: contents` hosts and commit marker on the server as well as the
-children passed to it.
+children passed to it. Its view model is available through `useKoViewModel` during
+server rendering even though DOM bindings wait for hydration.
 
 Bindings inside a dehydrated Suspense boundary are deferred until the boundary
 resolves.
@@ -278,15 +295,15 @@ disabled state, the implicit radio name — are restored.
 
 | v2 | v3 |
 |----|----|
-| `<RootKnockoutProvider viewModel={vm}>…</RootKnockoutProvider>` | `<div {...useKoBind(vm)}>…</div>` |
-| `<KnockoutScope viewModel={vm}>…</KnockoutScope>` | `<div {...useKoBind(vm)}>…</div>`, or keep `KnockoutScope` when a view-model replacement and a child or portal update share a commit |
+| `<RootKnockoutProvider viewModel={vm}>…</RootKnockoutProvider>` | `<KnockoutScope viewModel={vm}>…</KnockoutScope>` |
+| `<KnockoutScope viewModel={vm}>…</KnockoutScope>` | Unchanged; it now also provides `vm` to `useKoViewModel` |
 | `<KoIf condition={c}>…</KoIf>` | `useKoValue(c) ? … : null` |
 | `<KoIfNot condition={c}>…</KoIfNot>` | `useKoValue(c) ? null : …` |
 | `<KoWith value={v}>{(x) => …}</KoWith>` | `const x = useKoValue(v); const bind = useKoBind(x)`, then `x ? <div {...bind}>…</div> : null` |
 | `<KoForeach>{(item, i) => …}</KoForeach>` | `<KoForeach>{(item, i, bind) => …}</KoForeach>` |
 | `boundaryAs`, `as`, `bindingMode` | Gone. The element is yours, so its tag is too |
 | `SemanticHost`, `SemanticHostProps` | Gone with them |
-| `createAppViewModelContext`, `useAppViewModel`, `AppViewModelContext` | Plain React context |
+| `createAppViewModelContext`, `useAppViewModel`, `AppViewModelContext` | `useKoViewModel<T>()` inside `KnockoutScope` |
 | `KoScope` | Gone; `KnockoutScope` is the name |
 
 `useKoValue` is unchanged.

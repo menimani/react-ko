@@ -1,5 +1,11 @@
 import { act, waitFor } from '@testing-library/react'
-import { Suspense, type ReactElement, type ReactNode } from 'react'
+import {
+  Component,
+  Suspense,
+  useState,
+  type ReactElement,
+  type ReactNode,
+} from 'react'
 import { hydrateRoot, type Root } from 'react-dom/client'
 import { renderToString } from 'react-dom/server'
 import ko from 'knockout'
@@ -7,26 +13,24 @@ import { describe, expect, it, vi } from 'vitest'
 import { KoForeach, useKoValue } from '@/index'
 import { BindingHost } from '../../fixtures/bindingHost'
 
-type ViewModel = {
-  label: ko.Observable<string>
+class ErrorBoundary extends Component<
+  { children: ReactNode },
+  { error: Error | null }
+> {
+  state: { error: Error | null } = { error: null }
+
+  static getDerivedStateFromError(error: Error) {
+    return { error }
+  }
+
+  render() {
+    return this.state.error === null ? (
+      this.props.children
+    ) : (
+      <span data-testid="binding-error">{this.state.error.message}</span>
+    )
+  }
 }
-
-type ScopeFactory = (
-  viewModel: ViewModel,
-  children: ReactNode,
-  as?: string
-) => ReactElement
-
-const scopes: Array<[string, ScopeFactory]> = [
-  [
-    'BindingHost',
-    (viewModel, children, as) => (
-      <BindingHost viewModel={viewModel} as={as as never}>
-        {children}
-      </BindingHost>
-    ),
-  ],
-]
 
 function childTree() {
   return (
@@ -66,10 +70,12 @@ async function hydrate(tree: ReactElement) {
   }
 }
 
-describe.each(scopes)('%s server rendering', (_, createScope) => {
+describe('BindingHost server rendering', () => {
   it('includes its child subtree in the server output', () => {
     const html = renderToString(
-      createScope({ label: ko.observable('Server') }, childTree())
+      <BindingHost viewModel={{ label: ko.observable('Server') }}>
+        {childTree()}
+      </BindingHost>
     )
 
     expect(html).toContain('Server child')
@@ -78,7 +84,7 @@ describe.each(scopes)('%s server rendering', (_, createScope) => {
 
   it('preserves and binds its server-rendered children during hydration', async () => {
     const viewModel = { label: ko.observable('Hydrated') }
-    const tree = createScope(viewModel, childTree())
+    const tree = <BindingHost viewModel={viewModel}>{childTree()}</BindingHost>
     const container = document.createElement('div')
     container.innerHTML = renderToString(tree)
     document.body.appendChild(container)
@@ -125,11 +131,12 @@ describe.each(scopes)('%s server rendering', (_, createScope) => {
       )
     }
 
-    const tree = createScope(
-      viewModel,
-      <Suspense fallback={<span>Fallback</span>}>
-        <DelayedChild />
-      </Suspense>
+    const tree = (
+      <BindingHost viewModel={viewModel}>
+        <Suspense fallback={<span>Fallback</span>}>
+          <DelayedChild />
+        </Suspense>
+      </BindingHost>
     )
     const container = serverContainer(tree)
     const serverChild = container.querySelector('[data-testid="suspended-bound"]')
@@ -223,6 +230,112 @@ it('clears deferred Suspense polling when the binding root unmounts', async () =
     setTimeout.mockRestore()
     clearTimeout.mockRestore()
     vi.useRealTimers()
+  }
+})
+
+it('reports a deferred binding failure inside nested Suspense boundaries and cleans up', async () => {
+  const setTimeout = vi.spyOn(window, 'setTimeout')
+  const clearTimeout = vi.spyOn(window, 'clearTimeout')
+  const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+  const label = ko.observable('Bound after outer hydration')
+  let hydrating = false
+  let outerReady = false
+  let showInvalidBinding: () => void = () => undefined
+  let resolveOuter: () => void = () => undefined
+  const outerSuspended = new Promise<void>((resolve) => {
+    resolveOuter = resolve
+  })
+  const innerSuspended = new Promise<void>(() => undefined)
+
+  function InnerChild() {
+    if (hydrating) throw innerSuspended
+    return <span data-bind="text: label" />
+  }
+
+  function OuterChild() {
+    if (hydrating && !outerReady) throw outerSuspended
+    const [invalidBinding, setInvalidBinding] = useState(false)
+    showInvalidBinding = () => setInvalidBinding(true)
+    return (
+      <section>
+        <span data-testid="outer-bound" data-bind="text: label" />
+        <span
+          data-testid="late-bound"
+          data-bind={invalidBinding ? 'text: missing.value' : undefined}
+        />
+        <Suspense fallback={<span>Inner fallback</span>}>
+          <InnerChild />
+        </Suspense>
+      </section>
+    )
+  }
+
+  const tree = (
+    <ErrorBoundary>
+      <BindingHost viewModel={{ label }}>
+        <Suspense fallback={<span>Outer fallback</span>}>
+          <OuterChild />
+        </Suspense>
+      </BindingHost>
+    </ErrorBoundary>
+  )
+  const container = serverContainer(tree)
+  document.body.appendChild(container)
+  hydrating = true
+  let root: Root | undefined
+
+  try {
+    await act(async () => {
+      root = hydrateRoot(container, tree)
+    })
+
+    expect(label.getSubscriptionsCount()).toBe(0)
+
+    await act(async () => {
+      outerReady = true
+      resolveOuter()
+      await outerSuspended
+    })
+
+    await waitFor(() =>
+      expect(
+        container.querySelector('[data-testid="outer-bound"]')?.textContent
+      ).toBe('Bound after outer hydration')
+    )
+    expect(label.getSubscriptionsCount()).toBe(1)
+
+    act(() => {
+      showInvalidBinding()
+    })
+
+    await waitFor(() =>
+      expect(
+        container.querySelector('[data-testid="binding-error"]')?.textContent
+      ).toContain('missing is not defined')
+    )
+    expect(label.getSubscriptionsCount()).toBe(0)
+    const pollingDelays = new Set([16, 32, 64, 128, 256, 512, 1000])
+    const pollingTimers = setTimeout.mock.calls.flatMap(([, delay], index) =>
+      pollingDelays.has(delay ?? 0) ? [setTimeout.mock.results[index]?.value] : []
+    )
+    expect(
+      pollingTimers.some((timer) =>
+        clearTimeout.mock.calls.some(([cleared]) => cleared === timer)
+      )
+    ).toBe(true)
+    const settledPollingCalls = pollingTimers.length
+    await new Promise((resolve) => window.setTimeout(resolve, 50))
+    expect(
+      setTimeout.mock.calls.filter(([, delay]) => pollingDelays.has(delay ?? 0))
+    ).toHaveLength(settledPollingCalls)
+  } finally {
+    if (root !== undefined && container.isConnected) {
+      act(() => root?.unmount())
+    }
+    container.remove()
+    setTimeout.mockRestore()
+    clearTimeout.mockRestore()
+    consoleError.mockRestore()
   }
 })
 

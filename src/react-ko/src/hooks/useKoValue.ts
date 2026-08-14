@@ -15,7 +15,7 @@ import type * as ko from 'knockout'
  */
 export function useKoValue<T>(
   source: ko.ObservableArray<T>
-): T[] | null | undefined
+): T[]
 export function useKoValue<T>(source: ko.Observable<T> | ko.Computed<T> | T): T
 export function useKoValue<T>(
   source: ko.Observable<T> | ko.Computed<T> | T | undefined
