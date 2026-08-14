@@ -923,18 +923,39 @@ export function applyBindingsSafely(
   )
   const restoreBindingHandlerLookup = rejectDescendantControllingCustomHandlers(node)
   const view = node.ownerDocument.defaultView
-  const eventTargetPrototype = view?.EventTarget.prototype
+  let eventTargetPrototype = view?.EventTarget.prototype
+  if (eventTargetPrototype === undefined) {
+    let prototype = Object.getPrototypeOf(node) as object | null
+    while (prototype !== null) {
+      if (
+        Object.prototype.hasOwnProperty.call(prototype, 'addEventListener') &&
+        Object.prototype.hasOwnProperty.call(prototype, 'removeEventListener')
+      ) {
+        eventTargetPrototype = prototype as EventTarget
+        break
+      }
+      prototype = Object.getPrototypeOf(prototype) as object | null
+    }
+  }
   const addEventListener = eventTargetPrototype?.addEventListener
 
   // Knockout does not unregister native addEventListener handlers from nodes
   // that remain in the DOM after cleanNode. Track handlers created by this
   // binding pass so cleanup retires them before a replacement pass is applied.
-  if (eventTargetPrototype !== undefined && addEventListener !== undefined && view !== null) {
+  if (eventTargetPrototype !== undefined && addEventListener !== undefined) {
     eventTargetPrototype.addEventListener = function (type, listener, options) {
       addEventListener.call(this, type, listener, options)
 
-      if (listener !== null && this instanceof view.Node && (this === node || node.contains(this))) {
-        ko.utils.domNodeDisposal.addDisposeCallback(this, () => {
+      let belongsToBindingRoot = this === node
+      if (!belongsToBindingRoot) {
+        try {
+          belongsToBindingRoot = node.contains(this as Node)
+        } catch {
+          // Non-Node event targets cannot belong to the binding root.
+        }
+      }
+      if (listener !== null && belongsToBindingRoot) {
+        ko.utils.domNodeDisposal.addDisposeCallback(this as Node, () => {
           this.removeEventListener(type, listener, options)
         })
       }
