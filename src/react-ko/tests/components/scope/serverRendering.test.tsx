@@ -202,6 +202,75 @@ describe('BindingHost server rendering', () => {
   })
 })
 
+it('binds hydrated Suspense markup despite continuous sibling mutations', async () => {
+  vi.useFakeTimers()
+  const label = ko.observable('Knockout value')
+  let hydrating = false
+  let ready = false
+  let resolveChild: () => void = () => undefined
+  const suspended = new Promise<void>((resolve) => {
+    resolveChild = resolve
+  })
+
+  function DelayedChild() {
+    if (hydrating && !ready) throw suspended
+    return (
+      <span
+        data-testid="suspended-bound"
+        data-bind="attr: { title: label }"
+        title="Server value"
+      />
+    )
+  }
+
+  const tree = (
+    <BindingHost viewModel={{ label }}>
+      <span data-testid="mutating-sibling" />
+      <Suspense fallback={null}>
+        <DelayedChild />
+      </Suspense>
+    </BindingHost>
+  )
+  const container = serverContainer(tree)
+  const bound = container.querySelector('[data-testid="suspended-bound"]')
+  const sibling = container.querySelector('[data-testid="mutating-sibling"]')
+  document.body.appendChild(container)
+  hydrating = true
+  let root: Root | undefined
+
+  try {
+    await act(async () => {
+      root = hydrateRoot(container, tree)
+    })
+
+    await act(async () => {
+      ready = true
+      resolveChild()
+      await suspended
+    })
+
+    expect(bound).toHaveProperty('title', 'Server value')
+    expect(label.getSubscriptionsCount()).toBe(0)
+
+    for (let tick = 1; tick <= 5; tick += 1) {
+      await act(async () => {
+        sibling?.setAttribute('data-tick', String(tick))
+        await Promise.resolve()
+        await vi.advanceTimersByTimeAsync(4)
+      })
+    }
+
+    expect(bound).toHaveProperty('title', 'Knockout value')
+    expect(label.getSubscriptionsCount()).toBe(1)
+  } finally {
+    if (root !== undefined && container.isConnected) {
+      act(() => root?.unmount())
+    }
+    container.remove()
+    vi.useRealTimers()
+  }
+})
+
 describe('KnockoutScope server rendering', () => {
   it('provides server context and preserves its bound children during hydration', async () => {
     const boundLabel = ko.observable('Hydrated')
