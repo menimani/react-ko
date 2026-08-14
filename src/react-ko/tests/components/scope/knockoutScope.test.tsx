@@ -65,6 +65,40 @@ describe('KnockoutScope', () => {
     }
   })
 
+  it('retires listeners after replacement and unmount in a document without a window', () => {
+    const secondaryDocument = document.implementation.createHTMLDocument('secondary')
+    expect(secondaryDocument.defaultView).toBeNull()
+    const container = secondaryDocument.createElement('div')
+    secondaryDocument.body.appendChild(container)
+    const root = createRoot(container)
+    const first = vi.fn()
+    const second = vi.fn()
+
+    function Scope({ handle }: { handle: () => void }) {
+      return (
+        <KnockoutScope viewModel={{ handle }}>
+          <button data-bind="click: handle" />
+        </KnockoutScope>
+      )
+    }
+
+    act(() => root.render(<Scope handle={first} />))
+    const button = container.querySelector('button')!
+    button.click()
+    expect(first).toHaveBeenCalledOnce()
+
+    act(() => root.render(<Scope handle={second} />))
+    button.click()
+    expect(first).toHaveBeenCalledOnce()
+    expect(second).toHaveBeenCalledOnce()
+
+    act(() => root.unmount())
+    expect(button.isConnected).toBe(false)
+    button.click()
+    expect(first).toHaveBeenCalledOnce()
+    expect(second).toHaveBeenCalledOnce()
+  })
+
   it('keeps one live subscription through StrictMode replay and disposes it on unmount', () => {
     const vm = { label: ko.observable('Strict') }
 
