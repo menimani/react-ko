@@ -40,8 +40,8 @@ npm install react-ko knockout
 
 ## API の全体
 
-エクスポートは 4 つ。2 つが 2 つのライブラリを橋渡しし、1 つがリスト、1 つは橋渡しでは
-賄えない場合を受け持ちます。
+ランタイムのエクスポートは 4 つ。2 つが 2 つのライブラリを橋渡しし、1 つがリスト、1 つは
+橋渡しでは賄えない場合を受け持ちます。公開 API は型 `KoBindProps` もエクスポートします。
 
 | エクスポート | 向き | 役割 |
 |--------------|------|------|
@@ -49,6 +49,7 @@ npm install react-ko knockout
 | `useKoValue` | Knockout → React | observable を React の state として読む |
 | `KoForeach` | — | アイテムごとに 1 行を描画し、その行をアイテムにバインドする |
 | `KnockoutScope` | — | 自前のホストとコミットマーカーを描画するスコープ |
+| `KoBindProps` | — | `useKoBind` が返す props の型 |
 
 API が従っている原則は 1 つ — **ライブラリは利用側が書けないものだけを持ち、要素は利用側の
 もの**。
