@@ -71,6 +71,46 @@ describe('useKoBind', () => {
     expect(screen.getByTestId('value').textContent).toBe('Second')
   })
 
+  it('binds a late child to a using context established on the host', async () => {
+    const vm = { current: { label: 'Using context' } }
+
+    function Host({ show }: { show: boolean }) {
+      const bind = useKoBind(vm)
+      return (
+        <div {...bind} data-bind="using: current">
+          {show ? <span data-testid="value" data-bind="text: label" /> : null}
+        </div>
+      )
+    }
+
+    const { rerender } = render(<Host show={false} />)
+    rerender(<Host show />)
+
+    await waitFor(() =>
+      expect(screen.getByTestId('value').textContent).toBe('Using context')
+    )
+  })
+
+  it('binds a late child to a let context established on the host', async () => {
+    const vm = { label: 'Let context' }
+
+    function Host({ show }: { show: boolean }) {
+      const bind = useKoBind(vm)
+      return (
+        <div {...bind} data-bind="let: { alias: label }">
+          {show ? <span data-testid="value" data-bind="text: alias" /> : null}
+        </div>
+      )
+    }
+
+    const { rerender } = render(<Host show={false} />)
+    rerender(<Host show />)
+
+    await waitFor(() =>
+      expect(screen.getByTestId('value').textContent).toBe('Let context')
+    )
+  })
+
   it('rebinds against a replacement view model', () => {
     function Host() {
       const [vm, setVm] = useState({ label: 'First view model' })
