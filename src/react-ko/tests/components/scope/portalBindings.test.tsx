@@ -91,7 +91,11 @@ describe('portal bindings', () => {
     render(
       <BindingHost viewModel={{}}>
         <BindingHost viewModel={outer}>
-          <div ref={(node) => node?.appendChild(target)} />
+          <div
+            ref={(node) => {
+              node?.appendChild(target)
+            }}
+          />
         </BindingHost>
         <BindingHost viewModel={inner}>
           {createPortal(
