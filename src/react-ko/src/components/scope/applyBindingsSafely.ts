@@ -506,7 +506,7 @@ function validateNoReactUnsafeBindings(
     if (unsafeBinding === undefined) return
 
     const advice = REACT_UNSAFE_BINDINGS.has(unsafeBinding)
-      ? 'Use KoIf, KoIfNot, KoForeach, or KoWith instead.'
+      ? 'Use React rendering with useKoValue, or KoForeach for lists, instead.'
       : 'Leave the bound element empty so Knockout can own its contents.'
 
     throw new Error(
