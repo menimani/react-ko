@@ -118,6 +118,52 @@ describe('KnockoutScope', () => {
     expect(vm.label.getSubscriptionsCount()).toBe(0)
   })
 
+  it.each([null, undefined])(
+    'disposes and rebinds when its view model is replaced with %s',
+    (missingViewModel) => {
+      const first = { label: ko.observable('First') }
+      const second = { label: ko.observable('Second') }
+
+      function Harness({
+        viewModel,
+      }: {
+        viewModel: typeof first | null | undefined
+      }) {
+        return (
+          <KnockoutScope viewModel={viewModel}>
+            <span
+              data-testid="value"
+              data-bind="text: $data === null ? 'null' : typeof $data === 'undefined' ? 'undefined' : label"
+            />
+          </KnockoutScope>
+        )
+      }
+
+      const { rerender } = render(<Harness viewModel={first} />)
+      const value = screen.getByTestId('value')
+      expect(value.textContent).toBe('First')
+      expect(first.label.getSubscriptionsCount()).toBe(1)
+
+      rerender(<Harness viewModel={missingViewModel} />)
+      expect(value.textContent).toBe(
+        missingViewModel === null ? 'null' : 'undefined'
+      )
+      expect(first.label.getSubscriptionsCount()).toBe(0)
+
+      act(() => first.label('Changed after disposal'))
+      expect(value.textContent).toBe(
+        missingViewModel === null ? 'null' : 'undefined'
+      )
+
+      rerender(<Harness viewModel={second} />)
+      expect(value.textContent).toBe('Second')
+      expect(second.label.getSubscriptionsCount()).toBe(1)
+
+      act(() => second.label('Rebound'))
+      expect(value.textContent).toBe('Rebound')
+    }
+  )
+
   it('sends a binding failure to a React error boundary', async () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     const vm = {
