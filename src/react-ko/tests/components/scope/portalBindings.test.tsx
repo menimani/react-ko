@@ -10,7 +10,7 @@ import {
 } from 'react'
 import { createPortal } from 'react-dom'
 import ko from 'knockout'
-import { KnockoutScope } from '@/index'
+import { KnockoutScope, useKoBind } from '@/index'
 import { BindingHost } from '../../fixtures/bindingHost'
 
 const portalTargets: HTMLElement[] = []
@@ -44,6 +44,66 @@ class ErrorBoundary extends Component<
 }
 
 describe('portal bindings', () => {
+  it('manages the complete portal lifecycle for a useKoBind root', () => {
+    const target = portalTarget()
+    const first = { label: ko.observable('First') }
+    const second = { label: ko.observable('Second') }
+
+    function HookRoot({
+      viewModel,
+      showPortal,
+    }: {
+      viewModel: typeof first
+      showPortal: boolean
+    }) {
+      const bind = useKoBind(viewModel)
+      return (
+        <section {...bind}>
+          {showPortal
+            ? createPortal(
+                <span data-testid="hook-portal" data-bind="text: label" />,
+                target
+              )
+            : null}
+        </section>
+      )
+    }
+
+    function Harness({
+      viewModel,
+      showPortal,
+    }: {
+      viewModel: typeof first
+      showPortal: boolean
+    }) {
+      return (
+        <BindingHost viewModel={{}}>
+          <HookRoot viewModel={viewModel} showPortal={showPortal} />
+        </BindingHost>
+      )
+    }
+
+    const mounted = render(<Harness viewModel={first} showPortal />)
+    expect(screen.getByTestId('hook-portal')).toHaveProperty('textContent', 'First')
+    expect(first.label.getSubscriptionsCount()).toBe(1)
+
+    mounted.rerender(<Harness viewModel={second} showPortal />)
+    expect(screen.getByTestId('hook-portal')).toHaveProperty('textContent', 'Second')
+    expect(first.label.getSubscriptionsCount()).toBe(0)
+    expect(second.label.getSubscriptionsCount()).toBe(1)
+
+    mounted.rerender(<Harness viewModel={second} showPortal={false} />)
+    expect(screen.queryByTestId('hook-portal')).toBeNull()
+    expect(second.label.getSubscriptionsCount()).toBe(0)
+
+    mounted.rerender(<Harness viewModel={second} showPortal />)
+    expect(screen.getByTestId('hook-portal')).toHaveProperty('textContent', 'Second')
+    expect(second.label.getSubscriptionsCount()).toBe(1)
+
+    mounted.unmount()
+    expect(second.label.getSubscriptionsCount()).toBe(0)
+  })
+
   it('binds portal content to its owning root and nearest React scope', () => {
     const rootTarget = portalTarget()
     const scopeTarget = portalTarget()
