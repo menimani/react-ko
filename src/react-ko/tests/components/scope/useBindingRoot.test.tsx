@@ -178,11 +178,6 @@ describe('useBindingRoot', () => {
     }
   )
 
-  // The layout-ordering matrix covered the structural components, which are gone.
-  // A root now comes from the caller's own ref, and React attaches refs from the bottom
-  // up, so a descendant layout effect can run before the root it sits in has bound. That
-  // gap is stated in useKoBind's documentation.
-
   it('unmounts cleanly when a rebind fails after the old binding was disposed', () => {
     const vmA = { label: ko.observable('First') }
     const vmB = { label: ko.observable('Second'), items: ko.observableArray<string>([]) }
