@@ -60,6 +60,10 @@ React component in the scope. Nested scopes provide their own model.
 `useKoValue` brings a Knockout value into React, for the places `data-bind` cannot
 reach — JSX interpolation, props, effect dependencies.
 
+If a list's rows contain no `data-bind`, it is a plain React list: read it with
+`useKoValue(vm.items)` and call `.map(...)` with ordinary React keys. `KoForeach`
+only adds a per-row Knockout binding root, so it adds nothing in that case.
+
 There are five runtime exports: `KnockoutScope`, `useKoViewModel`, `useKoValue`,
 `KoForeach` for lists, and `useKoBind` for making a particular existing element the
 binding root when a wrapper cannot be used. A `useKoBind` host inside a closed shadow root or a detached tree such as a
