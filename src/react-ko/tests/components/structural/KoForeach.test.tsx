@@ -1,6 +1,6 @@
 import * as React from 'react'
-import { describe, it, expect } from 'vitest'
-import { render, screen, act } from '@testing-library/react'
+import { describe, it, expect, vi } from 'vitest'
+import { render, screen, act, waitFor } from '@testing-library/react'
 import ko from 'knockout'
 import { KoForeach } from '@/index'
 import { BindingHost } from '../../fixtures/bindingHost'
@@ -19,6 +19,25 @@ function StatefulIndex({ index }: { index: number }) {
 function StatefulItem({ item, list }: { item: string; list: string }) {
   const [initialItem] = React.useState(item)
   return <span data-testid={`${list}-${item}`}>{`${item}:${initialItem}`}</span>
+}
+
+class ErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { message: string }
+> {
+  state = { message: '' }
+
+  static getDerivedStateFromError(error: unknown) {
+    return { message: error instanceof Error ? error.message : String(error) }
+  }
+
+  render() {
+    return this.state.message === '' ? (
+      this.props.children
+    ) : (
+      <span data-testid="failure">{this.state.message}</span>
+    )
+  }
 }
 
 describe('KoForeach', () => {
@@ -44,12 +63,12 @@ describe('KoForeach', () => {
     render(
       <BindingHost viewModel={{}}>
         <KoForeach items={vm.items}>
-          {(item) => <span>{item}</span>}
+          {(item) => <span data-testid="row">{item}</span>}
         </KoForeach>
       </BindingHost>
     )
 
-    expect(screen.queryByText(/./)).toBeNull()
+    expect(screen.queryByTestId('row')).toBeNull()
   })
 
   it('passes the index to the render prop', () => {
@@ -86,6 +105,35 @@ describe('KoForeach', () => {
     })
 
     expect(screen.getByText('Z')).toBeDefined()
+  })
+
+  it('rejects row bind props spread onto two connected elements', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    try {
+      render(
+        <ErrorBoundary>
+          <BindingHost viewModel={{}}>
+            <KoForeach items={[row('Shared')]}>
+              {(_item, _index, bind) => (
+                <>
+                  <span {...bind} data-bind="text: name" />
+                  <span {...bind} data-bind="text: name" />
+                </>
+              )}
+            </KoForeach>
+          </BindingHost>
+        </ErrorBoundary>
+      )
+
+      await waitFor(() =>
+        expect(screen.getByTestId('failure').textContent).toBe(
+          'react-ko: the props returned by one useKoBind call are spread onto more than one element. Call useKoBind once per element.'
+        )
+      )
+    } finally {
+      consoleError.mockRestore()
+    }
   })
 
   it('binds nullish row items as $data through the supplied binding root', () => {

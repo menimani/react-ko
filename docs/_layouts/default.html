@@ -131,8 +131,7 @@
 <div class="page">
 {{ content }}
 <footer>
-  react-ko is published under the MIT licence.
-  <a href="https://github.com/menimani/react-ko">Source on GitHub</a>.
+  {{ page.footer | default: 'react-ko is published under the MIT licence.' }}
 </footer>
 </div>
 </body>

@@ -1,6 +1,7 @@
-import { createElement } from 'react'
+import { createElement, type ReactElement } from 'react'
 import ko from 'knockout'
 import {
+  KnockoutScope,
   KoForeach,
   useKoBind,
   useKoValue,
@@ -9,6 +10,11 @@ import {
 } from 'react-ko'
 
 function expectType<Expected>(_value: Expected): void {}
+
+type Equal<Left, Right> =
+  (<T>() => T extends Left ? 1 : 2) extends
+  (<T>() => T extends Right ? 1 : 2) ? true : false
+type Assert<T extends true> = T
 
 type ViewModel = {
   title: string
@@ -39,6 +45,13 @@ expectType<(node: HTMLElement | null) => void>(bind.ref)
 useKoBind<ViewModel | null>(null)
 useKoBind(undefined)
 expectType<ViewModel>(useKoViewModel<ViewModel>())
+
+expectType<ReactElement>(
+  KnockoutScope<ViewModel>({
+    viewModel,
+    children: createElement('span', null, viewModel.title),
+  })
+)
 
 KoForeach({
   items: rows,
@@ -84,6 +97,10 @@ KoForeach({ items: rows, children: () => null, itemKey: () => ({}) })
 expectType<number>(useKoValue(1))
 expectType<number>(useKoValue(viewModel.count))
 expectType<number>(useKoValue(ko.pureComputed(() => viewModel.count())))
-expectType<Row[] | null | undefined>(useKoValue(observableRows))
+const nullableRowsValue = useKoValue(nullableObservableRows)
+type NullableRowsValue = Assert<
+  Equal<typeof nullableRowsValue, Row[] | null | undefined>
+>
+void (true satisfies NullableRowsValue)
 // @ts-expect-error An explicit result type must agree with the source.
 useKoValue<number>('not a number')

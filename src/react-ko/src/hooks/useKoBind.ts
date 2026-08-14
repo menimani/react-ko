@@ -22,6 +22,16 @@ function hostSelector(id: string) {
   return `[${ELEMENT_BINDING_ROOT_ATTRIBUTE}="${id.replace(/["\\]/g, '\\$&')}"]`
 }
 
+function isHTMLElement(node: Element): node is HTMLElement {
+  const view = node.ownerDocument.defaultView
+  if (view !== null) return node instanceof view.HTMLElement
+
+  // Documents created with createHTMLDocument have no Window, but their HTML
+  // namespace elements are still valid hosts. The namespace also excludes SVG and
+  // MathML without consulting a constructor from the wrong realm.
+  return node.namespaceURI === 'http://www.w3.org/1999/xhtml'
+}
+
 // Independently rendered roots receive the same default useId sequence. Remember which
 // matching SSR host each hook claimed so a later root can select its own unclaimed host.
 const hostOwners = new WeakMap<HTMLElement, object>()
@@ -40,8 +50,8 @@ function hostsAcrossOpenRoots(
   if (visited.has(root)) return []
   visited.add(root)
 
-  const hosts = Array.from(root.querySelectorAll<HTMLElement>(selector))
-  for (const element of root.querySelectorAll<HTMLElement>('*')) {
+  const hosts = Array.from(root.querySelectorAll(selector)).filter(isHTMLElement)
+  for (const element of root.querySelectorAll('*')) {
     if (element.shadowRoot !== null) {
       hosts.push(...hostsAcrossOpenRoots(element.shadowRoot, selector, visited))
     }
@@ -64,7 +74,11 @@ function isClosedShadowRoot(root: Node): root is ShadowRoot {
   return root.nodeType === 11 && 'host' in root && (root as ShadowRoot).mode === 'closed'
 }
 
-function useKoBindRoot<T>(viewModel: T, bindable: boolean): KoBindProps {
+function useKoBindRoot<T>(
+  viewModel: T,
+  bindable: boolean,
+  rejectUnclaimedHost: boolean
+): KoBindProps {
   const parentGeneration = useContext(ScopeBindGenerationContext)
   const [failure, setFailure] = useState<{ error: unknown } | null>(null)
   const handleBindingError = useCallback((error: unknown) => {
@@ -84,6 +98,7 @@ function useKoBindRoot<T>(viewModel: T, bindable: boolean): KoBindProps {
 
   const boundHost = useRef<HTMLElement | null>(null)
   const hostOwner = useRef<object>({})
+  const mainDocumentHostWasNotYetDiscoverable = useRef(false)
   const hostId = useId()
 
   // React attaches refs from the bottom up, so a host taken from a ref is bound after
@@ -101,10 +116,16 @@ function useKoBindRoot<T>(viewModel: T, bindable: boolean): KoBindProps {
         (hostOwners.get(candidate) === undefined ||
           hostOwners.get(candidate) === hostOwner.current)
     )
+    // Browsers run insertion effects before placing a newly mounted host. Remember
+    // that specific main-document case so its first ref attachment can complete the
+    // claim once React has inserted it.
+    mainDocumentHostWasNotYetDiscoverable.current = hosts.length === 0
     // A host in an inaccessible document, a closed shadow root, or a container React has
     // not put in one yet is not reachable from here. Multiple roots can also share a
     // useId, so only prebind when React ownership identifies one eligible host
-    // unambiguously. Otherwise its ref still arrives in the layout phase.
+    // unambiguously. Except for a main-document host not placed until after the
+    // insertion effect, the ref rejects every other bindable attachment: binding
+    // there would happen after descendant layout effects and silently miss their work.
     if (hosts.length !== 1) return
     const host = hosts[0]
     hostOwners.set(host, hostOwner.current)
@@ -121,6 +142,12 @@ function useKoBindRoot<T>(viewModel: T, bindable: boolean): KoBindProps {
         }
         boundHost.current = null
         return
+      }
+
+      if (!isHTMLElement(node)) {
+        throw new Error(
+          'react-ko: useKoBind requires an HTMLElement host; SVG and MathML elements are not supported.'
+        )
       }
 
       if (bindable && isClosedShadowRoot(node.getRootNode())) {
@@ -148,11 +175,37 @@ function useKoBindRoot<T>(viewModel: T, bindable: boolean): KoBindProps {
         return
       }
 
-      hostOwners.set(node, hostOwner.current)
-      boundHost.current = node
-      if (bindable) bindingContainer(node)
+      const refClaimCandidates =
+        mainDocumentHostWasNotYetDiscoverable.current &&
+        node.ownerDocument === document
+          ? hostsAcrossOpenRoots(document, hostSelector(hostId)).filter(
+              (candidate) =>
+                isReactOwnedHost(candidate) &&
+                (hostOwners.get(candidate) === undefined ||
+                  hostOwners.get(candidate) === hostOwner.current)
+            )
+          : []
+      const canClaimFromRef =
+        refClaimCandidates.length === 1 && refClaimCandidates[0] === node
+
+      if (
+        bindable &&
+        rejectUnclaimedHost &&
+        hostOwners.get(node) !== hostOwner.current &&
+        !canClaimFromRef
+      ) {
+        throw new Error(
+          'react-ko: useKoBind could not claim this host during the insertion phase, so it cannot bind before descendant layout effects run. Use KnockoutScope at this render location instead.'
+        )
+      }
+
+      if (!bindable || hostOwners.get(node) !== hostOwner.current) {
+        hostOwners.set(node, hostOwner.current)
+        boundHost.current = node
+        if (bindable) bindingContainer(node)
+      }
     },
-    [bindingContainer, bindable]
+    [bindingContainer, bindable, rejectUnclaimedHost]
   )
 
   if (failure !== null) throw failure.error
@@ -181,10 +234,14 @@ function useKoBindRoot<T>(viewModel: T, bindable: boolean): KoBindProps {
  * ```
  */
 export function useKoBind<T>(viewModel: T | null | undefined): KoBindProps {
-  return useKoBindRoot(viewModel, viewModel !== null && viewModel !== undefined)
+  return useKoBindRoot(
+    viewModel,
+    viewModel !== null && viewModel !== undefined,
+    true
+  )
 }
 
 /** Internal binding path for structural rows, whose data may itself be nullish. */
 export function useKoBindAlways<T>(viewModel: T): KoBindProps {
-  return useKoBindRoot(viewModel, true)
+  return useKoBindRoot(viewModel, true, false)
 }

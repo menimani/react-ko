@@ -54,18 +54,31 @@ function App() {
 }
 ```
 
-`KnockoutScope` はスコープを作る通常の方法です。内側のすべての `data-bind` が ViewModel に
-対して適用され、スコープ内のどの React コンポーネントからでも `useKoViewModel` でその
-ViewModel を取得できます。ネストしたスコープは、それぞれの ViewModel を提供します。
+`KnockoutScope` はスコープを作る通常の方法です。内側のサポートされている `data-bind` が
+ViewModel に対して適用され、スコープ内のどの React コンポーネントからでも
+`useKoViewModel` でその ViewModel を取得できます。ネストしたスコープは、それぞれの
+ViewModel を提供します。Knockout は React がレンダーした子孫の所有権を引き継げないため、
+構造を制御する `if`、`ifnot`、`foreach`、`template`、`with` バインディングは拒否されます。
+その構造は React と `useKoValue` でレンダーするか、リストには `KoForeach` を使用してください。
+`text`、`html`、`component`、`options` など要素の内容を置き換えるバインディングでは、内容を
+Knockout だけが所有できるように、JSX で空のホスト要素を指定する必要があります。
 `useKoValue` は
 `data-bind` が届かない場所 — JSX 補間・props・effect の依存配列 — に Knockout の値を
 持ち込みます。
 
+リストの行に `data-bind` がなければ、それは通常の React のリストです。
+`useKoValue(vm.items)` で読み、通常の React の key を付けて `.map(...)` してください。
+`KoForeach` が追加するのは行ごとの Knockout バインディングルートだけなので、この場合は何も
+付け加えません。
+
 ランタイムのエクスポートは 5 つ：`KnockoutScope`、`useKoViewModel`、`useKoValue`、リスト用の
 `KoForeach`、そしてラッパーを使えないときに特定の既存要素をバインディングルートにする
-`useKoBind`。closed shadow root 内や `DocumentFragment` などの切り離されたツリー内のホストは
-`useKoBind` では拒否されるため、そこでは `KnockoutScope` を使ってください。アクセス可能な同一オリジンの
-iframe 内のホストはサポートされます。TypeScript では、`useKoBind` が返す型 `KoBindProps` もインポートできます。詳細は
+`useKoBind`。React の insertion phase で検出できないホストは拒否されます。これには closed shadow root 内、
+`DocumentFragment` などの切り離されたツリー内、ページから到達できない別の `Document` 内のホストが
+含まれます。これらのレンダー位置では `KnockoutScope` を使ってください。アクセス可能な同一オリジンの
+iframe 内のホストはサポートされます。ホストには HTML 要素が必要です。返された ref を SVG または
+MathML 要素に指定する JavaScript の呼び出しは、ランタイムで拒否されます。TypeScript では、
+`useKoBind` が返す型 `KoBindProps` もインポートできます。詳細は
 [ドキュメント](https://menimani.github.io/react-ko/ja/)にあります。
 
 ---

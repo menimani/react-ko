@@ -54,17 +54,29 @@ function App() {
 }
 ```
 
-`KnockoutScope` is the ordinary way to establish a scope: every `data-bind` inside it
-is applied against the view model, and `useKoViewModel` retrieves that model from any
-React component in the scope. Nested scopes provide their own model.
+`KnockoutScope` is the ordinary way to establish a scope: supported `data-bind`
+attributes inside it are applied against the view model, and `useKoViewModel`
+retrieves that model from any React component in the scope. Nested scopes provide
+their own model. Knockout cannot take ownership of descendants rendered by React, so
+the structural `if`, `ifnot`, `foreach`, `template`, and `with` bindings are rejected;
+render that structure with React and `useKoValue`, or use `KoForeach` for lists.
+Bindings that replace an element's contents, including `text`, `html`, `component`,
+and `options`, require an empty host in JSX so Knockout exclusively owns the contents.
 `useKoValue` brings a Knockout value into React, for the places `data-bind` cannot
 reach — JSX interpolation, props, effect dependencies.
 
+If a list's rows contain no `data-bind`, it is a plain React list: read it with
+`useKoValue(vm.items)` and call `.map(...)` with ordinary React keys. `KoForeach`
+only adds a per-row Knockout binding root, so it adds nothing in that case.
+
 There are five runtime exports: `KnockoutScope`, `useKoViewModel`, `useKoValue`,
 `KoForeach` for lists, and `useKoBind` for making a particular existing element the
-binding root when a wrapper cannot be used. A `useKoBind` host inside a closed shadow root or a detached tree such as a
-`DocumentFragment` is rejected; use `KnockoutScope` there. Hosts in reachable same-origin
-iframes are supported. TypeScript users can also import
+binding root when a wrapper cannot be used. A host that cannot be discovered during
+React's insertion phase is rejected; this includes closed shadow roots, detached trees
+such as a `DocumentFragment`, and secondary `Document` objects not reachable from the
+page. Use `KnockoutScope` at those render locations. Hosts in reachable same-origin
+iframes are supported. The host must be an HTML element; JavaScript calls that attach
+the returned ref to an SVG or MathML element are rejected at runtime. TypeScript users can also import
 `KoBindProps`, the type returned by `useKoBind`. The
 [documentation](https://menimani.github.io/react-ko/) covers each.
 

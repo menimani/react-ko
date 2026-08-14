@@ -419,6 +419,7 @@ describe('portal bindings', () => {
     const secondTarget = portalTarget()
     const added = ko.observable('Added')
     const existing = ko.observable('Existing')
+    const viewModel = { added, existing }
     const binding = 'throwDuringPortalBinding'
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     ko.bindingHandlers[binding] = {
@@ -430,7 +431,7 @@ describe('portal bindings', () => {
     function Harness({ addFailingPortal }: { addFailingPortal: boolean }) {
       return (
         <ErrorBoundary>
-          <BindingHost viewModel={{ added, existing }}>
+          <BindingHost viewModel={viewModel}>
             {addFailingPortal
               ? createPortal(
                   <div>
@@ -466,7 +467,6 @@ describe('portal bindings', () => {
 
   it('leaves portals outside a binding scope unbound', () => {
     const target = portalTarget()
-    const vm = { label: ko.observable('Unbound') }
 
     render(createPortal(
       <span data-testid="unbound-portal" data-bind="text: label" />,
@@ -474,6 +474,5 @@ describe('portal bindings', () => {
     ))
 
     expect(screen.getByTestId('unbound-portal')).toHaveProperty('textContent', '')
-    expect(vm.label.getSubscriptionsCount()).toBe(0)
   })
 })

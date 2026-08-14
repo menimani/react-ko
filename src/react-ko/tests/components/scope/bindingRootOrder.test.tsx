@@ -1,25 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { render, screen, act } from '@testing-library/react'
-import { type ReactNode } from 'react'
 import ko from 'knockout'
-import { useKoBind } from '@/index'
-
-function Host({
-  viewModel,
-  children,
-  testId,
-}: {
-  viewModel: unknown
-  children?: ReactNode
-  testId?: string
-}) {
-  const bind = useKoBind(viewModel)
-  return (
-    <div {...bind} data-testid={testId}>
-      {children}
-    </div>
-  )
-}
+import { KnockoutScope } from '@/index'
 
 describe('binding root order', () => {
   it('binds a root inside another root', () => {
@@ -27,12 +9,12 @@ describe('binding root order', () => {
     const inner = { innerLabel: ko.observable('inner') }
 
     const { container } = render(
-      <Host viewModel={outer}>
+      <KnockoutScope viewModel={outer}>
         <span data-bind="text: outerLabel" />
-        <Host viewModel={inner}>
+        <KnockoutScope viewModel={inner}>
           <span data-bind="text: innerLabel" />
-        </Host>
-      </Host>
+        </KnockoutScope>
+      </KnockoutScope>
     )
 
     expect(container.textContent).toBe('outerinner')
@@ -46,18 +28,20 @@ describe('binding root order', () => {
   })
 
   it.each([null, undefined])(
-    'binds and disposes a root inside a disabled %s root',
-    (missingViewModel) => {
+    'binds and disposes an inner scope nested in a %s scope',
+    (outerViewModel) => {
       const inner = { label: ko.observable('inner') }
 
       const { container, unmount } = render(
-        <Host viewModel={missingViewModel}>
-          <Host viewModel={inner}>
+        <KnockoutScope viewModel={outerViewModel}>
+          <span data-testid="outer" />
+          <KnockoutScope viewModel={inner}>
             <span data-bind="text: label" />
-          </Host>
-        </Host>
+          </KnockoutScope>
+        </KnockoutScope>
       )
 
+      expect(ko.contextFor(screen.getByTestId('outer'))).toBeDefined()
       expect(container.textContent).toBe('inner')
       expect(inner.label.getSubscriptionsCount()).toBeGreaterThan(0)
 
@@ -70,11 +54,11 @@ describe('binding root order', () => {
   )
 
   it.each([null, undefined])(
-    'keeps an inner root live when its active outer root receives %s',
-    (missingViewModel) => {
-      const first = { outerLabel: ko.observable('first') }
-      const second = { outerLabel: ko.observable('second') }
-      const inner = { innerLabel: ko.observable('inner') }
+    'keeps an inner scope live when its outer scope receives %s',
+    (outerViewModel) => {
+      const first = { name: 'first' }
+      const second = { name: 'second' }
+      const inner = { label: ko.observable('inner') }
 
       function Harness({
         outer,
@@ -82,32 +66,34 @@ describe('binding root order', () => {
         outer: typeof first | typeof second | null | undefined
       }) {
         return (
-          <Host viewModel={outer}>
-            <span data-testid="outer" data-bind="text: outerLabel" />
-            <Host viewModel={inner}>
-              <span data-testid="inner" data-bind="text: innerLabel" />
-            </Host>
-          </Host>
+          <KnockoutScope viewModel={outer}>
+            <span data-testid="outer" />
+            <KnockoutScope viewModel={inner}>
+              <span data-testid="inner" data-bind="text: label" />
+            </KnockoutScope>
+          </KnockoutScope>
         )
       }
 
       const { rerender } = render(<Harness outer={first} />)
-      expect(screen.getByTestId('outer').textContent).toBe('first')
+      expect(ko.dataFor(screen.getByTestId('outer'))).toBe(first)
       expect(screen.getByTestId('inner').textContent).toBe('inner')
 
-      rerender(<Harness outer={missingViewModel} />)
-      expect(ko.dataFor(screen.getByTestId('outer'))).toBeUndefined()
+      rerender(<Harness outer={outerViewModel} />)
+      expect(ko.dataFor(screen.getByTestId('outer'))).toBe(outerViewModel)
       expect(ko.dataFor(screen.getByTestId('inner'))).toBe(inner)
 
-      act(() => inner.innerLabel('inner while disabled'))
-      expect(screen.getByTestId('inner').textContent).toBe('inner while disabled')
+      act(() => inner.label('inner while nullish'))
+      expect(screen.getByTestId('inner').textContent).toBe(
+        'inner while nullish'
+      )
 
       rerender(<Harness outer={second} />)
-      expect(screen.getByTestId('outer').textContent).toBe('second')
+      expect(ko.dataFor(screen.getByTestId('outer'))).toBe(second)
 
-      act(() => inner.innerLabel('inner after re-enable'))
+      act(() => inner.label('inner after replacement'))
       expect(screen.getByTestId('inner').textContent).toBe(
-        'inner after re-enable'
+        'inner after replacement'
       )
     }
   )
@@ -118,15 +104,15 @@ describe('binding root order', () => {
     const c = { c: ko.observable('C') }
 
     const { container } = render(
-      <Host viewModel={a}>
+      <KnockoutScope viewModel={a}>
         <span data-bind="text: a" />
-        <Host viewModel={b}>
+        <KnockoutScope viewModel={b}>
           <span data-bind="text: b" />
-          <Host viewModel={c}>
+          <KnockoutScope viewModel={c}>
             <span data-bind="text: c" />
-          </Host>
-        </Host>
-      </Host>
+          </KnockoutScope>
+        </KnockoutScope>
+      </KnockoutScope>
     )
 
     expect(container.textContent).toBe('ABC')
@@ -139,18 +125,18 @@ describe('binding root order', () => {
     const deep = { deep: ko.observable('deep') }
 
     const { container } = render(
-      <Host viewModel={outer}>
+      <KnockoutScope viewModel={outer}>
         <span data-bind="text: outer" />
-        <Host viewModel={left}>
+        <KnockoutScope viewModel={left}>
           <span data-bind="text: left" />
-          <Host viewModel={deep}>
+          <KnockoutScope viewModel={deep}>
             <span data-bind="text: deep" />
-          </Host>
-        </Host>
-        <Host viewModel={right}>
+          </KnockoutScope>
+        </KnockoutScope>
+        <KnockoutScope viewModel={right}>
           <span data-bind="text: right" />
-        </Host>
-      </Host>
+        </KnockoutScope>
+      </KnockoutScope>
     )
 
     expect(container.textContent).toBe('outerleftdeepright')
@@ -168,11 +154,12 @@ describe('binding root order', () => {
     const inner = { label: ko.observable('inner label') }
 
     render(
-      <Host viewModel={outer} testId="outer">
-        <Host viewModel={inner} testId="inner">
+      <KnockoutScope viewModel={outer}>
+        <span data-testid="outer" />
+        <KnockoutScope viewModel={inner}>
           <span data-testid="value" data-bind="text: label" />
-        </Host>
-      </Host>
+        </KnockoutScope>
+      </KnockoutScope>
     )
 
     expect(screen.getByTestId('value').textContent).toBe('inner label')
@@ -186,14 +173,14 @@ describe('binding root order', () => {
 
     function Harness({ showInner }: { showInner: boolean }) {
       return (
-        <Host viewModel={outer}>
+        <KnockoutScope viewModel={outer}>
           <span data-bind="text: outerLabel" />
           {showInner ? (
-            <Host viewModel={inner}>
+            <KnockoutScope viewModel={inner}>
               <span data-testid="inner" data-bind="text: innerLabel" />
-            </Host>
+            </KnockoutScope>
           ) : null}
-        </Host>
+        </KnockoutScope>
       )
     }
 
@@ -211,14 +198,14 @@ describe('binding root order', () => {
 
     function Harness({ showInner }: { showInner: boolean }) {
       return (
-        <Host viewModel={outer}>
+        <KnockoutScope viewModel={outer}>
           <span data-bind="text: outerLabel" />
           {showInner ? (
-            <Host viewModel={inner}>
+            <KnockoutScope viewModel={inner}>
               <span data-bind="text: innerLabel" />
-            </Host>
+            </KnockoutScope>
           ) : null}
-        </Host>
+        </KnockoutScope>
       )
     }
 
@@ -238,12 +225,12 @@ describe('binding root order', () => {
 
     function Harness({ replaced }: { replaced: boolean }) {
       return (
-        <Host viewModel={replaced ? second : first}>
+        <KnockoutScope viewModel={replaced ? second : first}>
           <span data-testid="outer" data-bind="text: outerLabel" />
-          <Host viewModel={inner}>
+          <KnockoutScope viewModel={inner}>
             <span data-testid="inner" data-bind="text: innerLabel" />
-          </Host>
-        </Host>
+          </KnockoutScope>
+        </KnockoutScope>
       )
     }
 

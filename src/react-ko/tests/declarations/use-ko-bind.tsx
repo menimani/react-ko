@@ -23,8 +23,8 @@ export function NullishViewModel() {
 
 export function ForeignContentHost() {
   const bind = useKoBind({ label: 'Bound' })
-  // A binding host is an HTML element. The ref rejects the SVG and MathML roots
-  // without a runtime guard, because their elements are not HTMLElement.
+  // A binding host is an HTML element. The type rejects SVG and MathML roots, and
+  // the runtime guard protects JavaScript consumers that do not have this check.
   // @ts-expect-error an SVG root cannot be a react-ko binding host
   return <svg {...bind} />
 }

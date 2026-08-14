@@ -3,6 +3,7 @@ layout: default
 lang: ja
 title: react-ko
 description: React コンポーネントの中で Knockout.js を使うための最小のブリッジ
+footer: react-ko は MIT ライセンスの下で公開されています。
 ---
 
 # react-ko
@@ -184,10 +185,21 @@ hook ではなくコンポーネントである理由は 1 つ — **hook はル
 それぞれのバインディングルートが要るからです。render prop はそのルートを第 3 引数として
 受け取ります。
 
+行に `data-bind` があるときに `KoForeach` を使います。なければ、リストは通常の React です:
+
+```tsx
+const items = useKoValue(vm.items)
+
+return items.map((item) => <Row key={item.id} item={item} />)
+```
+
+この場合は通常の React の key を使います。`KoForeach` が追加するのは行ごとの Knockout
+バインディングルートだけなので、バインドしないリストには何も付け加えません。
+
 - `items` は可変・読み取り専用の配列に加え、observable・computed も受け付けます。値が
   `null` や `undefined` のときは空のリストになります。
-- バインドしない行は第 3 引数を無視できます。どちらの場合も DOM には何も追加されないので、
-  `select`・`tbody`・`tr` でも特別な扱いは要りません。
+- バインドする行の周囲には DOM が何も追加されないので、`select`・`tbody`・`tr` でも特別な
+  扱いは要りません。
 - `$data` / `$index` / `$parent` の代わりに、引数とクロージャを使います。外側の変数は
   そのまま見え、行の中に React コンポーネントを置けます。
 - 行のキーは `itemKey` があればそれを使います。なければオブジェクトは同一性と出現順（同じ
@@ -199,7 +211,7 @@ hook ではなくコンポーネントである理由は 1 つ — **hook はル
 ```tsx
 const visible = useKoValue(vm.visible)
 
-return visible ? <section {...bind}>…</section> : null
+return visible ? <section>…</section> : null
 ```
 
 ---

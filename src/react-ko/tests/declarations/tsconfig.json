@@ -12,6 +12,7 @@
   },
   "files": [
     "../../dist/index.d.ts",
+    "knockout-scope.tsx",
     "ko-foreach.ts",
     "use-ko-bind.tsx",
     "use-ko-value.ts",

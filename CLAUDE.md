@@ -43,16 +43,6 @@ The package ships with zero runtime dependencies: `react`, `react-dom`, and `kno
 are peer dependencies and stay that way. Adding a runtime dependency is a design
 decision that needs agreement, not a convenience call.
 
-## Rejected semantic hosts have one source of truth
-
-The v3 release makes the public `SemanticHost` type reject every name the runtime guard
-rejects. Keep the rejected names in one declared set from which both boundaries are
-derived; never add a host to only the type or only the runtime guard. The exclusions
-cover void elements, foreign-content roots, text-content hosts, `template`, inert or
-hoisted document-structure elements, and elements that cannot survive SSR. Declaration-
-merged custom non-void elements remain supported unless their name is explicitly in
-that shared rejected set.
-
 ## data-bind is the user-facing surface, by decision
 
 The library's premise is absorbing Knockout into JSX without multiplying components:

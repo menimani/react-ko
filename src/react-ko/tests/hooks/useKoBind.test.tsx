@@ -1,6 +1,14 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, act, waitFor } from '@testing-library/react'
-import { Component, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import {
+  Component,
+  createElement,
+  StrictMode,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react'
 import { createRoot, hydrateRoot, type Root } from 'react-dom/client'
 import { renderToString } from 'react-dom/server'
 import ko from 'knockout'
@@ -102,21 +110,49 @@ describe('useKoBind', () => {
       )
     }
 
-    const { rerender } = render(<Host show />)
+    const { rerender, unmount } = render(<Host show />)
     expect(screen.getByTestId('value').textContent).toBe('Present')
     expect(ko.dataFor(screen.getByTestId('value'))).toBe(vm)
+    expect(label.getSubscriptionsCount()).toBe(1)
 
     rerender(<Host show={false} />)
     expect(screen.getByTestId('empty')).toBeDefined()
+    expect(label.getSubscriptionsCount()).toBe(0)
 
-    // The subscription is gone with the element: a notification after the removal
-    // reaches nothing, and a later mount binds again from scratch.
     act(() => {
       label('Changed while unmounted')
     })
 
     rerender(<Host show />)
     expect(screen.getByTestId('value').textContent).toBe('Changed while unmounted')
+    expect(label.getSubscriptionsCount()).toBe(1)
+
+    unmount()
+    expect(label.getSubscriptionsCount()).toBe(0)
+  })
+
+  it('keeps one live subscription through StrictMode replay and disposes it on unmount', () => {
+    const label = ko.observable('Strict')
+
+    function Host() {
+      const bind = useKoBind({ label })
+      return (
+        <div {...bind}>
+          <span data-bind="text: label" />
+        </div>
+      )
+    }
+
+    const { unmount } = render(
+      <StrictMode>
+        <Host />
+      </StrictMode>
+    )
+
+    expect(label.getSubscriptionsCount()).toBe(1)
+
+    unmount()
+    expect(label.getSubscriptionsCount()).toBe(0)
   })
 
   it('binds nothing while the view model is nullish, and binds once it arrives', () => {
@@ -199,7 +235,7 @@ describe('useKoBind', () => {
 
       await waitFor(() =>
         expect(screen.getByTestId('failure').textContent).toContain(
-          'spread onto more than one element'
+          'could not claim this host during the insertion phase'
         )
       )
     } finally {
@@ -224,12 +260,20 @@ describe('useKoBind', () => {
       )
     }
 
+    const tree = (
+      <ErrorBoundary>
+        <Host />
+      </ErrorBoundary>
+    )
+    const container = document.createElement('div')
+    container.innerHTML = renderToString(tree)
+    document.body.appendChild(container)
+    let root: Root | undefined
+
     try {
-      render(
-        <ErrorBoundary>
-          <Host />
-        </ErrorBoundary>
-      )
+      await act(async () => {
+        root = hydrateRoot(container, tree)
+      })
 
       // Knockout wraps a failing binding with the expression it was evaluating.
       await waitFor(() =>
@@ -238,6 +282,8 @@ describe('useKoBind', () => {
         )
       )
     } finally {
+      act(() => root?.unmount())
+      container.remove()
       consoleError.mockRestore()
     }
   })
@@ -273,12 +319,20 @@ describe('useKoBind', () => {
       )
     }
 
+    const tree = (
+      <ErrorBoundary>
+        <Host />
+      </ErrorBoundary>
+    )
+    const container = document.createElement('div')
+    container.innerHTML = renderToString(tree)
+    document.body.appendChild(container)
+    let root: Root | undefined
+
     try {
-      render(
-        <ErrorBoundary>
-          <Host />
-        </ErrorBoundary>
-      )
+      await act(async () => {
+        root = hydrateRoot(container, tree)
+      })
 
       await waitFor(() =>
         expect(screen.getByTestId('failure').textContent).toContain(
@@ -286,6 +340,8 @@ describe('useKoBind', () => {
         )
       )
     } finally {
+      act(() => root?.unmount())
+      container.remove()
       failRebind = false
       consoleError.mockRestore()
     }
@@ -359,6 +415,86 @@ describe('useKoBind', () => {
     } finally {
       act(() => root.unmount())
       iframe.remove()
+    }
+  })
+
+  it.each([
+    ['SVG', 'svg'],
+    ['MathML', 'math'],
+  ] as const)('rejects an unsupported %s host at runtime', async (_name, tagName) => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    function Host() {
+      const bind = useKoBind({ label: 'Unsupported' })
+      const javascriptBind = bind as unknown as {
+        ref: (node: Element | null) => void
+        'data-react-ko-scope': string
+      }
+      return createElement(tagName, javascriptBind)
+    }
+
+    try {
+      render(
+        <ErrorBoundary>
+          <Host />
+        </ErrorBoundary>
+      )
+
+      await waitFor(() =>
+        expect(screen.getByTestId('failure').textContent).toBe(
+          'react-ko: useKoBind requires an HTMLElement host; SVG and MathML elements are not supported.'
+        )
+      )
+    } finally {
+      consoleError.mockRestore()
+    }
+  })
+
+  it('rejects a connected host in an undiscoverable secondary document before descendant layout effects', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const handleClick = vi.fn()
+    const secondaryDocument = document.implementation.createHTMLDocument('secondary')
+    const container = secondaryDocument.createElement('div')
+    secondaryDocument.body.appendChild(container)
+    const root = createRoot(container)
+
+    function ClickOnMount() {
+      const button = useRef<HTMLButtonElement>(null)
+
+      useLayoutEffect(() => {
+        button.current?.click()
+      }, [])
+
+      return <button ref={button} data-bind="click: handleClick" />
+    }
+
+    function Host() {
+      const bind = useKoBind({ handleClick })
+      return (
+        <div {...bind}>
+          <ClickOnMount />
+        </div>
+      )
+    }
+
+    try {
+      await act(async () =>
+        root.render(
+          <ErrorBoundary>
+            <Host />
+          </ErrorBoundary>
+        )
+      )
+
+      expect(handleClick).not.toHaveBeenCalled()
+      await waitFor(() =>
+        expect(container.querySelector('[data-testid="failure"]')?.textContent).toBe(
+          'react-ko: useKoBind could not claim this host during the insertion phase, so it cannot bind before descendant layout effects run. Use KnockoutScope at this render location instead.'
+        )
+      )
+    } finally {
+      act(() => root.unmount())
+      consoleError.mockRestore()
     }
   })
 

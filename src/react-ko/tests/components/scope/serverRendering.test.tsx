@@ -10,7 +10,12 @@ import { hydrateRoot, type Root } from 'react-dom/client'
 import { renderToString } from 'react-dom/server'
 import ko from 'knockout'
 import { describe, expect, it, vi } from 'vitest'
-import { KoForeach, useKoValue } from '@/index'
+import {
+  KnockoutScope,
+  KoForeach,
+  useKoValue,
+  useKoViewModel,
+} from '@/index'
 import { BindingHost } from '../../fixtures/bindingHost'
 
 class ErrorBoundary extends Component<
@@ -44,6 +49,20 @@ function childTree() {
 function ValueProbe({ source }: { source: ko.Observable<string> | ko.Computed<string> }) {
   const value = useKoValue(source)
   return <span data-testid="value">{value}</span>
+}
+
+function ScopeViewModelProbe() {
+  const viewModel = useKoViewModel<{
+    contextLabel: string
+    boundLabel: ko.Observable<string>
+  }>()
+
+  return (
+    <section data-testid="scope-child">
+      <span data-testid="scope-context">{viewModel.contextLabel}</span>
+      <input data-testid="scope-bound-input" data-bind="value: boundLabel" />
+    </section>
+  )
 }
 
 function serverContainer(tree: ReactElement) {
@@ -179,6 +198,51 @@ describe('BindingHost server rendering', () => {
       if (root !== undefined) act(() => root?.unmount())
       container.remove()
       animationFrame.mockRestore()
+    }
+  })
+})
+
+describe('KnockoutScope server rendering', () => {
+  it('provides server context and preserves its bound children during hydration', async () => {
+    const boundLabel = ko.observable('Hydrated')
+    const tree = (
+      <BindingHost viewModel={{}}>
+        <KnockoutScope viewModel={{ contextLabel: 'Server context', boundLabel }}>
+          <ScopeViewModelProbe />
+        </KnockoutScope>
+      </BindingHost>
+    )
+    const container = serverContainer(tree)
+    const serverChild = container.querySelector('[data-testid="scope-child"]')
+    document.body.appendChild(container)
+    let root: Root | undefined
+
+    try {
+      expect(
+        container.querySelector('[data-testid="scope-context"]')?.textContent
+      ).toBe('Server context')
+
+      await act(async () => {
+        root = hydrateRoot(container, tree)
+      })
+
+      expect(container.querySelector('[data-testid="scope-child"]')).toBe(
+        serverChild
+      )
+      expect(
+        container.querySelector('[data-testid="scope-bound-input"]')
+      ).toHaveProperty('value', 'Hydrated')
+
+      act(() => {
+        boundLabel('Observable update')
+      })
+
+      expect(
+        container.querySelector('[data-testid="scope-bound-input"]')
+      ).toHaveProperty('value', 'Observable update')
+    } finally {
+      if (root !== undefined) act(() => root?.unmount())
+      container.remove()
     }
   })
 })

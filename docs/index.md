@@ -187,10 +187,21 @@ A component rather than a hook for one reason: a hook cannot be called in a loop
 each row needs its own binding root. The render prop receives that root as its third
 argument.
 
+Use `KoForeach` when rows contain `data-bind`. If they do not, the list is plain React:
+
+```tsx
+const items = useKoValue(vm.items)
+
+return items.map((item) => <Row key={item.id} item={item} />)
+```
+
+Use ordinary React keys in that case. `KoForeach` only adds the per-row Knockout
+binding root, so it adds nothing to a list whose rows do not bind.
+
 - `items` accepts mutable and readonly arrays, and observable and computed sources.
   The value may be `null` or `undefined`; either renders an empty list.
-- A row that binds nothing can ignore the third argument. Nothing is added to the DOM
-  either way, so `select`, `tbody` and `tr` need no special handling.
+- Nothing is added to the DOM around a bound row, so `select`, `tbody` and `tr` need no
+  special handling.
 - Instead of `$data`, `$index` and `$parent`, use the arguments and closures. Outer
   variables are in scope, and React components can be used inside a row.
 - Rows are keyed by `itemKey` when given. Otherwise object items are keyed by
@@ -203,7 +214,7 @@ Conditionals need no component, because `useKoValue` already gives you the value
 ```tsx
 const visible = useKoValue(vm.visible)
 
-return visible ? <section {...bind}>…</section> : null
+return visible ? <section>…</section> : null
 ```
 
 ---
