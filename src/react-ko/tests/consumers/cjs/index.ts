@@ -39,6 +39,13 @@ ReactKo.useKoBind<ViewModel | null>(null)
 ReactKo.useKoBind(undefined)
 expectType<ViewModel>(ReactKo.useKoViewModel<ViewModel>())
 
+expectType<React.ReactElement>(
+  ReactKo.KnockoutScope<ViewModel>({
+    viewModel,
+    children: React.createElement('span', null, viewModel.title),
+  })
+)
+
 ReactKo.KoForeach({
   items: rows,
   children: (row, index) => {
