@@ -76,6 +76,9 @@ export const reactKoProject: ProjectAdapter = {
     ]
   },
 
+  // This repository merges through one-off delegated tasks rather than continuous
+  // runs, so every suite step opts into every task gate: a lone merge gets the full
+  // validation a cycle gate would have given it.
   cycleSuite(): SuiteStep[] {
     return [
       {
@@ -83,6 +86,7 @@ export const reactKoProject: ProjectAdapter = {
         cwd: '',
         command: 'npm run test',
         requires: 'package.json',
+        runAtEveryTaskGate: true,
         // The vitest launcher shims in node_modules/.bin have vanished while the
         // package itself stayed installed, and the suite then reports the tree as
         // failing when only the environment is broken. Reinstalling is cheap against
@@ -98,12 +102,14 @@ export const reactKoProject: ProjectAdapter = {
         cwd: '',
         command: 'npm run build',
         requires: 'package.json',
+        runAtEveryTaskGate: true,
       },
       {
         label: 'Browser smoke',
         cwd: 'e2e',
         command: 'npx playwright install chromium && npm test',
         requires: 'e2e/package.json',
+        runAtEveryTaskGate: true,
         repairWhenMissing: {
           path: 'e2e/node_modules/.bin/playwright',
           command: 'npm install --no-audit --no-fund',
