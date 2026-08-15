@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync } from 'node:fs'
-import { dirname, join, relative, resolve } from 'node:path'
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 // The on-disk layout is shared state with everything the loop leaves behind between
@@ -14,6 +14,17 @@ import { fileURLToPath } from 'node:url'
  * resolves from here — hardcoding 'orchestration/ts' broke the owning repository.
  */
 export const PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+
+/** This package's repository-relative path when it is installed inside a consumer. */
+export function packageSubtreePrefix(
+  repoRoot: string,
+  packageRoot = PACKAGE_ROOT,
+): string | undefined {
+  const prefix = relative(repoRoot, packageRoot)
+  if (prefix === '' || prefix === '..' || prefix.startsWith(`..${sep}`)
+    || isAbsolute(prefix)) return undefined
+  return prefix.replaceAll('\\', '/')
+}
 
 export function packageFile(...segments: string[]): string {
   return join(PACKAGE_ROOT, ...segments)
@@ -78,6 +89,11 @@ export function worktreeDir(paths: OrchPaths, taskId: string): string {
   return join(paths.worktreesDir, taskId)
 }
 
+/** The merge target used when the daemon checkout is frozen for a run. */
+export function integrationWorktreeDir(paths: OrchPaths): string {
+  return join(paths.worktreesDir, '.integration')
+}
+
 export function branchName(taskId: string): string {
   return `task/${taskId}`
 }
@@ -92,12 +108,6 @@ export function isScanTaskId(taskId: string): boolean {
 // Review ids are <timestamp>_<seq>_review-c<cycle>, one per review round of a cycle.
 export function isReviewTaskId(taskId: string): boolean {
   return taskId.includes('_review-c')
-}
-
-// Review-fix ids are <timestamp>_<seq>_fix-<slug>. They remain ordinary executable
-// work; the distinct kind carries their review origin through every task event.
-export function isReviewFixTaskId(taskId: string): boolean {
-  return /^\d{8}_\d{6}_\d{3}_fix-/.test(taskId)
 }
 
 // A task that only inspects reports findings and never commits: an empty worktree is
