@@ -1,6 +1,6 @@
-import { spawn, type ChildProcess } from 'node:child_process'
+import type { ChildProcess } from 'node:child_process'
 import {
-  existsSync, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync,
+  existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -9,14 +9,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { operatingSystem } from '../src/adapters/os.ts'
 import { descSlug, newTaskId, shortTaskId, taskIdForDesc } from '../src/ids.ts'
 import {
-  branchName, finalMessageFile, isInspectionTaskId, isReviewFixTaskId, isReviewTaskId,
+  branchName, finalMessageFile, isInspectionTaskId, isReviewTaskId,
   isScanTaskId,
   orchPaths, packageScriptCommand, statusFile, type OrchPaths,
 } from '../src/paths.ts'
+import { taskProcessPid } from '../src/processRegistry.ts'
 import { readStatus, transitionStatus, writeStatus } from '../src/status.ts'
+import { lockContentionProbeScript, TestProcessRegistry } from './testProcess.ts'
 
 let repoRoot: string
 let paths: OrchPaths
+const testProcesses = new TestProcessRegistry()
 
 function childOutput(child: ChildProcess): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -45,22 +48,29 @@ beforeEach(() => {
   paths = orchPaths(repoRoot)
 })
 
-afterEach(() => {
+afterEach(async () => {
+  await testProcesses.cleanup()
   vi.restoreAllMocks()
   rmSync(repoRoot, { recursive: true, force: true })
 })
 
 describe('status files', () => {
-  it('round-trips task id, status and pid', async () => {
-    await writeStatus(paths, 'task-alpha', 'running', 12345)
+  it('stores task status without the transient runner pid', async () => {
+    await writeStatus(paths, 'task-alpha', 'running', process.pid)
+    const stored = JSON.parse(readFileSync(statusFile(paths, 'task-alpha'), 'utf8')) as Record<string, unknown>
     const status = readStatus(paths, 'task-alpha')
+
     expect(status?.task_id).toBe('task-alpha')
     expect(status?.status).toBe('running')
-    expect(status?.pid).toBe(12345)
+    expect(stored).not.toHaveProperty('pid')
+    expect(status?.pid).toBe(process.pid)
   })
 
-  it('stores an unset pid as null', async () => {
+  it('derives an unset pid as null without serializing it', async () => {
     await writeStatus(paths, 'task-nopid', 'completed')
+    const stored = JSON.parse(readFileSync(statusFile(paths, 'task-nopid'), 'utf8')) as Record<string, unknown>
+
+    expect(stored).not.toHaveProperty('pid')
     expect(readStatus(paths, 'task-nopid')?.pid).toBeNull()
   })
 
@@ -114,6 +124,22 @@ describe('status files', () => {
     expect(readStatus(paths, 'adapter-lock')?.status).toBe('completed')
   })
 
+  it('reclaims a status lock when its live PID belongs to a different process start', async () => {
+    const processStartIdentity = vi.spyOn(operatingSystem, 'processStartIdentity')
+      .mockReturnValue('current-start')
+    const processIsAlive = vi.spyOn(operatingSystem, 'processIsAlive').mockReturnValue(true)
+    const lockDir = join(paths.statusDir, '.reused-pid-lock.lock')
+    mkdirSync(lockDir)
+    writeFileSync(join(lockDir, 'pid'), `${process.pid}\n`)
+    writeFileSync(join(lockDir, 'start-identity'), `${JSON.stringify('previous-start')}\n`)
+
+    await writeStatus(paths, 'reused-pid-lock', 'completed')
+
+    expect(processStartIdentity).toHaveBeenCalledWith(process.pid)
+    expect(processIsAlive).not.toHaveBeenCalledWith(process.pid)
+    expect(readStatus(paths, 'reused-pid-lock')?.status).toBe('completed')
+  })
+
   it('reclaims an aged lock that never published a pid', async () => {
     const lockDir = join(paths.statusDir, '.task-pidless.lock')
     mkdirSync(lockDir)
@@ -142,6 +168,17 @@ describe('status files', () => {
     await writeStatus(paths, 'task-atomic', 'running', 12345)
     expect(existsSync(join(paths.statusDir, `.task-atomic.${process.pid}.tmp`))).toBe(false)
     expect(readStatus(paths, 'task-atomic')?.status).toBe('running')
+  })
+
+  it('keeps process ownership when terminal status publication is interrupted', async () => {
+    const taskId = 'task-interrupted-terminal'
+    await writeStatus(paths, taskId, 'running', process.pid)
+    mkdirSync(join(paths.statusDir, `.${taskId}.${process.pid}.tmp`))
+
+    await expect(writeStatus(paths, taskId, 'completed')).rejects.toThrow()
+
+    expect(readStatus(paths, taskId)?.status).toBe('running')
+    expect(taskProcessPid(paths, taskId)).toBe(process.pid)
   })
 
   it('derives the final message path from the log path', () => {
@@ -199,19 +236,24 @@ describe('task ids', () => {
     const idsModule = pathToFileURL(join(process.cwd(), 'src', 'ids.ts')).href
     const pathsModule = pathToFileURL(join(process.cwd(), 'src', 'paths.ts')).href
     const readyFiles = Array.from({ length: 4 }, (_, index) => join(repoRoot, `sequence-ready-${index}`))
-    const children = readyFiles.map((readyFile, index) => spawn(process.execPath, [
+    const children = readyFiles.map((readyFile, index) => testProcesses.spawn(process.execPath, [
       '--input-type=module', '--eval',
-      `const [{ writeFileSync }, { newTaskId }, { orchPaths }] = await Promise.all([import('node:fs'), import(${JSON.stringify(idsModule)}), import(${JSON.stringify(pathsModule)})]); writeFileSync(process.argv[3], ''); console.log(newTaskId(orchPaths(process.argv[1]), process.argv[2], new Date(2026, 7, 8, 9, 30, 5)))`,
-      repoRoot, `child-${index}`, readyFile,
+      [
+        lockContentionProbeScript(4, 3),
+        `const [{ newTaskId }, { orchPaths }] = await Promise.all([import(${JSON.stringify(idsModule)}), import(${JSON.stringify(pathsModule)})])`,
+        'console.log(newTaskId(orchPaths(process.argv[1]), process.argv[2], new Date(2026, 7, 8, 9, 30, 5)))',
+      ].join('\n'),
+      repoRoot, `child-${index}`, readyFile, lockDir,
     ], { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true }))
-    const outputs = children.map(childOutput)
+    const outputs = Promise.allSettled(children.map(childOutput))
 
     await waitForFiles(readyFiles)
-    await new Promise((resolve) => setTimeout(resolve, 50))
     expect(children.every((child) => child.exitCode === null)).toBe(true)
     rmSync(lockDir, { recursive: true })
 
-    const ids = await Promise.all(outputs)
+    const results = await outputs
+    expect(results.filter((result) => result.status === 'rejected')).toEqual([])
+    const ids = results.flatMap((result) => result.status === 'fulfilled' ? result.value : [])
     expect(new Set(ids).size).toBe(4)
     expect(ids.map((id) => id.split('_')[2]).sort()).toEqual(['001', '002', '003', '004'])
   })
@@ -235,19 +277,24 @@ describe('task ids', () => {
     const idsModule = pathToFileURL(join(process.cwd(), 'src', 'ids.ts')).href
     const pathsModule = pathToFileURL(join(process.cwd(), 'src', 'paths.ts')).href
     const readyFiles = Array.from({ length: 4 }, (_, index) => join(repoRoot, `desc-ready-${index}`))
-    const children = readyFiles.map((readyFile) => spawn(process.execPath, [
+    const children = readyFiles.map((readyFile) => testProcesses.spawn(process.execPath, [
       '--input-type=module', '--eval',
-      `const [{ writeFileSync }, { join }, { taskIdForDesc }, { orchPaths }] = await Promise.all([import('node:fs'), import('node:path'), import(${JSON.stringify(idsModule)}), import(${JSON.stringify(pathsModule)})]); writeFileSync(process.argv[3], ''); const paths = orchPaths(process.argv[1]); const id = taskIdForDesc(paths, 'auto', process.argv[2]); writeFileSync(join(paths.tasksDir, id + '.md'), '# spec\\n'); console.log(id)`,
-      repoRoot, 'the same concurrent finding', readyFile,
+      [
+        lockContentionProbeScript(4, 3),
+        `const [{ writeFileSync }, { join }, { taskIdForDesc }, { orchPaths }] = await Promise.all([import('node:fs'), import('node:path'), import(${JSON.stringify(idsModule)}), import(${JSON.stringify(pathsModule)})])`,
+        "const paths = orchPaths(process.argv[1]); const id = taskIdForDesc(paths, 'auto', process.argv[2]); writeFileSync(join(paths.tasksDir, id + '.md'), '# spec\\n'); console.log(id)",
+      ].join('\n'),
+      repoRoot, 'the same concurrent finding', readyFile, lockDir,
     ], { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true }))
-    const outputs = children.map(childOutput)
+    const outputs = Promise.allSettled(children.map(childOutput))
 
     await waitForFiles(readyFiles)
-    await new Promise((resolve) => setTimeout(resolve, 50))
     expect(children.every((child) => child.exitCode === null)).toBe(true)
     rmSync(lockDir, { recursive: true })
 
-    const ids = await Promise.all(outputs)
+    const results = await outputs
+    expect(results.filter((result) => result.status === 'rejected')).toEqual([])
+    const ids = results.flatMap((result) => result.status === 'fulfilled' ? result.value : [])
     expect(new Set(ids).size).toBe(1)
   })
 
@@ -270,10 +317,8 @@ describe('task id classes', () => {
     expect(isReviewTaskId('20260808_093005_001_auto-review-page')).toBe(false)
   })
 
-  it('matches review-fix ids without classifying them as inspections', () => {
+  it('does not classify review-fix ids as inspections', () => {
     const id = '20260808_093005_001_fix-preserve-zero'
-    expect(isReviewFixTaskId(id)).toBe(true)
-    expect(isReviewFixTaskId('20260808_093005_001_auto-preserve-zero')).toBe(false)
     expect(isReviewTaskId(id)).toBe(false)
     expect(isScanTaskId(id)).toBe(false)
     expect(isInspectionTaskId(paths, id)).toBe(false)

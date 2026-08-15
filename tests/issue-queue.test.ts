@@ -10,11 +10,15 @@ import type { ForgeIssue } from '../src/adapters/forge.ts'
 import {
   buildIssueBody, claimIssue, claimIssueGroup, closeIssueAndRemoveLifecycleLabels,
   commentOnIssueMerge, fingerprintOf, groupReadyFindings, heartbeatIssueForTask,
-  issueNumberForTask, issueNumbersForTask, issuePromotionForIssue,
+  issueCompletionForIssue, issueNumberForTask, issueNumbersForTask, issuePromotionForIssue,
+  IssueReleaseReconciliationError,
   missingRequirementCompletionMarkers, parseIssueBody,
   publishDelegatedTask, publishFinding, reapStaleLeases,
   reconcileClosedIssueLifecycleLabels, reconcileFindingFingerprints, recordIssueForTask,
-  recordIssuesForTask, recordIssuePromotion, recordIssuePromotions, LABEL_FINDING,
+  recordIssueCompletions, recordIssueReleaseIntent, recordIssuesForTask, recordIssuePromotion,
+  recordIssuePromotions,
+  releaseIssueClaim,
+  returnIssueToReady, LABEL_FINDING,
   LABEL_GROUP_SINGLETON, LABEL_IN_PROGRESS, LABEL_MERGE_FAILED,
   LABEL_MERGE_READY, LABEL_READY, LABEL_UNTRUSTED_AUTHOR,
 } from '../src/issueQueue.ts'
@@ -207,6 +211,36 @@ describe('closed issue lifecycle labels', () => {
     const issue = await forge.getIssue(issueNumber)
     expect(issue.state).toBe('closed')
     expect(issue.labels).toEqual([LABEL_FINDING])
+  })
+
+  it('retains lifecycle state and retries when the forge does not close the issue', async () => {
+    const issueNumber = await forge.createIssue({
+      title: 'inspection', body: '',
+      labels: [LABEL_FINDING, LABEL_IN_PROGRESS, LABEL_MERGE_READY],
+    })
+    const closeIssue = forge.closeIssue.bind(forge)
+    let closeAttempts = 0
+    forge.closeIssue = async (number, comment) => {
+      closeAttempts++
+      if (closeAttempts > 1) await closeIssue(number, comment)
+    }
+
+    await expect(closeIssueAndRemoveLifecycleLabels(
+      forge, issueNumber, 'Inspection completed.',
+    )).rejects.toThrow(`Issue #${issueNumber} is still open after closure`)
+
+    expect(await forge.getIssue(issueNumber)).toMatchObject({
+      state: 'open',
+      labels: [LABEL_FINDING, LABEL_IN_PROGRESS, LABEL_MERGE_READY],
+    })
+
+    await closeIssueAndRemoveLifecycleLabels(forge, issueNumber, 'Inspection completed.')
+
+    expect(closeAttempts).toBe(2)
+    expect(await forge.getIssue(issueNumber)).toMatchObject({
+      state: 'closed',
+      labels: [LABEL_FINDING],
+    })
   })
 })
 
@@ -589,6 +623,49 @@ describe('publishFinding', () => {
       .toBe(`advisory:GHSA-QWWW-VCR4-C8H2 ${first.issueNumber}\n`)
   })
 
+  it('keeps advisory deduplication after closed promotion metadata is cleaned up', async () => {
+    const first = await publishFinding(
+      forge, paths, '[SECURITY] GHSA-qwww-vcr4-c8h2 affects a dependency', 'scan-1',
+    )
+    recordIssueForTask(paths, 'task-advisory-fix', first.issueNumber)
+    recordIssuePromotion(paths, 'task-advisory-fix', 'a'.repeat(40), 'chore/run-branch')
+    await forge.closeIssue(first.issueNumber, 'Promoted')
+    await reapStaleLeases(forge, paths, 3, new Date('2026-08-08T12:00:00Z'))
+
+    expect(issuePromotionForIssue(paths, first.issueNumber)).toBeUndefined()
+    expect(issueCompletionForIssue(paths, first.issueNumber)).toMatchObject({
+      taskId: 'task-advisory-fix', outcome: 'merged',
+    })
+
+    const second = await publishFinding(
+      forge, paths, '[SECURITY] A differently worded recurrence of GHSA-QWWW-VCR4-C8H2', 'scan-2',
+    )
+
+    expect(second).toEqual({ outcome: 'duplicate', issueNumber: first.issueNumber })
+    expect(forge.issues.size).toBe(1)
+    expect(readFileSync(join(paths.queueDir, 'issue-fingerprints'), 'utf8'))
+      .toBe(`advisory:GHSA-QWWW-VCR4-C8H2 ${first.issueNumber}\n`)
+  })
+
+  it('keeps advisory deduplication after a no-change completion', async () => {
+    const first = await publishFinding(
+      forge, paths, '[SECURITY] GHSA-qwww-vcr4-c8h2 affects a dependency', 'scan-1',
+    )
+    recordIssueForTask(paths, 'task-advisory-no-change', first.issueNumber)
+    recordIssueCompletions(paths, 'task-advisory-no-change', 'no-change')
+    await forge.closeIssue(first.issueNumber, 'No change warranted')
+
+    const second = await publishFinding(
+      forge, paths, '[SECURITY] Different wording for GHSA-QWWW-VCR4-C8H2', 'scan-2',
+    )
+
+    expect(second).toEqual({ outcome: 'duplicate', issueNumber: first.issueNumber })
+    expect(forge.issues.size).toBe(1)
+    expect(issueCompletionForIssue(paths, first.issueNumber)).toMatchObject({
+      taskId: 'task-advisory-no-change', outcome: 'no-change',
+    })
+  })
+
   it('drops a ledger entry for a closed issue and files the finding again', async () => {
     const first = await publishFinding(forge, paths, '[BUG] `src/a/b.ts` breaks', 'scan-1')
     await forge.closeIssue(first.issueNumber, 'fixed')
@@ -736,6 +813,33 @@ describe('claimIssue', () => {
     expect(readdirSync(paths.tasksDir)).toEqual([])
   })
 
+  it('releases earlier members when claiming a later group member throws', async () => {
+    const issueNumbers = await Promise.all([
+      readyIssue('[BUG] `src/a/b.ts` releases the first member after an error'),
+      readyIssue('[TEST] `src/a/b.ts` fails while claiming the second member'),
+    ])
+    const getIssue = forge.getIssue.bind(forge)
+    forge.getIssue = async (number) => {
+      if (number === issueNumbers[1]) throw new Error('later claim failed')
+      return getIssue(number)
+    }
+
+    await expect(claimIssueGroup(
+      forge,
+      paths,
+      await Promise.all(issueNumbers.map((number) => getIssue(number))),
+      'worker-a',
+      () => {},
+    )).rejects.toThrow('later claim failed')
+
+    const released = await getIssue(issueNumbers[0]!)
+    expect(released.labels).toContain(LABEL_READY)
+    expect(released.labels).toContain(LABEL_GROUP_SINGLETON)
+    expect(released.labels).not.toContain(LABEL_IN_PROGRESS)
+    expect(released.assignees).toEqual([])
+    expect(readdirSync(paths.tasksDir)).toEqual([])
+  })
+
   it('claims a collaborator-authored issue and materializes its framed specification', async () => {
     const issueNumber = await readyIssue('[BUG] `src/a/b.ts` breaks on empty input')
     const stored = forge.issues.get(issueNumber)
@@ -866,16 +970,83 @@ describe('claimIssue', () => {
     expect(issueNumberForTask(paths, second.taskId)).toBe(secondIssueNumber)
   })
 
+  it.each(['merged', 'no-change'])(
+    'closes a duplicate advisory instead of attaching it to a %s task',
+    async (status) => {
+      const description = '[SECURITY] GHSA-qwww-vcr4-c8h2 affects a dependency'
+      const firstIssueNumber = await readyIssue(description)
+      const first = await claimIssue(
+        forge, paths, await forge.getIssue(firstIssueNumber), 'worker-a', appendRequirement,
+      )
+      if (first.outcome !== 'claimed') throw new Error(`expected a claim, got ${first.outcome}`)
+      writeFileSync(join(paths.statusDir, `${first.taskId}.json`),
+        JSON.stringify({ task_id: first.taskId, status }))
+      writeFileSync(join(paths.queueDir, 'backlog.txt'), '')
+
+      const duplicate = await forge.createIssue({
+        title: description,
+        body: buildIssueBody(description, 'scan-2'),
+        labels: [LABEL_FINDING, LABEL_READY],
+      })
+      const result = await claimIssue(
+        forge, paths, await forge.getIssue(duplicate), 'worker-a', appendRequirement,
+      )
+
+      expect(result).toEqual({
+        outcome: 'already-processed',
+        taskId: first.taskId,
+        issueNumber: duplicate,
+        issueNumbers: [duplicate],
+      })
+      const after = await forge.getIssue(duplicate)
+      expect(after.state).toBe('closed')
+      expect(after.assignees).toEqual([])
+      expect(after.labels).not.toContain(LABEL_READY)
+      expect(after.labels).not.toContain(LABEL_IN_PROGRESS)
+      expect(issueNumbersForTask(paths, first.taskId)).toEqual([firstIssueNumber])
+      expect(forge.issueComments.get(duplicate)).toEqual([
+        `Duplicate advisory already processed by task ${first.taskId} (${status}).`,
+      ])
+    },
+  )
+
   it('settles a simultaneous claim deterministically — first login wins, loser backs off', async () => {
     const issueNumber = await readyIssue('[BUG] `src/a/b.ts` breaks')
     const issue = await forge.getIssue(issueNumber)
+    const assignIssue = forge.assignIssue.bind(forge)
+    forge.assignIssue = async (number, assignee) => {
+      await assignIssue(number, assignee)
+      if (number === issueNumber && assignee === 'worker-z') {
+        await assignIssue(number, 'worker-b')
+      }
+    }
     // worker-b arrives between worker-z's assign and its re-read: both are assignees.
-    await forge.assignIssue(issueNumber, 'worker-b')
     const result = await claimIssue(forge, paths, issue, 'worker-z', appendRequirement)
     expect(result.outcome).toBe('lost-race')
     const after = await forge.getIssue(issueNumber)
     expect(after.assignees).toEqual(['worker-b'])
     expect(after.labels).toContain(LABEL_READY)
+  })
+
+  it('releases the assignment when the first post-assignment read fails', async () => {
+    const issueNumber = await readyIssue('[BUG] `src/a/b.ts` breaks during claim verification')
+    const issue = await forge.getIssue(issueNumber)
+    const getIssue = forge.getIssue.bind(forge)
+    let reads = 0
+    forge.getIssue = async (number) => {
+      if (number === issueNumber && ++reads === 2) {
+        throw new Error('getIssue failed after assignment')
+      }
+      return getIssue(number)
+    }
+
+    await expect(claimIssue(forge, paths, issue, 'worker-a', appendRequirement))
+      .rejects.toThrow('getIssue failed after assignment')
+
+    const after = await getIssue(issueNumber)
+    expect(after.assignees).toEqual([])
+    expect(after.labels).toContain(LABEL_READY)
+    expect(after.labels).not.toContain(LABEL_IN_PROGRESS)
   })
 
   it.each([
@@ -1077,7 +1248,169 @@ describe('claimIssue', () => {
   })
 })
 
+describe('issue claim release', () => {
+  it('does not claim an issue with conflicting lifecycle labels', async () => {
+    const issueNumber = await forge.createIssue({
+      title: 'conflicting ready issue',
+      body: buildIssueBody('[BUG] `src/conflict.ts` conflicts', 'parent-task'),
+      labels: [LABEL_FINDING, LABEL_READY, LABEL_MERGE_FAILED],
+    })
+    const issue = await forge.getIssue(issueNumber)
+
+    await expect(claimIssue(forge, paths, issue, 'worker-a', () => {
+      throw new Error('conflicting issue must not materialize')
+    })).resolves.toEqual({ outcome: 'lost-race', issueNumber })
+
+    const unchanged = await forge.getIssue(issueNumber)
+    expect(unchanged.assignees).toEqual([])
+    expect(unchanged.labels).toEqual([LABEL_FINDING, LABEL_READY, LABEL_MERGE_FAILED])
+  })
+
+  it.each([
+    {
+      failure: 'unassign:worker-a',
+      assignees: ['worker-a'],
+      labels: [LABEL_FINDING, LABEL_IN_PROGRESS],
+    },
+    {
+      failure: `add:${LABEL_READY}`,
+      assignees: [],
+      labels: [LABEL_FINDING, LABEL_IN_PROGRESS],
+    },
+    {
+      failure: `remove:${LABEL_IN_PROGRESS}`,
+      assignees: [],
+      labels: [LABEL_FINDING, LABEL_IN_PROGRESS, LABEL_READY],
+    },
+  ])('keeps a failed $failure release recoverable', async ({ failure, assignees, labels }) => {
+    const issueNumber = await forge.createIssue({
+      title: 'startup claim', body: '', labels: [LABEL_FINDING, LABEL_IN_PROGRESS],
+      assignees: ['worker-a'],
+    })
+    const unassignIssue = forge.unassignIssue.bind(forge)
+    const addLabel = forge.addLabel.bind(forge)
+    const removeLabel = forge.removeLabel.bind(forge)
+    forge.unassignIssue = async (number, assignee) => {
+      if (`unassign:${assignee}` === failure) throw new Error(`${failure} failed`)
+      await unassignIssue(number, assignee)
+    }
+    forge.addLabel = async (number, label) => {
+      if (`add:${label}` === failure) throw new Error(`${failure} failed`)
+      await addLabel(number, label)
+    }
+    forge.removeLabel = async (number, label) => {
+      if (`remove:${label}` === failure) throw new Error(`${failure} failed`)
+      await removeLabel(number, label)
+    }
+
+    await expect(releaseIssueClaim(forge, issueNumber, 'worker-a'))
+      .rejects.toThrow(`${failure} failed`)
+
+    const issue = await forge.getIssue(issueNumber)
+    expect(issue.assignees).toEqual(assignees)
+    expect(issue.labels).toEqual(labels)
+  })
+
+  it.each([
+    {
+      failure: 'unassign:worker-a',
+      assignees: ['worker-a', 'worker-b'],
+      labels: [LABEL_FINDING, LABEL_IN_PROGRESS, LABEL_MERGE_READY, LABEL_MERGE_FAILED],
+    },
+    {
+      failure: 'unassign:worker-b',
+      assignees: ['worker-b'],
+      labels: [LABEL_FINDING, LABEL_IN_PROGRESS, LABEL_MERGE_READY, LABEL_MERGE_FAILED],
+    },
+    {
+      failure: `add:${LABEL_GROUP_SINGLETON}`,
+      assignees: [],
+      labels: [LABEL_FINDING, LABEL_IN_PROGRESS, LABEL_MERGE_READY, LABEL_MERGE_FAILED],
+    },
+    {
+      failure: `add:${LABEL_READY}`,
+      assignees: [],
+      labels: [
+        LABEL_FINDING, LABEL_IN_PROGRESS, LABEL_MERGE_READY, LABEL_MERGE_FAILED,
+        LABEL_GROUP_SINGLETON,
+      ],
+    },
+    {
+      failure: `remove:${LABEL_MERGE_READY}`,
+      assignees: [],
+      labels: [
+        LABEL_FINDING, LABEL_IN_PROGRESS, LABEL_MERGE_READY, LABEL_MERGE_FAILED,
+        LABEL_GROUP_SINGLETON, LABEL_READY,
+      ],
+    },
+    {
+      failure: `remove:${LABEL_MERGE_FAILED}`,
+      assignees: [],
+      labels: [
+        LABEL_FINDING, LABEL_IN_PROGRESS, LABEL_MERGE_FAILED, LABEL_GROUP_SINGLETON, LABEL_READY,
+      ],
+    },
+    {
+      failure: `remove:${LABEL_IN_PROGRESS}`,
+      assignees: [],
+      labels: [LABEL_FINDING, LABEL_IN_PROGRESS, LABEL_GROUP_SINGLETON, LABEL_READY],
+    },
+  ])('keeps a failed $failure return recoverable', async ({ failure, assignees, labels }) => {
+    const issueNumber = await forge.createIssue({
+      title: 'claimed issue', body: '',
+      labels: [LABEL_FINDING, LABEL_IN_PROGRESS, LABEL_MERGE_READY, LABEL_MERGE_FAILED],
+      assignees: ['worker-a', 'worker-b'],
+    })
+    const unassignIssue = forge.unassignIssue.bind(forge)
+    const addLabel = forge.addLabel.bind(forge)
+    const removeLabel = forge.removeLabel.bind(forge)
+    forge.unassignIssue = async (number, assignee) => {
+      if (`unassign:${assignee}` === failure) throw new Error(`${failure} failed`)
+      await unassignIssue(number, assignee)
+    }
+    forge.addLabel = async (number, label) => {
+      if (`add:${label}` === failure) throw new Error(`${failure} failed`)
+      await addLabel(number, label)
+    }
+    forge.removeLabel = async (number, label) => {
+      if (`remove:${label}` === failure) throw new Error(`${failure} failed`)
+      await removeLabel(number, label)
+    }
+
+    await expect(returnIssueToReady(forge, issueNumber, true))
+      .rejects.toThrow(`${failure} failed`)
+
+    const issue = await forge.getIssue(issueNumber)
+    expect(issue.assignees).toEqual(assignees)
+    expect(issue.labels).toEqual(labels)
+  })
+})
+
 describe('reapStaleLeases', () => {
+  it('surfaces persisted release failures before reporting stale-lease recovery', async () => {
+    const issueNumber = await forge.createIssue({
+      title: 'cleanup release', body: '',
+      labels: [LABEL_FINDING, LABEL_IN_PROGRESS], assignees: ['worker-gone'],
+    })
+    recordIssueReleaseIntent(paths, 'task-release', [issueNumber])
+    forge.addLabel = async (_number, label) => {
+      if (label === LABEL_READY) throw new Error('release unavailable')
+    }
+
+    let caught: unknown
+    try {
+      await reapStaleLeases(forge, paths, 3, new Date('2026-08-08T12:00:00Z'))
+    } catch (error) {
+      caught = error
+    }
+
+    expect(caught).toBeInstanceOf(IssueReleaseReconciliationError)
+    expect((caught as IssueReleaseReconciliationError).failures).toMatchObject([
+      { issueNumber, error: { message: 'release unavailable' } },
+    ])
+    expect(existsSync(join(paths.queueDir, 'issue-release-intent', 'task-release'))).toBe(true)
+  })
+
   it('does not return a quarantined claim failure to the ready queue', async () => {
     const base = new Date('2026-08-08T12:00:00Z')
     forge.clock = () => new Date('2026-08-08T06:00:00Z')
@@ -1178,6 +1511,21 @@ describe('reapStaleLeases', () => {
     const recovered = await forge.getIssue(issueNumber)
     expect(recovered.labels).toContain(LABEL_READY)
     expect(recovered.labels).not.toContain(LABEL_IN_PROGRESS)
+  })
+
+  it('reaps an unassigned release conflict even when merge-failed is present', async () => {
+    const issueNumber = await forge.createIssue({
+      title: 'interrupted cleanup', body: buildIssueBody('[BUG] `a/b.ts` x', 'p'),
+      labels: [LABEL_FINDING, LABEL_IN_PROGRESS, LABEL_MERGE_FAILED, LABEL_READY],
+    })
+
+    await expect(reapStaleLeases(
+      forge, paths, 3, new Date('2026-08-14T00:00:00Z'),
+    )).resolves.toEqual([issueNumber])
+
+    const recovered = await forge.getIssue(issueNumber)
+    expect(recovered.assignees).toEqual([])
+    expect(recovered.labels).toEqual([LABEL_FINDING, LABEL_READY])
   })
 
   it('revalidates a stale listing after a concurrent heartbeat before reaping', async () => {

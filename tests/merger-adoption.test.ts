@@ -216,7 +216,9 @@ describe('remote task adoption', () => {
     )
     expect(git(repoRoot, ['rev-list', '--parents', '-n', '1', 'HEAD']).trim().split(' ')).toHaveLength(3)
     expect(logged.join('\n')).toMatch(/Merged 003_auto    commit [0-9a-f]{8}/)
-    expect(logged).toContain('Failed 004_auto    log 004_auto.merge.log')
+    const failedLogPath = `logs/issue-${failedIssueNumber}.merge.log`
+    expect(logged).toContain(`Failed 004_auto    log ${failedLogPath}`)
+    expect(existsSync(join(paths.root, failedLogPath))).toBe(true)
     expect((await forge.getIssue(issueNumber)).labels).not.toContain(LABEL_MERGE_READY)
     expect(forge.issueComments.get(issueNumber)).toContain(
       `MERGED: 20260809_000000_003_auto-remote-fix\nMerged as ${git(repoRoot, ['rev-parse', 'HEAD']).trim()} into run branch main. This issue closes on promotion.`,
@@ -278,7 +280,7 @@ describe('remote task adoption', () => {
     expect(readFileSync(join(paths.queueDir, 'merge-failure-count.txt'), 'utf8').trim()).toBe('0')
   })
 
-  it('persists adoption before post-merge dependency synchronization begins', async () => {
+  it('persists adoption and stops when post-merge dependency synchronization fails', async () => {
     const task = pushWorkerBranch('20260809_000000_007_auto-persisted-before-return')
     writeFileSync(join(workerRoot, 'package.json'), '{"private":true}\n')
     git(workerRoot, ['add', 'package.json'])
@@ -288,12 +290,15 @@ describe('remote task adoption', () => {
     const issueNumber = await mergeReadyIssue(task.branch, task.head)
     let promotionDuringSync: ReturnType<typeof issuePromotionForIssue>
 
-    await makeLoop(stubProject, {
+    await expect(makeLoop(stubProject, {
       packageRoot: repoRoot,
       install: () => {
         promotionDuringSync = issuePromotionForIssue(paths, issueNumber)
+        throw new Error('registry unavailable')
       },
-    }).adoptRemoteTasks()
+    }).adoptRemoteTasks()).rejects.toThrow(
+      /registry unavailable.*Run "npm ci --no-audit --no-fund".*then restart the loop/,
+    )
 
     expect(promotionDuringSync).toMatchObject({
       issueNumber,
