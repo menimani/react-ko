@@ -2,12 +2,12 @@ import { execFileSync } from 'node:child_process'
 import {
   appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync,
 } from 'node:fs'
-import { join, relative } from 'node:path'
+import { dirname, join, relative } from 'node:path'
 import {
   ForgeRateLimitError, type Forge, type ForgeIssue, type ForgeIssueComment,
 } from './adapters/forge.ts'
 import { dequeueBacklog, ensureBacklog } from './backlog.ts'
-import type { ProjectAdapter } from './adapters/project.ts'
+import type { ProjectAdapter, SuiteStep } from './adapters/project.ts'
 import type { Runner } from './adapters/runner.ts'
 import { cleanupTask } from './cleanup.ts'
 import type { LoopConfig } from './config.ts'
@@ -16,37 +16,43 @@ import {
   shortTaskId,
 } from './ids.ts'
 import {
-  mergeRemoteTask, mergeTask, MergeError, type OrchestrationDepsRuntime,
+  completeTaskWithoutChanges, mergeRemoteTask, mergeTask, MergeError,
+  NoChangeReconciliationError,
+  OrchestrationDepsInstallError,
+  type OrchestrationDepsRuntime,
 } from './merge.ts'
 import {
   finalMessageFile, isInspectionTaskId, isReviewTaskId, isScanTaskId, logFile,
-  branchName, worktreeDir, type OrchPaths,
+  branchName, PACKAGE_ROOT, worktreeDir, type OrchPaths,
 } from './paths.ts'
 import { buildPrBody, GENERATED_BODY_MARKER, prTitle } from './prbody.ts'
-import { refreshTask, listTaskIds } from './refresh.ts'
+import { refreshTask, listTaskIds, noChangeMarkerPresent } from './refresh.ts'
 import { readStatus, transitionStatus } from './status.ts'
 import { startTask } from './start.ts'
 import { enqueueTask, newTaskSpec, specFile } from './tasks.ts'
 import {
   frameUntrustedText, frameVerifiedRequirement, readTemplate, repositoryInspectionPreamble,
+  reviewScopeTemplateValues,
 } from './templates.ts'
 import { pitfallsFileForDesc } from './gates.ts'
 import { currentBranchPushRemote, currentBranchTrackingRemote } from './gitRemote.ts'
 import { LoopWarningLog } from './loopLog.ts'
+import { newestChecksByName } from './ciWait.ts'
 import { execShellSync } from './shell.ts'
 import {
   updateCoreBeforeCycle, type CoreUpdateOutcome,
 } from './coreUpdate.ts'
+import { absorbDefaultBranch } from './branchTopology.ts'
 import {
   claimIssueGroup, closeIssueAndRemoveLifecycleLabels, commentOnIssueMerge,
   confirmIssuePromotion, dropClaimedTaskMaterialization, groupReadyFindings,
   heartbeatIssueForTask, fingerprintOf, issueMergeComment,
-  issueNumberForTask, issueNumbersForTask, issuePromotionForIssue,
+  issueHasExactlyLifecycleLabel, issueNumberForTask, issueNumbersForTask, issuePromotionForIssue,
   missingRequirementCompletionMarkers, publishFinding, reapStaleLeases,
-  recordIssuesForTask, recordIssuePromotions, releaseIssueClaim,
+  recordIssueCompletions, recordIssuesForTask, recordIssuePromotions, releaseIssueClaim,
   returnIssueToReady,
   ensureQueueLabels, reconcileClosedIssueLifecycleLabels, reconcileFindingFingerprints,
-  unresolvedFindings, type ClaimedRequirement,
+  unresolvedFindings, type ClaimedRequirement, IssueReleaseReconciliationError,
   LABEL_FINDING, LABEL_IN_PROGRESS, LABEL_MERGE_FAILED, LABEL_MERGE_READY, LABEL_READY,
   LABEL_UNTRUSTED_AUTHOR,
 } from './issueQueue.ts'
@@ -66,6 +72,9 @@ export interface LoopDeps {
   orchestrationDepsRuntime?: OrchestrationDepsRuntime | undefined
   enqueueTask?: typeof enqueueTask
   updateCoreBeforeCycle?: (cycle: number) => Promise<CoreUpdateOutcome>
+  projectAdapterChanged?: () => boolean
+  branchGuard?: (() => string | undefined) | undefined
+  prepareIntegrationWorktree?: (() => void) | undefined
 }
 
 interface QueueEntry {
@@ -80,6 +89,7 @@ interface FindingDispatch {
 }
 
 const IDLE_LOG_MAX_INTERVAL_MS = 5 * 60 * 1000
+const MAX_CONSECUTIVE_ISSUE_RELEASE_FAILURES = 3
 
 function formatIdleDuration(milliseconds: number): string {
   const totalSeconds = Math.floor(milliseconds / 1000)
@@ -122,13 +132,30 @@ export function createLoop(deps: LoopDeps) {
   const scanCountFile = join(paths.queueDir, 'scan-count.txt')
   const emptyScanFile = join(paths.queueDir, 'empty-scan-count.txt')
   const mergeFailureFile = join(paths.queueDir, 'merge-failure-count.txt')
+  const issueReleaseFailureFile = join(paths.queueDir, 'issue-release-failure-count.txt')
   const runBranchFile = join(paths.queueDir, 'run-branch.txt')
   const decisionsFile = join(paths.queueDir, 'decisions.txt')
   const prUrlFile = join(paths.queueDir, 'pr-url.txt')
   const totalTaskCountFile = join(paths.queueDir, 'total-task-count.txt')
+  let emptyRun = false
 
   mkdirSync(scannedDir, { recursive: true })
   ensureBacklog(queueFile)
+
+  // A graceful daemon shutdown terminates its in-flight process trees and removes
+  // their ephemeral PID records, while their durable task status remains running.
+  // The next daemon must still report those tasks as failed, but they are not fresh
+  // evidence of a broken environment and therefore must not trip the burst guard.
+  const tasksDeadAtStartup = new Set(listTaskIds(paths).filter((taskId) => {
+    try {
+      const status = readStatus(paths, taskId)
+      return status?.status === 'running' && status.pid === null
+    } catch {
+      // The poll owns malformed-status reporting; startup classification must not move
+      // that failure outside its existing error boundary.
+      return false
+    }
+  }))
 
   // Resolved once per process; the login cannot change under a running loop.
   let cachedUser: string | undefined
@@ -169,6 +196,10 @@ export function createLoop(deps: LoopDeps) {
       cycle,
       (name, subject, detail = '') => event(name, subject, detail),
     ))
+  const projectAdapterChanged = deps.projectAdapterChanged ?? (() => false)
+  const branchGuard = deps.branchGuard ?? (() => undefined)
+  const prepareIntegration = deps.prepareIntegrationWorktree ?? (() => undefined)
+  let restartSubject = 'core'
 
   function rateLimitTime(resetAt: Date): string {
     return new Intl.DateTimeFormat('en-GB', {
@@ -251,6 +282,7 @@ export function createLoop(deps: LoopDeps) {
       if (error instanceof ForgeRateLimitError) return false
       warning('reconcile-closed-issue-labels', 'reconciling closed issue labels',
         `could not reconcile closed issue labels: ${errorSummary(error)}`)
+      return false
     }
     issueQueueInitialized = true
     return true
@@ -291,6 +323,18 @@ export function createLoop(deps: LoopDeps) {
     } else {
       log(formatEventLine('WARN', detail))
     }
+  }
+
+  function requeueAfterStartupFailure(taskId: string, depth: number, error: unknown): void {
+    const failure = `${shortTaskId(taskId)} startup failed: ${errorSummary(error)}`
+    try {
+      enqueueTaskImpl(paths, taskId, depth)
+    } catch (requeueError) {
+      event('ERROR', `${failure}; could not requeue: ${errorSummary(requeueError)}`)
+      writeFileSync(stopFile, '')
+      return
+    }
+    reportGateFailure(failure, true, `task-startup-${taskId}`)
   }
 
   function readCount(file: string): number {
@@ -335,13 +379,25 @@ export function createLoop(deps: LoopDeps) {
     const commits = gitIn(worktree, ['log', `${baseSha}..HEAD`, '--format=%H'])
       .trim().split(/\r?\n/).filter((line) => line !== '')
     if (commits.length === 0) {
-      if (!isInspectionTaskId(paths, taskId)) {
-        throw new Error(`${taskId} has no commits and is not an inspection task`)
+      if (isInspectionTaskId(paths, taskId)) {
+        await Promise.all(issueNumbers.map((issueNumber) =>
+          closeIssueAndRemoveLifecycleLabels(forge, issueNumber,
+            `Inspection task ${taskId} completed without commits.`)))
+        return
       }
-      await Promise.all(issueNumbers.map((issueNumber) =>
-        closeIssueAndRemoveLifecycleLabels(forge, issueNumber,
-          `Inspection task ${taskId} completed without commits.`)))
-      return
+      if (noChangeMarkerPresent(paths, taskId)) {
+        await completeTaskWithoutChanges(paths, taskId, baseSha, {
+          outputFile: join(paths.logsDir, `${taskId}.merge.log`),
+          onNoChange: async () => {
+            await Promise.all(issueNumbers.map((issueNumber) =>
+              closeIssueAndRemoveLifecycleLabels(forge, issueNumber,
+                `Task ${taskId} completed without commits after reporting that no change was warranted.`)))
+            recordIssueCompletions(paths, taskId, 'no-change')
+          },
+        })
+        return
+      }
+      throw new Error(`${taskId} has no commits and is not an inspection task`)
     }
 
     const branch = branchName(taskId)
@@ -401,7 +457,8 @@ export function createLoop(deps: LoopDeps) {
         return
       }
     }
-    const issues = findings.filter((issue) => issue.labels.includes(LABEL_MERGE_READY))
+    const issues = findings.filter((issue) =>
+      issueHasExactlyLifecycleLabel(issue, LABEL_MERGE_READY))
     const processedIssues = new Set<number>()
 
     for (const issue of issues) {
@@ -504,10 +561,11 @@ export function createLoop(deps: LoopDeps) {
         if (error instanceof ForgeRateLimitError) return
         const message = error instanceof Error ? error.message : String(error)
         appendFileSync(mergeLog, `${message}\n`)
+        if (error instanceof OrchestrationDepsInstallError) throw error
         if (adoptionTaskId === undefined) {
           event('WARN', `remote adoption failed for issue #${issue.number}`)
         } else {
-          event('Failed', shortTaskId(adoptionTaskId), `log ${shortTaskId(adoptionTaskId)}.merge.log`)
+          event('Failed', shortTaskId(adoptionTaskId), `log ${shortLogPath(mergeLog)}`)
         }
         try {
           await Promise.all(adoptionIssues.map((candidate) =>
@@ -604,16 +662,19 @@ export function createLoop(deps: LoopDeps) {
 
   function reportsNothing(text: string): boolean {
     const trimmed = text.trim()
-    const normalized = trimmed.replace(/[\u3002.!]+$/, '').toLowerCase()
+    const ideographicFullStop = String.fromCodePoint(0x3002)
+    const normalized = trimmed.replace(/[.!]+$/, '')
+      .replace(new RegExp(`${ideographicFullStop}+$`), '').toLowerCase()
     if (['none', 'n/a', 'nothing', 'no findings', 'no finding', 'nothing to report', 'nothing found']
       .includes(normalized)) return true
-    if ([
-      '\u6307\u6458\u306a\u3057',
-      '\u554f\u984c\u306a\u3057',
-      '\u8a72\u5f53\u306a\u3057',
-      '\u7279\u306b\u306a\u3057',
-      '\u306a\u3057',
-    ].includes(normalized)) return true
+    const noFindingPhrases = [
+      [0x6307, 0x6458, 0x306a, 0x3057],
+      [0x554f, 0x984c, 0x306a, 0x3057],
+      [0x8a72, 0x5f53, 0x306a, 0x3057],
+      [0x7279, 0x306b, 0x306a, 0x3057],
+      [0x306a, 0x3057],
+    ].map((points) => String.fromCodePoint(...points))
+    if (noFindingPhrases.includes(normalized)) return true
     const firstSentence = (trimmed.split(/(?<=[.!?])\s/, 1)[0] ?? '')
       .replace(/[.!]+$/, '').toLowerCase()
     return /^none\b/.test(firstSentence)
@@ -776,7 +837,7 @@ export function createLoop(deps: LoopDeps) {
           const queued = existsSync(queueFile)
             && readFileSync(queueFile, 'utf8').split(/\r?\n/)
               .some((line) => line.startsWith(`${existing}:`))
-          const mergedAdvisory = status === 'merged'
+          const mergedAdvisory = (status === 'merged' || status === 'no-change')
             && fingerprintOf(finding).startsWith('advisory:')
           if (queued || status === 'running' || status === 'completed' || mergedAdvisory) {
             destinations.push(shortTaskId(existing))
@@ -796,7 +857,7 @@ export function createLoop(deps: LoopDeps) {
       if (!hasTaskCapacity(taskId)) continue
       const existing = existingFindingTask(desc)
       const needsFreshTask = existing !== undefined
-        && readStatus(paths, existing)?.status === 'merged'
+        && ['merged', 'no-change'].includes(readStatus(paths, existing)?.status ?? '')
         && !fingerprintOf(desc).startsWith('advisory:')
       const newId = needsFreshTask
         ? newTaskId(paths, `${findingOrigin}-${descSlug(desc)}`)
@@ -835,8 +896,13 @@ export function createLoop(deps: LoopDeps) {
       try {
         const enqueue = enqueueTaskImpl(paths, newId, newDepth)
         if (enqueue.outcome === 'enqueued') recordPublishedTask()
-      } catch {
+      } catch (error) {
         reconciled = false
+        reportGateFailure(
+          `could not enqueue finding from ${shortTaskId(taskId)}: ${errorSummary(error)}`,
+          true,
+          `completion-scan-${taskId}`,
+        )
       }
     }
     return { findings, destinations, reconciled }
@@ -897,7 +963,7 @@ export function createLoop(deps: LoopDeps) {
       const infrastructureFailure = project.classifyInfrastructureFailure?.(text)
       if (infrastructureFailure !== undefined) {
         diagnosis = infrastructureFailure.diagnosis
-      } else if (/Could not resolve host|Connection refused|Could not transfer artifact/.test(text)) {
+      } else if (/Could not resolve host|Connection refused/.test(text)) {
         diagnosis = 'the network or a package registry is unreachable'
       }
     }
@@ -909,6 +975,25 @@ export function createLoop(deps: LoopDeps) {
       return true
     }
     return false
+  }
+
+  function noteIssueReleaseFailure(error: IssueReleaseReconciliationError): void {
+    const failures = readCount(issueReleaseFailureFile) + 1
+    writeFileSync(issueReleaseFailureFile, `${failures}\n`)
+    const issues = error.failures.map(({ issueNumber }) => `#${issueNumber}`).join(' ')
+    const detail = error.failures
+      .map(({ issueNumber, error: cause }) => `#${issueNumber}: ${errorSummary(cause)}`)
+      .join('; ')
+    if (failures >= MAX_CONSECUTIVE_ISSUE_RELEASE_FAILURES) {
+      event('ERROR', `${failures} consecutive issue release failures for ${issues}; stopping the loop (${detail})`)
+      writeFileSync(stopFile, '')
+      return
+    }
+    warning(
+      'issue-release-reconciliation',
+      'reconciling persisted issue releases',
+      `could not reconcile persisted issue releases (${detail}); attempt ${failures}/${MAX_CONSECUTIVE_ISSUE_RELEASE_FAILURES}`,
+    )
   }
 
   function isScanRunning(): boolean {
@@ -1023,11 +1108,6 @@ export function createLoop(deps: LoopDeps) {
     return groups
   }
 
-  function generateScanTask(scanId: string, scope: string): boolean {
-    writeFileSync(specFile(paths, scanId), scanSpecification(scanId, scope))
-    return true
-  }
-
   function generateReviewTask(reviewId: string, cycle: number, prUrl: string): boolean {
     let remote: string
     try {
@@ -1041,20 +1121,20 @@ export function createLoop(deps: LoopDeps) {
     let baseBranch = git([
       'symbolic-ref', '--quiet', '--short', `refs/remotes/${remote}/HEAD`,
     ]).trim()
-    if (baseBranch.startsWith(remotePrefix)
-      && git(['rev-parse', '--verify', `${baseBranch}^{commit}`]).trim() === '') {
-      const branch = baseBranch.slice(remotePrefix.length)
-      git(['fetch', '--quiet', remote,
-        `+refs/heads/${branch}:refs/remotes/${remote}/${branch}`])
-    }
     if (!baseBranch.startsWith(remotePrefix)
       || git(['rev-parse', '--verify', `${baseBranch}^{commit}`]).trim() === '') {
       const advertised = git(['ls-remote', '--symref', remote, 'HEAD'])
       const branch = /^ref: refs\/heads\/(.+)\tHEAD$/m.exec(advertised)?.[1] ?? ''
       baseBranch = branch === '' ? '' : `${remote}/${branch}`
-      if (branch !== '') {
-        git(['fetch', '--quiet', remote,
+    }
+    if (baseBranch.startsWith(remotePrefix)) {
+      const branch = baseBranch.slice(remotePrefix.length)
+      try {
+        gitIn(paths.repoRoot, ['fetch', '--quiet', remote,
           `+refs/heads/${branch}:refs/remotes/${remote}/${branch}`])
+      } catch (error) {
+        event('WARN', `could not refresh review base ${baseBranch}: ${errorSummary(error)}`)
+        return false
       }
     }
     if (!baseBranch.startsWith(remotePrefix)
@@ -1072,6 +1152,12 @@ export function createLoop(deps: LoopDeps) {
       PR_URL: prUrl === '' ? '(PR URL unknown)' : prUrl,
       BASE_BRANCH: baseBranch,
       ACCEPTED_LIMITS: frameUntrustedText(acceptedLimits),
+      ...reviewScopeTemplateValues(
+        paths.repoRoot,
+        config.integrationBranch === ''
+          ? PACKAGE_ROOT
+          : join(paths.repoRoot, relative(dirname(paths.root), PACKAGE_ROOT)),
+      ),
     })
     writeFileSync(specFile(paths, reviewId), text)
     return true
@@ -1175,6 +1261,11 @@ export function createLoop(deps: LoopDeps) {
     }
     writeFileSync(scanCountFile, '0\n')
     writeFileSync(totalTaskCountFile, '0\n')
+    if (!preserveTaskMarkers && config.integrationBranch !== '') {
+      for (const name of ['daemon-branch.txt', 'daemon-head.txt', 'integration-branch.txt']) {
+        rmSync(join(paths.queueDir, name), { force: true })
+      }
+    }
   }
 
   /**
@@ -1184,14 +1275,19 @@ export function createLoop(deps: LoopDeps) {
    */
   function initializeSessionStateForBranch(): void {
     const currentBranch = git(['branch', '--show-current']).trim()
-    if (existsSync(runBranchFile)) {
-      const previous = readFileSync(runBranchFile, 'utf8').replace(/[\r\n]/g, '')
-      if (previous !== currentBranch) {
-        // Status files span branches, so their announcement markers must span branches
-        // too; explicit task cleanup removes a marker when a retry is wanted.
-        cleanupSessionState(true)
-      }
+    const previousBranch = existsSync(runBranchFile)
+      ? readFileSync(runBranchFile, 'utf8').replace(/[\r\n]/g, '')
+      : undefined
+    if (previousBranch === currentBranch) {
+      writeFileSync(runBranchFile, `${currentBranch}\n`)
+      return
     }
+    if (previousBranch !== undefined) {
+      // Status files span branches, so their announcement markers must span branches
+      // too; explicit task cleanup removes a marker when a retry is wanted.
+      cleanupSessionState(true)
+    }
+    writeFileSync(mergeFailureFile, '0\n')
     writeFileSync(runBranchFile, `${currentBranch}\n`)
   }
 
@@ -1213,11 +1309,12 @@ export function createLoop(deps: LoopDeps) {
     return readFileSync(decisionsFile, 'utf8').split(/\r?\n/).filter((line) => line !== '')
   }
 
-  /** Push the branch and create or update the draft PR. Returns false when no PR exists. */
+  /** Push the branch and create or update the draft PR. Returns false when it must retry. */
   async function ensureDraftPr(mode: 'cycle' | 'final'): Promise<boolean> {
+    emptyRun = false
     const branch = git(['branch', '--show-current']).trim()
     if (branch === '') {
-      reportGateFailure('could not get branch name; PR skipped')
+      reportGateFailure('could not get branch name; PR skipped', true)
       return false
     }
     let pushRemote: string
@@ -1244,14 +1341,14 @@ export function createLoop(deps: LoopDeps) {
       'symbolic-ref', '--quiet', '--short', `refs/remotes/${baseRemote}/HEAD`,
     ]).trim()
     if (!baseRef.startsWith(`${baseRemote}/`)) {
-      reportGateFailure(`could not get ${baseRemote} default branch; PR skipped`)
+      reportGateFailure(`could not get ${baseRemote} default branch; PR skipped`, true)
       return false
     }
     const baseBranch = baseRef.slice(baseRemote.length + 1)
     try {
       gitIn(paths.repoRoot, ['fetch', baseRemote, baseBranch, '--quiet'])
     } catch (error) {
-      reportGateFailure(`could not fetch ${baseRef}: ${errorSummary(error)}`)
+      reportGateFailure(`could not fetch ${baseRef}: ${errorSummary(error)}`, true)
       return false
     }
     const cycle = readCount(scanCountFile)
@@ -1263,7 +1360,7 @@ export function createLoop(deps: LoopDeps) {
       status = await forge.prStatus({ kind: 'branch', value: branch })
     } catch (error) {
       if (!(error instanceof ForgeRateLimitError)) {
-        reportGateFailure(`could not check PR status: ${errorSummary(error)}`)
+        reportGateFailure(`could not check PR status: ${errorSummary(error)}`, true)
       }
       return false
     }
@@ -1275,11 +1372,11 @@ export function createLoop(deps: LoopDeps) {
         body = await forge.prBody(branch)
       } catch (error) {
         if (!(error instanceof ForgeRateLimitError)) {
-          reportGateFailure(`could not read PR body: ${errorSummary(error)}`)
+          reportGateFailure(`could not read PR body: ${errorSummary(error)}`, true)
         }
         return false
       }
-      const generatedBody = body.includes(GENERATED_BODY_MARKER)
+      const generatedBody = body.split(/\r?\n/, 1)[0] === GENERATED_BODY_MARKER
       try {
         await forge.updatePr(branch, generatedBody
           ? {
@@ -1289,13 +1386,28 @@ export function createLoop(deps: LoopDeps) {
           : { title })
       } catch (error) {
         if (!(error instanceof ForgeRateLimitError)) {
-          reportGateFailure(`could not update PR ${generatedBody ? 'body' : 'title'}: ${errorSummary(error)}`)
+          reportGateFailure(`could not update PR ${generatedBody ? 'body' : 'title'}: ${errorSummary(error)}`, true)
         }
         return false
       }
       writeFileSync(prUrlFile, `${status.url}\n`)
       previousGateFailures.delete('draft-pr')
       return true
+    }
+
+    try {
+      const ahead = gitIn(paths.repoRoot, ['rev-list', '--count', `${baseRef}..HEAD`]).trim()
+      if (ahead === '0') {
+        // A forge cannot create a PR without a commit between head and base. This is a
+        // completed empty run, not a transient forge failure to retry forever.
+        emptyRun = true
+        rmSync(prUrlFile, { force: true })
+        previousGateFailures.delete('draft-pr')
+        return true
+      }
+    } catch (error) {
+      reportGateFailure(`could not compare branch with ${baseRef}: ${errorSummary(error)}`, true)
+      return false
     }
 
     try {
@@ -1311,7 +1423,7 @@ export function createLoop(deps: LoopDeps) {
       return true
     } catch (error) {
       if (!(error instanceof ForgeRateLimitError)) {
-        reportGateFailure(`could not create PR: ${errorSummary(error)}`)
+        reportGateFailure(`could not create PR: ${errorSummary(error)}`, true)
       }
       return false
     }
@@ -1337,13 +1449,14 @@ export function createLoop(deps: LoopDeps) {
     previousGateFailures.delete('ci-status')
     if (status.state === 'none') return 'unknown'
     if (status.state === 'merged') return 'success'
-    if (status.checks.length === 0) {
+    const checks = newestChecksByName(status.checks)
+    if (checks.length === 0) {
       // Silence cannot prove success: workflows may be delayed or misconfigured. Only a
       // project that explicitly declares it expects no CI checks may clear this gate.
       return project.ciChecksExpected === false ? 'success' : 'unknown'
     }
-    if (status.checks.some((check) => check.conclusion === 'pending')) return 'pending'
-    if (status.checks.some((check) => check.conclusion === 'failure')) return 'failure'
+    if (checks.some((check) => check.conclusion === 'pending')) return 'pending'
+    if (checks.some((check) => check.conclusion === 'failure')) return 'failure'
     return 'success'
   }
 
@@ -1364,6 +1477,11 @@ export function createLoop(deps: LoopDeps) {
   /** After the final gate: promote the draft PR and print LOOP_DONE. */
   async function postLoopPr(): Promise<boolean> {
     if (!(await ensureDraftPr('final'))) return false
+    if (emptyRun) {
+      marker('LOOP_DONE: no changes')
+      event('Completed', 'Loop', 'no changes')
+      return true
+    }
     const prUrl = existsSync(prUrlFile) ? readFileSync(prUrlFile, 'utf8').trim() : ''
     if (prUrl === '') return false
     const branch = git(['branch', '--show-current']).trim()
@@ -1424,13 +1542,20 @@ export function createLoop(deps: LoopDeps) {
     return true
   }
 
-  /**
-   * With light task gates each merge proved only that the tree builds, so the full
-   * suites run here, once per gate entry, against the tip the cycle actually produced.
-   * On failure the loop stops rather than promote a failing tip.
-   */
+  function cycleSuiteStepsForTaskGate(): SuiteStep[] {
+    return project.cycleSuite().filter((step) =>
+      config.taskGate === 'light' || step.runAtEveryTaskGate === true)
+  }
+
+  function cycleSuiteEnabledForTaskGate(): boolean {
+    return config.taskGate === 'light'
+      || cycleSuiteStepsForTaskGate().length > 0
+  }
+
+  /** Run the applicable suites once per gate entry against the cycle's resulting tip. */
   function runCycleSuite(cycle: number): boolean {
-    if (config.taskGate !== 'light') return true
+    const configuredSteps = cycleSuiteStepsForTaskGate()
+    if (config.taskGate !== 'light' && configuredSteps.length === 0) return true
     event('Started', 'Suite', `cycle ${cycle}`)
     const suiteLog = join(paths.logsDir, `cycle-suite-${cycle}.log`)
     writeFileSync(suiteLog, '')
@@ -1450,7 +1575,7 @@ export function createLoop(deps: LoopDeps) {
       }
     }
 
-    const steps = project.cycleSuite().filter((step) =>
+    const steps = configuredSteps.filter((step) =>
       step.requires === undefined || existsSync(join(paths.repoRoot, step.requires)))
     if (steps.some((step) => step.needsDocker)) {
       const probe = project.cycleSuiteDockerProbe
@@ -1585,7 +1710,7 @@ export function createLoop(deps: LoopDeps) {
               if (error instanceof ForgeRateLimitError) return 'continue'
               warning('reconcile-closed-issue-labels', 'reconciling closed issue labels',
                 `could not reconcile closed issue labels: ${errorSummary(error)}`)
-              reconciledCycleGates.add(currentScans)
+              return 'continue'
             }
           }
           // A cycle that lost tasks did not do what it set out to do, and the PR cannot
@@ -1602,13 +1727,14 @@ export function createLoop(deps: LoopDeps) {
           }
 
           const currentTip = git(['rev-parse', 'HEAD']).trim()
-          const suitePassedForTip = config.taskGate === 'light'
+          const cycleSuiteEnabled = cycleSuiteEnabledForTaskGate()
+          const suitePassedForTip = cycleSuiteEnabled
             && currentTip !== ''
             && existsSync(suiteTipFile)
             && readFileSync(suiteTipFile, 'utf8').trim() === currentTip
           if (!suitePassedForTip) {
             if (!runCycleSuite(currentScans)) return 'continue'
-            if (config.taskGate === 'light' && currentTip !== '') {
+            if (cycleSuiteEnabled && currentTip !== '') {
               writeFileSync(suiteTipFile, `${currentTip}\n`)
             }
           }
@@ -1623,7 +1749,11 @@ export function createLoop(deps: LoopDeps) {
           writeFileSync(completeFlag, '')
         }
 
-        const ciStatus = config.ciGateEnabled ? await checkPrCiStatus() : 'success'
+        const cyclePrUrl = existsSync(prUrlFile) ? readFileSync(prUrlFile, 'utf8').trim() : ''
+        const emptyPrGate = config.autoPr && cyclePrUrl === ''
+        const ciStatus = config.ciGateEnabled && !emptyPrGate
+          ? await checkPrCiStatus()
+          : 'success'
         if (ciStatus === 'pending' || ciStatus === 'unknown') {
           gateWaitTarget = 'CI checks'
           return 'continue'
@@ -1653,7 +1783,9 @@ export function createLoop(deps: LoopDeps) {
           }
           return 'continue'
         }
-        if (config.autoReview) {
+        if (emptyPrGate) {
+          writeFileSync(resumeFlag, '')
+        } else if (config.autoReview) {
           if (!runAutoReview(currentScans, cycleIsFinal(currentScans))) return 'continue'
           writeFileSync(resumeFlag, '')
         } else if (config.reviewEnabled) {
@@ -1704,7 +1836,26 @@ export function createLoop(deps: LoopDeps) {
     const nextCycle = currentScans + 1
     // This is the only safe restart boundary: the previous gate is closed, no task is
     // running, and the next cycle has not yet consumed its number or started a scan.
+    // Restarting the whole daemon here is safer than hot-swapping the project adapter:
+    // every closure and adapter consumer changes atomically before any new work exists.
+    if (projectAdapterChanged()) {
+      restartSubject = 'adapter'
+      event('Restarting', 'adapter', `for cycle ${nextCycle}`)
+      return 'restart'
+    }
+    restartSubject = 'core'
     if (await updateCore(nextCycle) === 'restart') return 'restart'
+    if (config.integrationBranch !== '') {
+      absorbDefaultBranch(paths, (name, subject, detail = '') => event(name, subject, detail))
+      // The default branch may carry a new adapter into the integration worktree. Check
+      // again before using the loaded adapter to prepare or start the next cycle.
+      if (projectAdapterChanged()) {
+        restartSubject = 'adapter'
+        event('Restarting', 'adapter', `for cycle ${nextCycle}`)
+        return 'restart'
+      }
+      prepareIntegration()
+    }
     const requestedScans = [1, 2, 3, 4].includes(config.scanParallel) ? config.scanParallel : 2
     let nScans = requestedScans
     let sectionGroups: number[][] = []
@@ -1734,17 +1885,16 @@ export function createLoop(deps: LoopDeps) {
       const scope = nScans === 1
         ? 'Perform the full scan described below.'
         : `This scan runs alongside ${nScans - 1} partner scan(s). Perform only sections ${sectionGroups[i - 1]!.join(', ')}; the partners cover the rest. Stay inside them — overlapping findings merge away, duplicated reading does not.`
-      if (generateScanTask(scanId, scope)) {
-        try {
-          await startTask(paths, runner, scanId, {
-            effort: config.scanEffort as 'high',
-            model: config.scanModel === '' ? undefined : config.scanModel,
-            setup: project.scanWorktreeSetup,
-          })
-          event('Started', shortTaskId(scanId), `scan ${i}/${nScans}`)
-        } catch (error) {
-          event('WARN', `scan startup failed: ${errorSummary(error)} (log: ${shortLogPath(logFile(paths, scanId))})`)
-        }
+      writeFileSync(specFile(paths, scanId), scanSpecification(scanId, scope))
+      try {
+        await startTask(paths, runner, scanId, {
+          effort: config.scanEffort as 'high',
+          model: config.scanModel === '' ? undefined : config.scanModel,
+          setup: project.scanWorktreeSetup,
+        })
+        event('Started', shortTaskId(scanId), `scan ${i}/${nScans}`)
+      } catch (error) {
+        event('WARN', `scan startup failed: ${errorSummary(error)} (log: ${shortLogPath(logFile(paths, scanId))})`)
       }
     }
     return 'continue'
@@ -1753,6 +1903,12 @@ export function createLoop(deps: LoopDeps) {
   /** One poll iteration. Returns 'stopped' | 'done' | 'continue' | 'restart'. */
   async function poll(): Promise<'stopped' | 'done' | 'continue' | 'restart'> {
     gateWaitTarget = undefined
+    const daemonProblem = branchGuard()
+    if (daemonProblem !== undefined) {
+      event('ERROR', daemonProblem)
+      writeFileSync(stopFile, '')
+      return 'stopped'
+    }
     const currentBranch = git(['branch', '--show-current']).trim()
     const recordedBranch = existsSync(runBranchFile)
       ? readFileSync(runBranchFile, 'utf8').replace(/[\r\n]/g, '')
@@ -1831,7 +1987,7 @@ export function createLoop(deps: LoopDeps) {
         if (missingMarkers.length > 0) {
           throw new MergeError(`Grouped task is missing requirement completion markers for ${missingMarkers.map((number) => `#${number}`).join(', ')}.`)
         }
-        const mergeCommit = await mergeTask(paths, taskId, {
+        const mergeResult = await mergeTask(paths, taskId, {
           taskGate: config.taskGate,
           testCmd: config.testCmd === '' ? undefined : config.testCmd,
           skipAutoTest: config.skipAutoTest,
@@ -1841,7 +1997,26 @@ export function createLoop(deps: LoopDeps) {
           outputFile: mergeLog,
           orchestrationDepsRuntime,
           onOrchestrationDepsEvent: orchestrationDepsEvent,
+          onNoChange: async () => {
+            if (linkedIssues.length > 0) {
+              await Promise.all(linkedIssues.map((issueNumber) =>
+                closeIssueAndRemoveLifecycleLabels(forge, issueNumber,
+                  `Task ${taskId} completed without commits after reporting that no change was warranted.`)))
+            }
+            recordIssueCompletions(paths, taskId, 'no-change')
+          },
         })
+        if (mergeResult.outcome === 'no-change') {
+          event('No-change', shortTaskId(taskId), 'no change warranted')
+          if (!isInspectionTaskId(paths, taskId)) {
+            const cycle = readCount(scanCountFile)
+            if (cycle > 0) {
+              rmSync(join(paths.queueDir, `cycle-complete-${cycle}`), { force: true })
+            }
+          }
+          return
+        }
+        const mergeCommit = mergeResult.mergeCommit
         event('Merged', shortTaskId(taskId), `commit ${mergeCommit.slice(0, 8)}`)
         writeFileSync(mergeFailureFile, '0\n')
         if (linkedIssues.length > 0) {
@@ -1856,8 +2031,14 @@ export function createLoop(deps: LoopDeps) {
           if (cycle > 0) rmSync(join(paths.queueDir, `cycle-complete-${cycle}`), { force: true })
         }
       } catch (error) {
+        if (error instanceof NoChangeReconciliationError) {
+          event('WARN', `could not reconcile no-change task ${shortTaskId(taskId)}: ${error.message}`)
+          issueReconciliationPending = true
+          return
+        }
         if (error instanceof MergeError) appendFileSync(mergeLog, `${error.message}\n`)
-        event('Failed', shortTaskId(taskId), `log ${shortTaskId(taskId)}.merge.log`)
+        if (error instanceof OrchestrationDepsInstallError) throw error
+        event('Failed', shortTaskId(taskId), `log ${shortLogPath(mergeLog)}`)
         const abandoned = noteMergeFailure(mergeLog)
         if (abandoned && linkedIssues.length > 1 && remoteOperationsAvailable) {
           try {
@@ -1885,6 +2066,7 @@ export function createLoop(deps: LoopDeps) {
         ? (await refreshTask(paths, taskId))?.status
         : before.status
       if (status === undefined) continue
+      const wasDeadAtStartup = tasksDeadAtStartup.delete(taskId)
 
       if (status === 'merged' && config.issueQueueEnabled) {
         const mergedStatus = readStatus(paths, taskId)
@@ -1941,7 +2123,7 @@ export function createLoop(deps: LoopDeps) {
           rmSync(join(paths.queueDir, `cycle-complete-${cycleNow}`), { force: true })
         }
         writeFileSync(failedFlag, '')
-        burstFailures += 1
+        if (!wasDeadAtStartup) burstFailures += 1
       }
 
       const scannedFlag = join(scannedDir, taskId)
@@ -2040,11 +2222,15 @@ export function createLoop(deps: LoopDeps) {
             openFindings,
             issueHasMergeMarker,
           )
+          if (readCount(issueReleaseFailureFile) > 0) {
+            writeFileSync(issueReleaseFailureFile, '0\n')
+            warningLog.recovered('issue-release-reconciliation')
+          }
           let capacity = config.maxParallel - running - queueLength()
           if (capacity > 0) {
             if (cachedUser === undefined) cachedUser = await forge.currentUser()
             const readyIssues = openFindings.filter((candidate) =>
-              candidate.labels.includes(LABEL_READY)
+              issueHasExactlyLifecycleLabel(candidate, LABEL_READY)
                 && !candidate.labels.includes(LABEL_UNTRUSTED_AUTHOR)
                 && candidate.assignees.length === 0
                 && issuePromotionForIssue(paths, candidate.number) === undefined)
@@ -2058,6 +2244,10 @@ export function createLoop(deps: LoopDeps) {
                   result.issueNumbers.map((issueNumber) => `#${issueNumber}`).join(' '))
                 if (result.pendingMerge) await mergeCompletedTask(result.taskId)
                 capacity -= 1
+              } else if (result.outcome === 'already-processed') {
+                event('Deduplicated',
+                  result.issueNumbers.map((issueNumber) => `#${issueNumber}`).join(' '),
+                  `against ${shortTaskId(result.taskId)}`)
               } else if (result.outcome === 'untrusted-author') {
                 // The poll's shared listing predates the label mutation. Reflect it
                 // locally so this quarantined issue cannot hold today's idle gate open.
@@ -2082,14 +2272,17 @@ export function createLoop(deps: LoopDeps) {
           }
           warningLog.recovered('issue-queue-sync')
         } catch (error) {
-          if (!(error instanceof ForgeRateLimitError)) {
+          if (error instanceof IssueReleaseReconciliationError) {
+            issueReconciliationPending = true
+            noteIssueReleaseFailure(error)
+          } else if (!(error instanceof ForgeRateLimitError)) {
             warning('issue-queue-sync', 'syncing the issue queue',
               `issue queue unreachable: ${errorSummary(error)}`)
           }
         }
       }
 
-      for (;;) {
+      for (; !existsSync(stopFile);) {
         if (running >= config.maxParallel) break
         const entry = dequeueNext(remoteOperationsAvailable)
         if (entry === undefined) break
@@ -2113,6 +2306,7 @@ export function createLoop(deps: LoopDeps) {
           } else {
             event('Started', shortTaskId(entry.taskId), `effort ${effort}`)
           }
+          previousGateFailures.delete(`task-startup-${entry.taskId}`)
           running += 1
         } catch (error) {
           const issueNumbers = issueNumbersForTask(paths, entry.taskId)
@@ -2143,12 +2337,18 @@ export function createLoop(deps: LoopDeps) {
                 event('WARN', `${shortTaskId(entry.taskId)} startup cleanup failed: ${errorSummary(cleanupError)}`)
               }
             } else {
-              enqueueTask(paths, entry.taskId, entry.depth)
+              requeueAfterStartupFailure(entry.taskId, entry.depth, error)
               // Do not dequeue the same retained materialization again in this poll.
               // The next poll retries the release while keeping the forge claim linked.
               break
             }
           } else {
+            if (readStatus(paths, entry.taskId) === undefined) {
+              requeueAfterStartupFailure(entry.taskId, entry.depth, error)
+              // A deterministic preflight error would otherwise be dequeued again in
+              // this poll. Preserve it for a later poll after the input is repaired.
+              break
+            }
             event('WARN', `${shortTaskId(entry.taskId)} startup failed: ${errorSummary(error)}`)
           }
         }
@@ -2235,6 +2435,7 @@ export function createLoop(deps: LoopDeps) {
     validatePushTarget,
     initializeSessionStateForBranch,
     cleanupSessionState,
+    restartSubject: () => restartSubject,
     // exported for tests
     actionableFindings,
     recordScanYield,

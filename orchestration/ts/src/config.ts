@@ -51,6 +51,8 @@ export interface LoopConfig {
   upstreamRemote: string
   /** Branch fetched and pulled into the shared-core subtree. */
   upstreamBranch: string
+  /** Optional merge and promotion branch kept in a separate worktree. */
+  integrationBranch: string
 }
 
 interface PackageMetadata {
@@ -120,6 +122,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): LoopConfig {
   if (pollIntervalSeconds > MAX_POLL_INTERVAL_SECONDS) {
     throw new Error(`POLL_INTERVAL must not exceed ${MAX_POLL_INTERVAL_SECONDS} seconds`)
   }
+  const reviewEveryNCycles = num(env, 'REVIEW_EVERY_N_CYCLES', 1)
+  if (reviewEveryNCycles < 1) {
+    throw new Error('REVIEW_EVERY_N_CYCLES must be at least 1')
+  }
   return {
     maxParallel,
     pollIntervalSeconds,
@@ -137,7 +143,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): LoopConfig {
     ciGateEnabled: bool(env, 'CI_GATE_ENABLED', false),
     autoReview: bool(env, 'AUTO_REVIEW', false),
     maxReviewRounds: num(env, 'MAX_REVIEW_ROUNDS', 2),
-    reviewEveryNCycles: num(env, 'REVIEW_EVERY_N_CYCLES', 1),
+    reviewEveryNCycles,
     maxFinalReviewRounds: num(env, 'MAX_FINAL_REVIEW_ROUNDS', 4),
     maxBurstFailures: num(env, 'MAX_BURST_FAILURES', 3),
     maxConsecutiveMergeFailures: num(env, 'MAX_CONSECUTIVE_MERGE_FAILURES', 3),
@@ -156,5 +162,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): LoopConfig {
     coreAutoUpdate: bool(env, 'CORE_AUTO_UPDATE', true),
     upstreamRemote: str(env, 'UPSTREAM_REMOTE', defaultUpstreamRemote()),
     upstreamBranch: str(env, 'UPSTREAM_BRANCH', 'main'),
+    integrationBranch: str(env, 'INTEGRATION_BRANCH', ''),
   }
 }

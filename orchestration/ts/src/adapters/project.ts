@@ -1,5 +1,5 @@
-import { existsSync, readdirSync } from 'node:fs'
-import { basename, resolve } from 'node:path'
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
+import { basename, dirname, extname, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import ts from 'typescript'
 
@@ -30,6 +30,8 @@ export interface SuiteStep {
   /** Directory the command runs in, relative to the repository root ('' = the root). */
   cwd: string
   command: string
+  /** Run at the cycle gate under every task-gate mode, not only the light gate. */
+  runAtEveryTaskGate?: boolean
   /** Skip silently when this repo-relative path does not exist. */
   requires?: string
   /** Run a repair command first when a repo-relative path is missing — for a toolchain
@@ -110,7 +112,7 @@ export interface ProjectAdapter {
   mergeChecks(taskGate: 'full' | 'light'): MergeCheck[]
   /** Fast checks run by the core-owned pre-commit hook against staged paths. */
   preCommitChecks: MergeCheck[]
-  /** The full suites the cycle gate runs against the branch tip under light task gates. */
+  /** Suites the cycle gate runs against the branch tip. Steps default to light gates only. */
   cycleSuite(): SuiteStep[]
   /** Repository-specific probe used when a cycle suite step needs Docker. */
   cycleSuiteDockerProbe?: DockerProbe
@@ -118,6 +120,8 @@ export interface ProjectAdapter {
   classifyInfrastructureFailure?: (output: string) => InfrastructureFailure | undefined
   /** Repository-specific preparation required before a scan can inspect a fresh worktree. */
   scanWorktreeSetup?: WorktreeSetupStep[]
+  /** Preparation required in the integration worktree before the loop uses it. */
+  integrationWorktreeSetup?: WorktreeSetupStep[]
   /** Repository-specific classification and risk signals for the generated pull request. */
   pullRequest: PullRequestPresentation
 }
@@ -461,10 +465,15 @@ function discoverProjectAdapter(orchestrationRoot: string): { path: string; name
   }
 }
 
-export async function loadProject(
+interface ResolvedProjectAdapter {
+  path: string
+  name?: string
+}
+
+function resolveProjectAdapter(
   orchestrationRoot: string,
-  env: NodeJS.ProcessEnv = process.env,
-): Promise<ProjectAdapter> {
+  env: NodeJS.ProcessEnv,
+): ResolvedProjectAdapter {
   const configuredName = env['PROJECT'] === undefined || env['PROJECT'] === ''
     ? undefined
     : env['PROJECT']
@@ -475,14 +484,21 @@ export async function loadProject(
     ? discoverProjectAdapter(orchestrationRoot)
     : undefined
   const name = configuredName ?? discovered?.name
-  const adapterPath = configuredPath !== undefined
-    ? resolve(orchestrationRoot, configuredPath)
-    : discovered?.path ?? resolve(orchestrationRoot, 'project', `project-${name}.ts`)
-
-  if (!existsSync(adapterPath)) {
-    throw new Error(`Project adapter not found: ${adapterPath}`)
+  return {
+    name,
+    path: configuredPath !== undefined
+      ? resolve(orchestrationRoot, configuredPath)
+      : discovered?.path ?? resolve(orchestrationRoot, 'project', `project-${name}.ts`),
   }
+}
 
+export interface MonitoredProjectAdapter {
+  project: ProjectAdapter
+  path: string
+  sourceChanged: () => boolean
+}
+
+async function importProject(adapterPath: string, name?: string): Promise<ProjectAdapter> {
   const mod = await import(pathToFileURL(adapterPath).href) as Record<string, unknown>
   let matchingProblem: string | undefined
   for (const value of Object.values(mod)) {
@@ -499,4 +515,84 @@ export async function loadProject(
   }
   const expected = name === undefined ? 'a project adapter' : `project '${name}'`
   throw new Error(`Project adapter '${adapterPath}' does not export ${expected}`)
+}
+
+const LOCAL_MODULE_EXTENSIONS = ['.ts', '.tsx', '.mts', '.cts', '.js', '.mjs', '.cjs', '.json']
+
+function resolveLocalModule(importer: string, specifier: string): string | undefined {
+  if (!specifier.startsWith('./') && !specifier.startsWith('../')) return undefined
+  const imported = resolve(dirname(importer), specifier)
+  const candidates = extname(imported) === ''
+    ? [imported, ...LOCAL_MODULE_EXTENSIONS.map((extension) => `${imported}${extension}`),
+        ...LOCAL_MODULE_EXTENSIONS.map((extension) => resolve(imported, `index${extension}`))]
+    : [imported]
+  return candidates.find((candidate) => {
+    try {
+      return statSync(candidate).isFile()
+    } catch {
+      return false
+    }
+  })
+}
+
+function projectSources(adapterPath: string): Map<string, Buffer> {
+  const sources = new Map<string, Buffer>()
+  const pending = [adapterPath]
+  while (pending.length > 0) {
+    const path = pending.pop()!
+    if (sources.has(path)) continue
+    const source = readFileSync(path)
+    sources.set(path, source)
+    const imports = ts.preProcessFile(source.toString('utf8'), true, true).importedFiles
+    for (const imported of imports) {
+      const dependency = resolveLocalModule(path, imported.fileName)
+      if (dependency !== undefined && !sources.has(dependency)) pending.push(dependency)
+    }
+  }
+  return sources
+}
+
+function projectSourcesChanged(expected: ReadonlyMap<string, Buffer>, adapterPath: string): boolean {
+  try {
+    const current = projectSources(adapterPath)
+    return current.size !== expected.size
+      || [...expected].some(([path, source]) => !current.get(path)?.equals(source))
+  } catch {
+    // A missing or unreadable dependency is as stale as a missing adapter.
+    return true
+  }
+}
+
+/** Load an adapter and retain every local source the daemon must stop using if it changes. */
+export async function loadMonitoredProject(
+  orchestrationRoot: string,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<MonitoredProjectAdapter> {
+  const resolved = resolveProjectAdapter(orchestrationRoot, env)
+  if (!existsSync(resolved.path)) {
+    throw new Error(`Project adapter not found: ${resolved.path}`)
+  }
+
+  const sourcesBeforeImport = projectSources(resolved.path)
+  const project = await importProject(resolved.path, resolved.name)
+  const sources = projectSources(resolved.path)
+  if (projectSourcesChanged(sourcesBeforeImport, resolved.path)) {
+    throw new Error(`Project adapter changed while it was loading: ${resolved.path}`)
+  }
+  return {
+    project,
+    path: resolved.path,
+    sourceChanged: () => projectSourcesChanged(sources, resolved.path),
+  }
+}
+
+export async function loadProject(
+  orchestrationRoot: string,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<ProjectAdapter> {
+  const resolved = resolveProjectAdapter(orchestrationRoot, env)
+  if (!existsSync(resolved.path)) {
+    throw new Error(`Project adapter not found: ${resolved.path}`)
+  }
+  return importProject(resolved.path, resolved.name)
 }
