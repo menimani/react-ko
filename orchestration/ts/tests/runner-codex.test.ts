@@ -81,7 +81,7 @@ describe('createCodexRunner', () => {
         commandPrefixPlaceholder: '{{COMMAND_PREFIX}}',
         packagePathPrefixPlaceholder: '{{PACKAGE_PATH_PREFIX}}',
       },
-    ).toString('utf8')).toBe('npm run -C orchestration/ts loop\n')
+    ).toString('utf8')).toBe("npm run -C 'orchestration/ts' loop\n")
   })
 
   it('renders Claude-oriented skill syntax into complete Codex instructions', () => {
@@ -126,7 +126,7 @@ describe('createCodexRunner', () => {
       '',
       'Run `gh pr view <pr-number> --json title` and use its output as context before continuing.',
       '',
-      'Run a direct review of the changes, then npm run -C orchestration/ts loop-status.',
+      "Run a direct review of the changes, then npm run -C 'orchestration/ts' loop-status.",
       '',
     ].join('\n'))
   })
@@ -235,6 +235,7 @@ describe('createCodexRunner', () => {
     expect(mocks.spawn).toHaveBeenCalledWith('codex', [
       'exec',
       '--dangerously-bypass-approvals-and-sandbox',
+      '--disable', 'multi_agent',
       '--output-last-message', 'final-message.txt',
       '--model', 'gpt-5-codex',
       '--config', 'model_reasoning_effort=low',
@@ -259,6 +260,7 @@ describe('createCodexRunner', () => {
         '-c', 'exec codex "$@"', 'codex',
         'exec',
         '--dangerously-bypass-approvals-and-sandbox',
+        '--disable', 'multi_agent',
         '--output-last-message', 'final-message.txt',
         '--config', 'model_reasoning_effort=high',
         '-',
