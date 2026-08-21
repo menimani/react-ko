@@ -4,25 +4,33 @@ import { join } from 'node:path'
 import { packageCommandPrefix, packagePathPrefix } from '../paths.ts'
 import { startWindowsProcess } from './windows-process.ts'
 import type {
-  Runner, RunnerSharedSkillRenderOptions, RunnerStartOptions,
+  Runner, RunnerModelOptions, RunnerSharedSkillRenderOptions, RunnerStartOptions,
 } from './runner.ts'
 
 // The spec is the prompt, read by Codex from standard input via `-`; the final
 // message lands in --output-last-message, which is the only place the core reads
 // completion markers from. Effort maps to the codex-specific
 // `model_reasoning_effort` config key here, not in the core.
+//
+// A worker never delegates to another agent, so `multi_agent` only adds its primary-agent
+// framing to the request. Codex enables it by default, and every request carries the whole
+// transcript, so the framing is paid once per turn rather than once per task.
 function buildArgs(options: RunnerStartOptions): string[] {
   const args = [
     'exec',
     '--dangerously-bypass-approvals-and-sandbox',
+    '--disable', 'multi_agent',
     '--output-last-message', options.finalMessageFile,
   ]
-  if (options.model !== undefined && options.model !== '') {
-    args.push('--model', options.model)
-  }
+  const model = resolveModel(options)
+  if (model !== undefined) args.push('--model', model)
   args.push('--config', `model_reasoning_effort=${options.effort}`)
   args.push('-')
   return args
+}
+
+function resolveModel(options: RunnerModelOptions): string | undefined {
+  return options.model === undefined || options.model === '' ? undefined : options.model
 }
 
 function renderSharedSkillFile(
@@ -98,6 +106,7 @@ export function createCodexRunner(): Runner {
       destinationRoot: (repoRoot) => join(repoRoot, '.agents', 'skills'),
       renderFile: renderSharedSkillFile,
     },
+    resolveModel,
     start(options: RunnerStartOptions): Promise<number> {
       const args = buildArgs(options)
       // On Windows the `codex` on PATH is an npm .cmd shim, which Node cannot spawn
