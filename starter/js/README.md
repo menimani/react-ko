@@ -1,61 +1,53 @@
-# react-ko starter (JavaScript)
+# react-ko Bookshelf starter (JavaScript)
 
 en English | [ja Japanese](./README.ja.md)
 
-The official JavaScript starter template for
-[react-ko](https://github.com/menimani/react-ko), a minimal bridge between
-React and Knockout.js. It lives inside the react-ko repository, so it is
-always updated together with the library.
+The official JavaScript starter for [react-ko](https://github.com/menimani/react-ko),
+a minimal bridge between React and Knockout.js. The included Bookshelf app is a
+small reading log with add, edit, remove, filter, live summary, and local storage.
 
-## Quick Start
+## Quick start
 
 ```bash
-npx degit menimani/react-ko/starter/js my-app-js
-cd my-app-js
+npx degit menimani/react-ko/starter/js my-bookshelf
+cd my-bookshelf
 npm install
 npm run dev
 ```
 
-Then open [`src/App.jsx`](./src/App.jsx) and edit freely.
+For TypeScript, use `starter/ts` instead.
 
-For the TypeScript version, use `starter/ts` instead:
+## How the sample is structured
 
-```bash
-npx degit menimani/react-ko/starter/ts my-app-ts
-```
+- [`src/appViewModel.js`](./src/appViewModel.js) owns the shelf as a Knockout
+  `observableArray`, the two-way form fields, status filter, computed summary,
+  and `localStorage` persistence.
+- [`src/main.jsx`](./src/main.jsx) places the ViewModel in `KnockoutScope`, which
+  provides it to the component tree and applies the bindings.
+- [`src/App.jsx`](./src/App.jsx) owns the markup. It retrieves the ViewModel with
+  `useKoViewModel`, binds controls through `data-bind`, and renders keyed book
+  rows with `KoForeach` so React remains responsible for the component tree.
 
-## What's included
-
-- React + Vite (official template)
-- Knockout.js and react-ko installed
-- An app-level ViewModel bound and provided by `KnockoutScope`
-- `useKoViewModel` for reaching that ViewModel from anywhere in the scope
-- Nested binding roots with two-way `data-bind` bindings
-- A working todo list with keyed `KoForeach` rows, plain-JSX conditionals, and a
-  detail view bound to the selected item
-- `useKoValue` bridging an in-place `observableArray` update into React output
-- No extra setup — `npm install` and go
-
-## Sample code
+The form demonstrates two-way `value` bindings without mirroring fields into
+React state. Adding or editing a book updates the Knockout computed summary and
+the filtered `KoForeach` immediately. The persistence computed also reads each
+book's observables, so changes survive a reload.
 
 ```jsx
-const itemCount = (useKoValue(vm.list) ?? []).length
+const vm = useKoViewModel()
 
-<ul>
-  <KoForeach items={vm.list} itemKey={(todo) => todo.id}>
-    {(_todo, index, bind) => (
-      <li {...bind}>{index + 1}. <span data-bind="text: title" /></li>
-    )}
-  </KoForeach>
-</ul>
+<form data-bind="submit: saveBook">
+  <input data-bind="value: draftTitle, valueUpdate: 'input'" />
+</form>
+<KoForeach items={vm.filteredBooks} itemKey={(book) => book.id}>
+  {(_book, _index, bind) => (
+    <li {...bind}><span data-bind="text: title" /></li>
+  )}
+</KoForeach>
 ```
 
-Each row receives its own binding root as the third argument and spreads it onto
-its own element, so the row is the semantic `li` directly under the `ul` and
-nothing is added to the DOM. A row that binds nothing can ignore the argument.
-
-See [`src/components/TodoForm.jsx`](./src/components/TodoForm.jsx) for the
-full example, and the [react-ko README](https://github.com/menimani/react-ko/blob/main/README.md) for the API.
+See the [react-ko README](https://github.com/menimani/react-ko/blob/main/README.md)
+for the complete API.
 
 ## License
 
