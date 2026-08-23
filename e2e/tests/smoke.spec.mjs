@@ -25,7 +25,7 @@ test('the starter bookshelf works without page errors', async ({ page }) => {
   await expect(summary.getByText('2', { exact: true })).toHaveCount(1)
   await expect(summary.getByText('4.3', { exact: true })).toBeVisible()
 
-  await page.getByLabel('Filter by status').selectOption('reading')
+  await page.getByRole('group', { name: 'Filter by status' }).getByRole('button', { name: 'Reading' }).click()
   await expect(page.locator('.book-card')).toHaveCount(2)
   await expect(addedBook).toBeVisible()
 
@@ -36,7 +36,7 @@ test('the starter bookshelf works without page errors', async ({ page }) => {
   await expect(page.getByText('The Dispossessed (edited)')).toBeVisible()
 
   await page.reload()
-  await page.getByLabel('Filter by status').selectOption('all')
+  await page.getByRole('group', { name: 'Filter by status' }).getByRole('button', { name: 'All' }).click()
   await expect(page.getByText('The Dispossessed (edited)')).toBeVisible()
   await expect(summary.getByText('4', { exact: true })).toHaveCount(1)
 
