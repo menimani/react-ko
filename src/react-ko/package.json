@@ -46,7 +46,11 @@
     "build": "tsup && npm run test:types && npm run test:package",
     "test:types": "tsc --project tests/tsconfig.json && tsc --project tests/tsconfig.react19.json && tsc --project tests/declarations/tsconfig.json && tsc --project tests/consumers/esm/tsconfig.json && tsc --project tests/consumers/cjs/tsconfig.json && tsc --project tests/consumers/cjs/tsconfig.nodenext.json",
     "test:package": "node tests/package-smoke.mjs",
-    "test": "npx vitest run --reporter verbose --coverage"
+    "test": "npm run test:unit && npm run test:runtime",
+    "test:unit": "npx vitest run --reporter verbose --coverage",
+    "test:runtime": "npm run test:runtime:react18 && npm run test:runtime:react19",
+    "test:runtime:react18": "vitest run --config vitest.runtime.config.ts --mode react18 --reporter verbose",
+    "test:runtime:react19": "vitest run --config vitest.runtime.config.ts --mode react19 --reporter verbose"
   },
   "peerDependencies": {
     "knockout": "^3.5.1",

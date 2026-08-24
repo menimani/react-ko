@@ -4,6 +4,7 @@
   "private": true,
   "workspaces": [
     "src/react-ko",
+    "test-runtimes/*",
     "starter/ts",
     "starter/js"
   ],

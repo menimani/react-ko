@@ -1,0 +1,10 @@
+{
+  "name": "@react-ko-tests/runtime-react19",
+  "version": "0.0.0",
+  "private": true,
+  "devDependencies": {
+    "@testing-library/react": "16.2.0",
+    "react": "19.1.0",
+    "react-dom": "19.1.0"
+  }
+}
