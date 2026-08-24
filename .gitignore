@@ -3,6 +3,10 @@
 !src/**/*
 !tests/
 !tests/**/*
+!test-runtimes/
+!test-runtimes/*/
+!test-runtimes/*/package.json
+test-runtimes/*/node_modules/
 !starter/
 !starter/**/*
 !checks/
