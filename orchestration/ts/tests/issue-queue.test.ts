@@ -11,21 +11,22 @@ import {
   buildIssueBody, claimIssueGroup, closeIssueAndRemoveLifecycleLabels,
   commentOnIssueMerge, fingerprintOf, groupReadyFindings, heartbeatIssueForTask,
   issueCompletionForIssue, issueNumberForTask, issueNumbersForTask, issuePromotionForIssue,
-  issueFailureCount, IssueReleaseReconciliationError,
+  issueFailureCount, issueReleaseIntentForTask, issueReleasePreparationForTask,
+  IssueReleaseReconciliationError,
   missingRequirementCompletionMarkers, parseIssueBody,
   publishDelegatedTask, publishFinding, reapStaleLeases,
   reconcileClosedIssueLifecycleLabels, reconcileFindingFingerprints,
-  clearIssueFailureCounts, reconcileIssueReleaseIntent, recordIssueCompletions,
+  clearIssueFailureCounts, prepareIssueReleaseIntent, reconcileIssueReleaseIntent,
+  recordIssueCompletions,
   recordIssueFailure, recordIssueReleaseIntent, recordIssuesForTask,
   recordIssuePromotions,
-  releaseIssueClaim,
   returnIssueToReady, LABEL_FINDING,
   LABEL_GROUP_SINGLETON, LABEL_IN_PROGRESS, LABEL_MERGE_FAILED,
   LABEL_MERGE_READY, LABEL_READY, LABEL_RETRY_EXHAUSTED, LABEL_UNTRUSTED_AUTHOR,
   type ClaimedRequirement,
 } from '../src/issueQueue.ts'
 import { existingTaskIdForDesc } from '../src/ids.ts'
-import { orchPaths, type OrchPaths } from '../src/paths.ts'
+import { branchName, orchPaths, worktreeDir, type OrchPaths } from '../src/paths.ts'
 import { recordTaskProcess } from '../src/processRegistry.ts'
 import { specFile } from '../src/tasks.ts'
 import { frameVerifiedRequirement } from '../src/templates.ts'
@@ -36,6 +37,19 @@ import { stubProject } from './stubProject.ts'
 let repoRoot: string
 let paths: OrchPaths
 let forge: FakeForge
+
+function durableStatus(taskId: string, status: string, extra: Record<string, unknown> = {}): string {
+  return JSON.stringify({
+    task_id: taskId,
+    status,
+    started_at: '2026-08-08T03:00:00Z',
+    updated_at: '2026-08-08T03:00:00Z',
+    worktree: worktreeDir(paths, taskId),
+    branch: branchName(taskId),
+    ...(status === 'merged' ? { merge_commit: 'merge-commit', run_branch: 'main' } : {}),
+    ...extra,
+  })
+}
 
 beforeEach(() => {
   repoRoot = mkdtempSync(join(tmpdir(), 'orch-issues-'))
@@ -299,6 +313,17 @@ describe('issue body round-trip', () => {
 })
 
 describe('publishFinding', () => {
+  it('propagates a failed re-read of a newly created finding', async () => {
+    forge.listOpenIssues = async () => []
+    forge.getIssue = async () => {
+      throw new Error('created issue re-read unavailable')
+    }
+
+    await expect(publishFinding(
+      forge, paths, '[BUG] `src/a/b.ts` breaks', 'scan-1',
+    )).rejects.toThrow('created issue re-read unavailable')
+  })
+
   it('reports an immediate duplicate while the remote issue list still lags', async () => {
     forge.listOpenIssues = async () => []
     const firstDescription = '[BUG] `src/a/b.ts` Remove empty .live-event-form rules'
@@ -311,6 +336,40 @@ describe('publishFinding', () => {
     const second = await publishFinding(forge, paths, secondDescription, 'scan-2')
     expect(second).toEqual({ outcome: 'duplicate', issueNumber: first.issueNumber })
     expect(forge.issues.size).toBe(1)
+  })
+
+  it('preserves the fingerprint ledger and propagates a transient issue lookup failure', async () => {
+    const finding = '[BUG] `src/a/b.ts` breaks'
+    const fingerprint = fingerprintOf(finding)
+    const issueNumber = await forge.createIssue({
+      title: finding,
+      body: buildIssueBody(finding, 'scan-1'),
+      labels: [LABEL_FINDING, LABEL_READY],
+    })
+    const ledgerFile = join(paths.queueDir, 'issue-fingerprints')
+    writeFileSync(ledgerFile, `${fingerprint} ${issueNumber}\n`)
+    forge.listOpenIssues = async () => []
+    forge.getIssue = async () => {
+      throw new Error('transient issue lookup failure')
+    }
+
+    await expect(publishFinding(forge, paths, finding, 'scan-2'))
+      .rejects.toThrow('transient issue lookup failure')
+
+    expect(readFileSync(ledgerFile, 'utf8')).toBe(`${fingerprint} ${issueNumber}\n`)
+    expect(forge.issues.size).toBe(1)
+  })
+
+  it('replaces a ledger entry after the recorded issue is confirmed absent', async () => {
+    const finding = '[BUG] `src/a/b.ts` breaks'
+    const fingerprint = fingerprintOf(finding)
+    const ledgerFile = join(paths.queueDir, 'issue-fingerprints')
+    writeFileSync(ledgerFile, `${fingerprint} 999\n`)
+
+    const result = await publishFinding(forge, paths, finding, 'scan-1')
+
+    expect(result).toEqual({ outcome: 'created', issueNumber: 1 })
+    expect(readFileSync(ledgerFile, 'utf8')).toBe(`${fingerprint} 1\n`)
   })
 
   it.each([
@@ -533,6 +592,28 @@ describe('publishFinding', () => {
         `${fingerprintOf(findingA)} ${combined.issueNumber}`,
         `${fingerprintOf(findingB)} ${combined.issueNumber}`,
       ]))
+  })
+
+  it('propagates a failed re-read while reconciling a subsumed finding', async () => {
+    const findingA = '[BUG] `src/a.ts` breaks'
+    const findingB = '[TEST] `src/b.test.ts` lacks coverage'
+    await publishFinding(
+      forge, paths, `1. ${findingA}\n2. ${findingB}`, 'review-1', 'high',
+      'Review round fixes', [findingA, findingB],
+    )
+    const individual = await forge.createIssue({
+      title: findingA,
+      body: buildIssueBody(findingA, 'scan-1'),
+      labels: [LABEL_FINDING, LABEL_READY],
+    })
+    const getIssue = forge.getIssue.bind(forge)
+    forge.getIssue = async (issueNumber) => {
+      if (issueNumber === individual) throw new Error('subsumed issue re-read unavailable')
+      return getIssue(issueNumber)
+    }
+
+    await expect(reconcileFindingFingerprints(forge, paths))
+      .rejects.toThrow('subsumed issue re-read unavailable')
   })
 
   it('keeps a partially overlapping issue that carries an unmatched finding', async () => {
@@ -981,7 +1062,7 @@ describe('claimIssueGroup', () => {
     )
     if (first.outcome !== 'claimed') throw new Error(`expected a claim, got ${first.outcome}`)
     writeFileSync(join(paths.statusDir, `${first.taskId}.json`),
-      JSON.stringify({ task_id: first.taskId, status: 'merged' }))
+      durableStatus(first.taskId, 'merged'))
     writeFileSync(join(paths.queueDir, 'backlog.txt'), '')
     recordIssuePromotions(paths, first.taskId, 'a'.repeat(40), 'chore/run-branch')
 
@@ -1007,7 +1088,7 @@ describe('claimIssueGroup', () => {
       )
       if (first.outcome !== 'claimed') throw new Error(`expected a claim, got ${first.outcome}`)
       writeFileSync(join(paths.statusDir, `${first.taskId}.json`),
-        JSON.stringify({ task_id: first.taskId, status }))
+        durableStatus(first.taskId, status))
       writeFileSync(join(paths.queueDir, 'backlog.txt'), '')
 
       const duplicate = await forge.createIssue({
@@ -1055,14 +1136,45 @@ describe('claimIssueGroup', () => {
     expect(after.labels).toContain(LABEL_READY)
   })
 
-  it('releases its assignment when the lifecycle changes immediately after assignment', async () => {
-    const issueNumber = await readyIssue('[BUG] `src/a/b.ts` changes during assignment')
+  it.each([
+    ['loses its lifecycle label', async (number: number) => {
+      await forge.removeLabel(number, LABEL_READY)
+    }],
+    ['gains a conflicting lifecycle label', async (number: number) => {
+      await forge.addLabel(number, LABEL_MERGE_FAILED)
+    }],
+  ] as const)(
+    'restores a claimable ready state when an issue %s immediately after assignment',
+    async (_description, driftLifecycle) => {
+      const issueNumber = await readyIssue('[BUG] `src/a/b.ts` changes during assignment')
+      const issue = await forge.getIssue(issueNumber)
+      const assignIssue = forge.assignIssue.bind(forge)
+      forge.assignIssue = async (number, assignee) => {
+        await assignIssue(number, assignee)
+        if (number === issueNumber) await driftLifecycle(number)
+      }
+
+      const result = await claimIssueGroup(forge, paths, [issue], 'worker-a', appendRequirements)
+
+      expect(result).toEqual({ outcome: 'lost-race', issueNumber })
+      const after = await forge.getIssue(issueNumber)
+      expect(after.assignees).toEqual([])
+      expect(after.labels).toEqual([LABEL_FINDING, LABEL_READY])
+      expect(existsSync(join(paths.queueDir, 'backlog.txt'))).toBe(false)
+      expect(readdirSync(paths.tasksDir)).toEqual([])
+    },
+  )
+
+  it('restores ready when the lifecycle drifts after claim label mutation', async () => {
+    const issueNumber = await readyIssue('[BUG] `src/a/b.ts` changes after label mutation')
     const issue = await forge.getIssue(issueNumber)
-    const assignIssue = forge.assignIssue.bind(forge)
-    const removeLabel = forge.removeLabel.bind(forge)
-    forge.assignIssue = async (number, assignee) => {
-      await assignIssue(number, assignee)
-      if (number === issueNumber) await removeLabel(number, LABEL_READY)
+    const getIssue = forge.getIssue.bind(forge)
+    let reads = 0
+    forge.getIssue = async (number) => {
+      if (number === issueNumber && ++reads === 3) {
+        await forge.addLabel(number, LABEL_MERGE_FAILED)
+      }
+      return getIssue(number)
     }
 
     const result = await claimIssueGroup(forge, paths, [issue], 'worker-a', appendRequirements)
@@ -1070,9 +1182,28 @@ describe('claimIssueGroup', () => {
     expect(result).toEqual({ outcome: 'lost-race', issueNumber })
     const after = await forge.getIssue(issueNumber)
     expect(after.assignees).toEqual([])
-    expect(after.labels).not.toContain(LABEL_IN_PROGRESS)
-    expect(existsSync(join(paths.queueDir, 'backlog.txt'))).toBe(false)
-    expect(readdirSync(paths.tasksDir)).toEqual([])
+    expect(after.labels).toEqual([LABEL_FINDING, LABEL_READY])
+  })
+
+  it('rejects lifecycle-drift compensation that does not restore ready', async () => {
+    const issueNumber = await readyIssue('[BUG] `src/a/b.ts` cannot restore ready')
+    const issue = await forge.getIssue(issueNumber)
+    const assignIssue = forge.assignIssue.bind(forge)
+    const removeLabel = forge.removeLabel.bind(forge)
+    forge.assignIssue = async (number, assignee) => {
+      await assignIssue(number, assignee)
+      if (number === issueNumber) await removeLabel(number, LABEL_READY)
+    }
+    forge.addLabel = async () => {}
+
+    await expect(claimIssueGroup(forge, paths, [issue], 'worker-a', appendRequirements))
+      .rejects.toThrow(
+        `Issue #${issueNumber} did not reach the single ${LABEL_READY} lifecycle state`,
+      )
+
+    const after = await forge.getIssue(issueNumber)
+    expect(after.assignees).toEqual([])
+    expect(after.labels).toEqual([LABEL_FINDING])
   })
 
   it('releases the assignment when the first post-assignment read fails', async () => {
@@ -1094,6 +1225,34 @@ describe('claimIssueGroup', () => {
     expect(after.assignees).toEqual([])
     expect(after.labels).toContain(LABEL_READY)
     expect(after.labels).not.toContain(LABEL_IN_PROGRESS)
+  })
+
+  it('reports both claim verification and assignment release failures', async () => {
+    const issueNumber = await readyIssue('[BUG] `src/a/b.ts` breaks during claim verification')
+    const issue = await forge.getIssue(issueNumber)
+    const getIssue = forge.getIssue.bind(forge)
+    const verificationFailure = new Error('getIssue failed after assignment')
+    const releaseFailure = new Error('unassignIssue failed during compensation')
+    let reads = 0
+    forge.getIssue = async (number) => {
+      if (number === issueNumber && ++reads === 2) throw verificationFailure
+      return getIssue(number)
+    }
+    forge.unassignIssue = async () => { throw releaseFailure }
+
+    const failure = await claimIssueGroup(
+      forge, paths, [issue], 'worker-a', appendRequirements,
+    ).then(() => undefined, (error: unknown) => error)
+
+    expect(failure).toBeInstanceOf(AggregateError)
+    expect(failure).toMatchObject({
+      message: `Claim verification and compensation both failed for issue #${issueNumber}`,
+      errors: [verificationFailure, releaseFailure],
+    })
+    const retained = await getIssue(issueNumber)
+    expect(retained.assignees).toEqual(['worker-a'])
+    expect(retained.labels).toContain(LABEL_READY)
+    expect(retained.labels).not.toContain(LABEL_IN_PROGRESS)
   })
 
   it.each([
@@ -1121,6 +1280,33 @@ describe('claimIssueGroup', () => {
     expect(after.labels).not.toContain(LABEL_IN_PROGRESS)
     expect(existsSync(join(paths.queueDir, 'backlog.txt'))).toBe(false)
     expect(readdirSync(paths.tasksDir)).toEqual([])
+  })
+
+  it('reports both claim mutation and assignment release failures', async () => {
+    const issueNumber = await readyIssue('[BUG] `src/a/b.ts` breaks during label mutation')
+    const issue = await forge.getIssue(issueNumber)
+    const removeLabel = forge.removeLabel.bind(forge)
+    const mutationFailure = new Error('removeLabel failed after applying')
+    const releaseFailure = new Error('unassignIssue failed during compensation')
+    forge.removeLabel = async (number, label) => {
+      await removeLabel(number, label)
+      if (number === issueNumber && label === LABEL_READY) throw mutationFailure
+    }
+    forge.unassignIssue = async () => { throw releaseFailure }
+
+    const failure = await claimIssueGroup(
+      forge, paths, [issue], 'worker-a', appendRequirements,
+    ).then(() => undefined, (error: unknown) => error)
+
+    expect(failure).toBeInstanceOf(AggregateError)
+    expect(failure).toMatchObject({
+      message: `Claim mutation and compensation both failed for issue #${issueNumber}`,
+      errors: [mutationFailure, releaseFailure],
+    })
+    const retained = forge.issues.get(issueNumber)
+    expect(retained?.assignees).toEqual(['worker-a'])
+    expect(retained?.labels).toContain(LABEL_IN_PROGRESS)
+    expect(retained?.labels).not.toContain(LABEL_READY)
   })
 
   it.each([
@@ -1180,6 +1366,34 @@ describe('claimIssueGroup', () => {
     expect(readFileSync(join(paths.queueDir, 'backlog.txt'), 'utf8')).toContain(retry.taskId)
   })
 
+  it('reports both task materialization and claim release failures', async () => {
+    const description = '[BUG] `src/a/b.ts` fails while materializing a task'
+    const issueNumber = await readyIssue(description)
+    const issue = await forge.getIssue(issueNumber)
+    const materializationFailure = new Error('append failed')
+    const releaseFailure = new Error('unassignIssue failed during compensation')
+    let failedTaskId: string | undefined
+    forge.unassignIssue = async () => { throw releaseFailure }
+
+    const failure = await claimIssueGroup(forge, paths, [issue], 'worker-a', (taskId) => {
+      failedTaskId = taskId
+      throw materializationFailure
+    }).then(() => undefined, (error: unknown) => error)
+
+    expect(failure).toBeInstanceOf(AggregateError)
+    expect(failure).toMatchObject({
+      message: `Claim group materialization and compensation both failed for issues #${issueNumber}`,
+      errors: [materializationFailure, releaseFailure],
+    })
+    if (failedTaskId === undefined) throw new Error('expected append to be attempted')
+    expect(existsSync(specFile(paths, failedTaskId))).toBe(false)
+    expect(existingTaskIdForDesc(paths, 'auto', description)).toBeUndefined()
+    const retained = forge.issues.get(issueNumber)
+    expect(retained?.assignees).toEqual(['worker-a'])
+    expect(retained?.labels).toContain(LABEL_IN_PROGRESS)
+    expect(retained?.labels).not.toContain(LABEL_READY)
+  })
+
   it('quarantines an unparseable issue with an actionable reason', async () => {
     const issueNumber = await forge.createIssue({
       title: 'hand-written', body: 'no structure here', labels: [LABEL_FINDING, LABEL_READY],
@@ -1220,6 +1434,35 @@ describe('claimIssueGroup', () => {
     expect(after.labels).toContain(LABEL_READY)
     expect(after.labels).not.toContain(LABEL_IN_PROGRESS)
     expect(after.labels).not.toContain(LABEL_MERGE_FAILED)
+  })
+
+  it('reports both issue quarantine and assignment release failures', async () => {
+    const issueNumber = await forge.createIssue({
+      title: 'hand-written', body: 'no structure here', labels: [LABEL_FINDING, LABEL_READY],
+    })
+    const commentIssue = forge.commentIssue.bind(forge)
+    const quarantineFailure = new Error('commentIssue failed after applying')
+    const releaseFailure = new Error('unassignIssue failed during compensation')
+    forge.commentIssue = async (number, comment) => {
+      await commentIssue(number, comment)
+      throw quarantineFailure
+    }
+    forge.unassignIssue = async () => { throw releaseFailure }
+
+    const failure = await claimIssueGroup(
+      forge, paths, [await forge.getIssue(issueNumber)], 'worker-a', appendRequirements,
+    ).then(() => undefined, (error: unknown) => error)
+
+    expect(failure).toBeInstanceOf(AggregateError)
+    expect(failure).toMatchObject({
+      message: `Issue quarantine and compensation both failed for issue #${issueNumber}`,
+      errors: [quarantineFailure, releaseFailure],
+    })
+    const retained = forge.issues.get(issueNumber)
+    expect(retained?.assignees).toEqual(['worker-a'])
+    expect(retained?.labels).toContain(LABEL_IN_PROGRESS)
+    expect(retained?.labels).not.toContain(LABEL_READY)
+    expect(retained?.labels).not.toContain(LABEL_MERGE_FAILED)
   })
 
   it('names an empty requirement when quarantining an issue', async () => {
@@ -1296,6 +1539,74 @@ describe('claimIssueGroup', () => {
 })
 
 describe('issue claim release', () => {
+  it('rejects malformed failure counts without overwriting any issue streak', () => {
+    recordIssuesForTask(paths, 'failed-task', [41, 42])
+    const countDirectory = join(paths.queueDir, 'issue-failure-count')
+    mkdirSync(countDirectory, { recursive: true })
+    writeFileSync(join(countDirectory, '41'), '2\n')
+    writeFileSync(join(countDirectory, '42'), 'malformed\n')
+
+    expect(() => recordIssueFailure(paths, 'failed-task')).toThrow(
+      /expected a positive safe integer/,
+    )
+    expect(readFileSync(join(countDirectory, '41'), 'utf8')).toBe('2\n')
+    expect(readFileSync(join(countDirectory, '42'), 'utf8')).toBe('malformed\n')
+  })
+
+  it('rejects a failure count whose next increment would be unsafe', () => {
+    recordIssuesForTask(paths, 'failed-task', [41])
+    const countDirectory = join(paths.queueDir, 'issue-failure-count')
+    mkdirSync(countDirectory, { recursive: true })
+    writeFileSync(join(countDirectory, '41'), `${Number.MAX_SAFE_INTEGER}\n`)
+
+    expect(() => recordIssueFailure(paths, 'failed-task')).toThrow(/cannot be safely incremented/)
+    expect(issueFailureCount(paths, 41)).toBe(Number.MAX_SAFE_INTEGER)
+  })
+
+  it('rejects every malformed persisted issue-list entry', () => {
+    const taskId = 'malformed-lists'
+    recordIssuesForTask(paths, taskId, [41, 42])
+    recordIssueReleaseIntent(paths, taskId, [41, 42])
+    prepareIssueReleaseIntent(paths, taskId, [41, 42])
+    const files = [
+      join(paths.queueDir, 'issue-map', taskId),
+      join(paths.queueDir, 'issue-release-intent', taskId),
+      join(paths.queueDir, 'issue-release-preparation', taskId),
+    ]
+    for (const file of files) writeFileSync(file, '41\nmalformed\n42\n')
+
+    expect(() => issueNumbersForTask(paths, taskId)).toThrow(/one positive safe integer per line/)
+    expect(() => issueReleaseIntentForTask(paths, taskId)).toThrow(
+      /one positive safe integer per line/,
+    )
+    expect(() => issueReleasePreparationForTask(paths, taskId)).toThrow(
+      /one positive safe integer per line/,
+    )
+  })
+
+  it('accepts empty persisted issue lists produced by the writers', () => {
+    const taskId = 'empty-lists'
+    recordIssuesForTask(paths, taskId, [])
+    recordIssueReleaseIntent(paths, taskId, [])
+    prepareIssueReleaseIntent(paths, taskId, [])
+
+    expect(issueNumbersForTask(paths, taskId)).toEqual([])
+    expect(issueReleaseIntentForTask(paths, taskId)).toEqual([])
+    expect(issueReleasePreparationForTask(paths, taskId)).toEqual([])
+  })
+
+  it('keeps malformed release reconciliation state for operator repair', async () => {
+    const taskId = 'malformed-release'
+    const intent = join(paths.queueDir, 'issue-release-intent', taskId)
+    recordIssueReleaseIntent(paths, taskId, [41, 42])
+    writeFileSync(intent, '41\n9007199254740992\n')
+
+    await expect(reconcileIssueReleaseIntent(forge, paths, taskId)).rejects.toThrow(
+      /one positive safe integer per line/,
+    )
+    expect(readFileSync(intent, 'utf8')).toBe('41\n9007199254740992\n')
+  })
+
   it('parks an issue when consecutive failed-task releases reach the retry bound', async () => {
     const issueNumber = await forge.createIssue({
       title: 'persistently failing issue', body: '',
@@ -1320,6 +1631,32 @@ describe('issue claim release', () => {
     expect(issue.labels).not.toContain(LABEL_READY)
     expect(issue.labels).not.toContain(LABEL_IN_PROGRESS)
     expect(parked).toEqual([[issueNumber, 3]])
+  })
+
+  it('does not report a parked release when the forge accepts but ignores the mutation', async () => {
+    const issueNumber = await forge.createIssue({
+      title: 'persistently failing issue', body: '',
+      labels: [LABEL_FINDING, LABEL_IN_PROGRESS], assignees: ['worker-a'],
+    })
+    recordIssuesForTask(paths, 'failed-task', [issueNumber])
+    recordIssueFailure(paths, 'failed-task')
+    recordIssueReleaseIntent(paths, 'failed-task', [issueNumber])
+    forge.addLabel = async () => {}
+    const parked: Array<[number, number]> = []
+
+    const failures = await reconcileIssueReleaseIntent(forge, paths, 'failed-task', {
+      maxIssueRetries: 1,
+      onPark: (number, count) => parked.push([number, count]),
+    })
+
+    expect(failures).toMatchObject([{
+      issueNumber,
+      error: {
+        message: `Issue #${issueNumber} did not reach the single ${LABEL_RETRY_EXHAUSTED} lifecycle state`,
+      },
+    }])
+    expect(parked).toEqual([])
+    expect(existsSync(join(paths.queueDir, 'issue-release-intent', 'failed-task'))).toBe(true)
   })
 
   it('clears an issue failure streak when its task completes successfully', () => {
@@ -1349,51 +1686,6 @@ describe('issue claim release', () => {
     const unchanged = await forge.getIssue(issueNumber)
     expect(unchanged.assignees).toEqual([])
     expect(unchanged.labels).toEqual([LABEL_FINDING, LABEL_READY, LABEL_MERGE_FAILED])
-  })
-
-  it.each([
-    {
-      failure: 'unassign:worker-a',
-      assignees: ['worker-a'],
-      labels: [LABEL_FINDING, LABEL_IN_PROGRESS],
-    },
-    {
-      failure: `add:${LABEL_READY}`,
-      assignees: [],
-      labels: [LABEL_FINDING, LABEL_IN_PROGRESS],
-    },
-    {
-      failure: `remove:${LABEL_IN_PROGRESS}`,
-      assignees: [],
-      labels: [LABEL_FINDING, LABEL_IN_PROGRESS, LABEL_READY],
-    },
-  ])('keeps a failed $failure release recoverable', async ({ failure, assignees, labels }) => {
-    const issueNumber = await forge.createIssue({
-      title: 'startup claim', body: '', labels: [LABEL_FINDING, LABEL_IN_PROGRESS],
-      assignees: ['worker-a'],
-    })
-    const unassignIssue = forge.unassignIssue.bind(forge)
-    const addLabel = forge.addLabel.bind(forge)
-    const removeLabel = forge.removeLabel.bind(forge)
-    forge.unassignIssue = async (number, assignee) => {
-      if (`unassign:${assignee}` === failure) throw new Error(`${failure} failed`)
-      await unassignIssue(number, assignee)
-    }
-    forge.addLabel = async (number, label) => {
-      if (`add:${label}` === failure) throw new Error(`${failure} failed`)
-      await addLabel(number, label)
-    }
-    forge.removeLabel = async (number, label) => {
-      if (`remove:${label}` === failure) throw new Error(`${failure} failed`)
-      await removeLabel(number, label)
-    }
-
-    await expect(releaseIssueClaim(forge, issueNumber, 'worker-a'))
-      .rejects.toThrow(`${failure} failed`)
-
-    const issue = await forge.getIssue(issueNumber)
-    expect(issue.assignees).toEqual(assignees)
-    expect(issue.labels).toEqual(labels)
   })
 
   it.each([
@@ -1468,6 +1760,26 @@ describe('issue claim release', () => {
     const issue = await forge.getIssue(issueNumber)
     expect(issue.assignees).toEqual(assignees)
     expect(issue.labels).toEqual(labels)
+  })
+
+  it('keeps release intent when the forge accepts but ignores a ready mutation', async () => {
+    const issueNumber = await forge.createIssue({
+      title: 'claimed issue', body: '', labels: [LABEL_FINDING, LABEL_IN_PROGRESS],
+      assignees: ['worker-a'],
+    })
+    recordIssuesForTask(paths, 'task-release', [issueNumber])
+    recordIssueReleaseIntent(paths, 'task-release', [issueNumber])
+    forge.addLabel = async () => {}
+
+    const failures = await reconcileIssueReleaseIntent(forge, paths, 'task-release')
+
+    expect(failures).toMatchObject([{
+      issueNumber,
+      error: {
+        message: `Issue #${issueNumber} did not reach the single ${LABEL_READY} lifecycle state`,
+      },
+    }])
+    expect(existsSync(join(paths.queueDir, 'issue-release-intent', 'task-release'))).toBe(true)
   })
 })
 
@@ -1807,7 +2119,7 @@ describe('reapStaleLeases', () => {
     })
     recordIssuesForTask(paths, 'task-completed', [issueNumber])
     writeFileSync(join(paths.statusDir, 'task-completed.json'),
-      JSON.stringify({ task_id: 'task-completed', status: 'completed' }))
+      durableStatus('task-completed', 'completed'))
 
     const reaped = await reapStaleLeases(
       forge, paths, 3, new Date('2026-08-08T12:00:00Z'),
@@ -1956,7 +2268,7 @@ describe('loop integration in issue mode', () => {
     writeFileSync(finalMessageFile(paths, '20260808_000000_001_scan'),
       'NEXT_TASK: [BUG] `src/a/b.ts` breaks on empty input\nTASK_COMPLETE\n')
     writeFileSync(join(paths.statusDir, '20260808_000000_001_scan.json'),
-      JSON.stringify({ task_id: '20260808_000000_001_scan', status: 'completed', pid: null }))
+      durableStatus('20260808_000000_001_scan', 'completed'))
 
     // One poll carries the finding all the way: published as an issue by the
     // completion scan, then claimed and started by the same poll's fill step.
@@ -1996,7 +2308,7 @@ describe('loop integration in issue mode', () => {
     await forge.assignIssue(unlinked, 'worker-gone')
     recordIssuesForTask(paths, 'task-running', [linked])
     writeFileSync(join(paths.statusDir, 'task-running.json'),
-      JSON.stringify({ task_id: 'task-running', status: 'running', pid: process.pid }))
+      durableStatus('task-running', 'running', { pid: process.pid }))
     recordTaskProcess(paths, 'task-running', process.pid)
     forge.clock = () => new Date('2026-08-08T12:00:00Z')
 
@@ -2034,7 +2346,7 @@ describe('loop integration in issue mode', () => {
     })
     recordIssuesForTask(paths, 'task-running', [issueNumber])
     writeFileSync(join(paths.statusDir, 'task-running.json'),
-      JSON.stringify({ task_id: 'task-running', status: 'running', pid: process.pid }))
+      durableStatus('task-running', 'running', { pid: process.pid }))
     recordTaskProcess(paths, 'task-running', process.pid)
     forge.clock = () => new Date('2026-08-08T12:00:00Z')
     forge.commentIssue = async () => { throw new Error('forge unavailable') }

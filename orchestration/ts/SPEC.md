@@ -58,6 +58,15 @@ from or equivalent to `orchestration/tests/*.sh`.
   marker as an exact standalone line, while a background loop writes that exact line to
   `logs/loop-markers.log`. The corresponding result is represented separately by an
   aligned display event in `loop.log`.
+- Every command accepts a global `--repo <path>` option. When present, Git resolves the
+  named path to its repository root and the CLI verifies both that it is a Git repository
+  and that its root contains an `orchestration/` directory before dispatch. Without the
+  option, repository discovery from the working directory is unchanged. All commands
+  accept one repository; `loop-status` additionally accepts repeated `--repo` options.
+  For two or more repositories it emits one line per repository naming the root, loop
+  running state, recorded run branch, queued count, and in-flight count. Its existing
+  detailed output is unchanged for a single repository. Paths are supplied per command;
+  the core stores no repository registry, configuration inventory, or checkout list.
 - `report-upstream` requires one explicit, non-blank description. `--help` prints its
   usage, unknown flag-shaped arguments fail before forge access, and `--dry-run` prints
   the exact title and body without filing. An interactive invocation prints that same
@@ -110,6 +119,7 @@ are not parsed by `loadConfig` and are not operator-file settings.
 | `AUTO_MERGE` | `true` | Merge completed local task worktrees automatically. `false` leaves them completed and eligible for an explicit or later merge. |
 | `AUTO_PR` | `true` | Push the run branch, create or update its draft pull request at cycle gates, and promote it with `LOOP_DONE` when the run finishes. `false` performs none of those PR operations. |
 | `SCAN_ENABLED` | `true` | Start another scan cycle after the current backlog and gate are clear. `false` drains existing local and shared work, performs any enabled final PR promotion, and exits without starting a scan. |
+| `SCAN_PARALLEL` | `2` | Requested scan processes per cycle. It must be at least 1 and is reduced at launch when the scan template has fewer numbered sections. |
 | `REVIEW_ENABLED` | `true` | Retain the review boundary in the cycle gate. Without `AUTO_REVIEW`, that boundary records resumable state and continues on the next poll; `false` skips it. If `AUTO_PR` is also `false`, disabling this setting bypasses the cycle gate entirely. |
 | `REVIEW_EFFORT` | `medium` | Reasoning effort for automatic review tasks. Accepted values are `minimal`, `low`, `medium`, and `high`. |
 | `RUNNER` | `codex` | Select the bundled `codex` or `claude` runner adapter, or an external adapter module. |
@@ -129,7 +139,14 @@ are not parsed by `loadConfig` and are not operator-file settings.
    process is alive and becomes `failed` when the process is gone. Markers in the
    transcript log are ignored — only the final-message file is authoritative. An ordinary
    completed task may additionally report `NO_CHANGE_WARRANTED` on its own line when its
-   investigation proves the requested change is already unnecessary.
+   investigation proves the requested change is already unnecessary. A missing task
+   status file means no status, but an existing file must be valid JSON with string
+   `task_id`, `started_at`, `updated_at`, `worktree`, and `branch` fields and a recognized
+   task state. Current writes of `merged` additionally require string `merge_commit` and
+   `run_branch` fields; reads remain compatible with legacy `merged` records that predate
+   those fields. Malformed JSON or any other schema mismatch is not treated as absent:
+   the read fails, stopping the poll that encountered it, and the file is retained for
+   operator repair.
 2. Task ids are `YYYYMMDD_HHMMSS_nnn_<slug>` with `nnn` a per-day sequence; slugs end in
    `scan` for scans, are `review-c<n>` for automatic reviews of cycle `<n>`, and start
    with `ci-fix`, `auto-`, `fix-`, or `user-` for CI fixes, scan findings, review-origin
@@ -178,7 +195,11 @@ are not parsed by `loadConfig` and are not operator-file settings.
    cleanup leaves a durable release intent and retains the task mapping until the daemon
    retries the release successfully. Reconciliation runs on each poll before stale-lease
    reaping; three consecutive failed polls stop the loop, while a successful poll clears
-   the failure streak.
+   the failure streak. Persisted issue mappings, release preparations, and release intents
+   are either empty or contain one positive safe integer per line. Any malformed entry
+   rejects the whole list instead of being skipped; reconciliation does not perform a
+   partial release or discard the file, so the complete state remains available for
+   operator repair.
 
 ## Growth and decisions
 
@@ -215,22 +236,27 @@ are not parsed by `loadConfig` and are not operator-file settings.
    task worktree and run branch clean. The task is abandoned after that first counted
    merge failure: its worktree and branch are removed, and linked issues return to ready
    before another poll can select it again. Pre-merge tests are chosen from the paths the
-   rebased worktree touched. `TASK_GATE=full`
-   asks the project adapter for its full merge checks; `TASK_GATE=light` asks it for
-   reduced merge checks, then runs the adapter's cycle suite once at each cycle-gate
-   entry. Light-gate attribution cost (a suite break at the gate names no task) is
-   accepted and documented; the gate stops the loop rather than promote a failing tip.
+   rebased worktree touched. `TASK_GATE=full` asks the project adapter for its full merge
+   checks; `TASK_GATE=light` asks it for reduced merge checks. At each cycle-gate entry,
+   light mode runs every step in the adapter's cycle suite, while full mode runs only
+   cycle-suite steps that opt in with `SuiteStep.runAtEveryTaskGate`. A successful suite
+   verdict is retained across gate retries only while the branch tip is unchanged.
+   Light-gate attribution cost (a suite break at the gate names no task) is accepted and
+   documented; the gate stops the loop rather than promote a failing tip.
    A missing-toolchain repair that fails also stops the gate and reports the adapter's
    remediation message without running the subsequent suite step.
-9a. A merge check that passes counts only where its directory satisfies its own declared
-    dependencies. A worktree sits inside the checkout it was cut from, so Node resolves
-    anything the worktree lacks from the parent's `node_modules`: an install that stopped
-    partway produces a pass against a dependency tree nobody assembled, and that verdict
-    describes neither tree. Declared dependencies with no `node_modules`, an npm-owned
-    directory with no completed-install record, or any declared dependency absent from
-    `node_modules` turns the pass into a failure that names what was borrowed. The
-    verification follows the check rather than preceding it, because a check may install
-    as its own first step.
+9a. Dependency-isolation verification is opt-in per project adapter. When
+    `verifyDependencyIsolation` is `true`, a merge check that passes counts only where its
+    directory satisfies its own declared Node dependencies. A worktree sits inside the
+    checkout it was cut from, so Node resolves anything the worktree lacks from the
+    parent's `node_modules`: an install that stopped partway produces a pass against a
+    dependency tree nobody assembled, and that verdict describes neither tree. Declared
+    dependencies with no `node_modules`, an npm-owned directory with no completed-install
+    record, or any declared dependency absent from `node_modules` turns the pass into a
+    failure that names what was borrowed. The verification follows the check rather than
+    preceding it, because a check may install as its own first step. When the option is
+    omitted or false, merge-check results are not subjected to this Node/npm-specific
+    verification, allowing adapters with other dependency models to opt out.
 9b. The core project's merge and cycle gates build `node_modules` with `npm ci` in a
     staging directory, then activate the complete tree. The working dependency tree is
     never npm's cleanup target: a failed install leaves it untouched, a failed activation
@@ -262,7 +288,9 @@ are not parsed by `loadConfig` and are not operator-file settings.
 
 ## Scans and cycles
 
-12. Scans start on idle (nothing queued or running), `SCAN_PARALLEL` (1-4) at a time
+12. Scans start on idle (nothing queued or running), with `SCAN_PARALLEL` scans at a
+    time; the value must be at least 1. A request above the number of numbered scan
+    sections is reduced to that section count and reported in the event log. Scans run
     over disjoint groups of the checklist's sections. A cycle counts as empty only when
     every scan in it found nothing; `MAX_EMPTY_SCANS` consecutive empty cycles end the
     run early. The expected scan count (`queue/scan-expected-<n>`) and scan yield
@@ -280,7 +308,11 @@ are not parsed by `loadConfig` and are not operator-file settings.
     the cycle's scans all came back empty and one more empty cycle reaches
     `MAX_EMPTY_SCANS`. The current cycle number lives in `queue/scan-count.txt` and is
     re-read every poll (this is also the documented lever for forcing an early final
-    cycle on a running loop).
+    cycle on a running loop). A missing persisted counter reads as zero; an existing
+    counter must contain base-10 digits representing a non-negative safe integer.
+    Invalid contents, including an empty file, log the affected repository-relative
+    state path, write the stop file, and stop the loop without resetting or overwriting
+    the counter, retaining it for operator repair.
 14. Effort defaults: scans, queued tasks, and automatic reviews all run the runner at
     medium reasoning effort. Fixes spawned by an automatic review are the exception: they
     always run at high effort because they repair findings that escaped the original
@@ -321,9 +353,18 @@ are not parsed by `loadConfig` and are not operator-file settings.
     command prefix because the canonical sources already use that agent's format. Both use
     `npm run` as the command prefix in the owning repository and
     `npm run -C <package-path>` in a subtree consumer, and duplicate destinations are
-    served once. The
-    sync replaces only a tree whose content matches its recorded last output; consumer
-    divergence is warned and retained, and skills absent from the manifest are untouched.
+    served once. The renderer supplies one named
+    `{{ORCHESTRATION_PROJECT_GUIDANCE}}` injection point at the end of every shared
+    `SKILL.md`. For skill `<name>`, it reads the repository-owned fragment
+    `orchestration/project/skills/<name>.md`, outside a consumer's vendored package
+    subtree, and inserts it with Markdown separation. An absent fragment renders the point
+    to no bytes, preserving the prior output exactly. The sync replaces only a tree
+    recorded in its
+    `.orchestration-core-sync.json` managed index is core-owned, and a clean sync overwrites
+    edits, deletions, and added support files in its rendered tree; repository-specific
+    additions belong in the fragment. A skill absent from the managed index is
+    repository-owned and remains
+    entirely untouched.
     In a subtree consumer, before writing any destination, the sync verifies that every
     managed destination has no staged changes. An unverifiable or non-clean managed index
     is fatal and stops the cycle before any destination is served. A destination rendering
@@ -389,6 +430,18 @@ are not parsed by `loadConfig` and are not operator-file settings.
     for a person instead of promoting a branch its own review keeps rejecting.
     Review tasks commit nothing and are exempt from the merge commit check.
 18. After the final cycle passes the same gate, the PR is promoted from draft,
+    unless it is already open and ready. A PR found merged before promotion, or merged
+    while the ready operation is being confirmed, is also a successful terminal state;
+    both paths emit the normal completion records without another ready operation.
+    A PR found closed before or during promotion is not success: the first observation
+    warns and leaves the final gate resumable, while the same closed-state failure on the
+    next poll logs `ERROR`, writes the stop file, and ends the retry. Promotion errors,
+    status-query errors, and a PR that remains draft use the same two-attempt bound, and
+    no `LOOP_DONE` marker is emitted until an open ready or merged state is confirmed.
+    The event log names the host environment where the run verification executed and
+    states that the branch was not run elsewhere. Repository adapters may also declare
+    manual cross-environment checks; the log names each check and its command while
+    explicitly recording that the loop did not run it for the branch.
     `LOOP_DONE: <PR URL>` is emitted to the machine-marker sink and as a formatted
     `loop.log` copy, session state is cleaned up, and the loop exits. When the run branch
     has no commits beyond the fetched default branch, the PR, CI, and review
@@ -397,7 +450,9 @@ are not parsed by `loadConfig` and are not operator-file settings.
      promoted by hand. It requires exactly one positive PR number (with an optional `#`)
      or absolute HTTP(S) URL
      and refuses to run while the loop is active, because an active loop records its own
-     ending. It performs no forge operation: it appends a cycle-aware `Completed Loop`
+     ending after observing the already-ready or merged PR itself. Use `shipped` only
+     when that automatic ending was not recorded. It performs no forge operation: it
+     appends a cycle-aware `Completed Loop`
      event to `logs/loop.log`, appends the exact standalone marker
      `LOOP_DONE: <pr-number-or-url>` to `logs/loop-markers.log`, and confirms the record
      on stdout.
@@ -582,7 +637,7 @@ it; scan and review prompts apply that rule to the text they inspect or quote. A
 author has write access; idle detection additionally retains the merge-SHA ancestry check,
 so authorship and verified ancestry must both hold.
 
-32. With `ISSUE_QUEUE_ENABLED=true`, scan and review findings become forge issues
+33. With `ISSUE_QUEUE_ENABLED=true`, scan and review findings become forge issues
     (labels `loop:finding` + `loop:ready`) instead of local queue entries, under the
     same growth bounds. A finding is filed in the repository the loop is running
     against, never anywhere else. An issue is filed once per fingerprint: the advisory
@@ -599,7 +654,7 @@ so authorship and verified ancestry must both hold.
     merges because the same advisory recurs with different prose. Pre-granularity open
     issue bodies are interpreted from their requirement text, and their coarse local
     ledger entry is replaced when encountered, avoiding a one-time duplicate round.
-33. Before claiming, worker daemons group ready findings whose titles name the same first
+34. Before claiming, worker daemons group ready findings whose titles name the same first
     path, using the same primary-path convention as fingerprinting. A group contains at
     most four issues; another batch remains ready for the next claim. Titles without a
     path stay singleton tasks. Every grouped requirement appears separately in the task
@@ -628,7 +683,7 @@ so authorship and verified ancestry must both hold.
     issue without heartbeats for `ISSUE_LEASE_HOURS` (default 3) is reaped back to
     ready, unassigned, so lease expiry identifies a worker that is no longer polling
     rather than a long-running task.
-34. The merge commit of an issue-born task carries `closes #N` for every linked issue, so
+35. The merge commit of an issue-born task carries `closes #N` for every linked issue, so
     the forge closes all of them when the promotion PR lands the commit on the default
     branch. Immediately after merging, the worker comments on every linked issue with the
     merge commit and run branch and states that closure happens on promotion; this refreshes
@@ -656,7 +711,7 @@ so authorship and verified ancestry must both hold.
     once creation may have happened, the issue is reconciled or the command aborts.
     The marker includes the daemon PID, is removed with the PID lock on every graceful
     exit, and is ignored when its owning process is no longer alive.
-35. `WORKER_MODE=true` defaults off and requires `ISSUE_QUEUE_ENABLED=true`. A worker-mode
+36. `WORKER_MODE=true` defaults off and requires `ISSUE_QUEUE_ENABLED=true`. A worker-mode
     daemon is execution-only: it never scans, enters a cycle gate, creates or updates a
     pull request, runs a review, or merges. It claims and heartbeats ready issues through
     the standard path and starts their local tasks. A completed task with commits pushes
@@ -668,7 +723,7 @@ so authorship and verified ancestry must both hold.
     `Running    Status      Task=<n>  Queue=<n>` event while work is active and appends
     `Waiting=open finding` when idle; because workers never scan, their loop-log prefix
     carries cycle zero rather than a worker-specific replacement for the cycle.
-36. Exactly one normal, non-worker daemon owns the run tree and is the merger. After
+37. Exactly one normal, non-worker daemon owns the run tree and is the merger. After
     processing local completions, each stop-file-free poll adopts `loop:merge-ready`
     issues from that poll's shared finding snapshot: it reads the reported branch and head, fetches that branch
     from the configured push remote, verifies the head and that it adds commits to the
