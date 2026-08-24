@@ -9,6 +9,10 @@ Current state:
 
 Run `npm run -C 'orchestration/ts' loop-status` and use its output as context before continuing.
 
+To inspect repositories other than the working directory, pass `-- --repo <path>`.
+Repeat `--repo <path>` in the same `loop-status` invocation to get one fleet-status line
+per repository. The core does not remember repository paths between invocations.
+
 ## Before starting
 
 A second loop against the same repository will fight the first over the queue and the
@@ -21,6 +25,9 @@ The loop commits and merges on its own, so start it on a topic branch, never on 
 ```bash
 npm run -C 'orchestration/ts' loop -- --approve-mode local --daemon
 ```
+
+Add `--repo <path>` after `--` to start the loop for an explicitly named repository.
+The path must resolve to a Git repository containing `orchestration/`.
 
 `--daemon` is what puts it in the background; without it the loop holds the terminal.
 The command approves the default local queue explicitly. If
@@ -63,7 +70,7 @@ Settings:
 | `CI_GATE_ENABLED` | false | Whether the gate waits for CI — a draft PR has no checks, so waiting would hang |
 | `MAX_CONSECUTIVE_MERGE_FAILURES` | 3 | Merges failing in a row before it stops — the task finished, its verification did not |
 | `SCAN_ENABLED` | true | Set false to work the existing queue without scanning |
-| `SCAN_PARALLEL` | 2 | Scans per cycle, splitting the checklist between them (1 = single full scan, up to 4) |
+| `SCAN_PARALLEL` | 2 | Requested scans per cycle, splitting the checklist between them (1 = single full scan; requests above the numbered section count are reduced at launch) |
 | `SCAN_EFFORT` | medium | Codex reasoning effort for scan tasks |
 | `TASK_EFFORT` | medium | Codex reasoning effort for queued tasks (`delegate --effort` overrides per task) |
 | `REVIEW_EFFORT` | medium | Codex reasoning effort for automatic review tasks |
