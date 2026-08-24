@@ -585,6 +585,33 @@ describe('KoForeach', () => {
     expect(screen.getByTestId('keyed-A').textContent).toBe('A:A')
   })
 
+  it('rebinds an index-keyed primitive row and disposes its previous binding', () => {
+    const items = ko.observableArray(['A', 'B'])
+    const dispose = vi.fn()
+
+    render(
+      <BindingHost viewModel={{}}>
+        <KoForeach items={items}>
+          {(_item, index, bind) => (
+            <span {...bind} data-testid={`row-${index}`} data-bind="text: $data" />
+          )}
+        </KoForeach>
+      </BindingHost>
+    )
+
+    const firstRow = screen.getByTestId('row-0')
+    ko.utils.domNodeDisposal.addDisposeCallback(firstRow, dispose)
+
+    act(() => {
+      items.reverse()
+    })
+
+    expect(screen.getByTestId('row-0')).toBe(firstRow)
+    expect(firstRow.textContent).toBe('B')
+    expect(screen.getByTestId('row-1').textContent).toBe('A')
+    expect(dispose).toHaveBeenCalledOnce()
+  })
+
   it('exposes outer items to nested loops through closures', () => {
     const vm = {
       groups: ko.observableArray([
