@@ -8,7 +8,7 @@ import type {
   CheckConclusion, CreateIssueInRepositoryOptions, CreateIssueOptions, CreatePrOptions, Forge,
   ForgeAuthor, ForgeIssue, ForgeIssueComment, PrReference, PrStatus, WorkflowRun,
 } from './forge.ts'
-import { ForgeRateLimitError } from './forge.ts'
+import { ForgeIssueNotFoundError, ForgeRateLimitError } from './forge.ts'
 
 const execFileAsync = promisify(execFile)
 
@@ -72,6 +72,18 @@ const githubIssueSchema = z.object({
 
 const githubIssueListSchema = z.array(githubIssueSchema)
 const closedGithubIssueListSchema = z.array(githubIssueSchema.extend({ state: z.literal('CLOSED') }))
+const restGithubIssueSchema = z.object({
+  number: z.number(),
+  state: z.enum(['open', 'closed']),
+  title: z.string(),
+  body: z.string().nullable(),
+  user: githubAuthorSchema,
+  labels: z.array(z.object({ name: z.string() })),
+  assignees: z.array(z.object({ login: z.string() })),
+  updated_at: z.string(),
+  pull_request: z.unknown().optional(),
+})
+const restGithubIssuePagesSchema = z.array(z.array(restGithubIssueSchema))
 const issueCommentsSchema = z.object({
   comments: z.array(z.object({
     body: z.string(),
@@ -88,6 +100,7 @@ const rateLimitSchema = z.object({
 export type RollupEntry = z.infer<typeof rollupEntrySchema>
 export type GithubWorkflowRun = z.infer<typeof workflowRunSchema>
 type GithubIssue = z.infer<typeof githubIssueSchema>
+type RestGithubIssue = z.infer<typeof restGithubIssueSchema>
 
 const WRITE_PERMISSIONS = new Set(['write', 'maintain', 'admin'])
 
@@ -197,6 +210,10 @@ function isMissingPrFailure(error: unknown): boolean {
   const text = commandErrorText(error)
   return /\bno (?:open )?pull requests found for branch\b/i.test(text)
     || /\bCould not resolve to a PullRequest with the number of \d+\b/i.test(text)
+}
+
+function isMissingIssueFailure(error: unknown): boolean {
+  return /\bCould not resolve to an Issue with the number of \d+\b/i.test(commandErrorText(error))
 }
 
 function githubPrBody(body: string): string {
@@ -318,6 +335,32 @@ export function createGithubForge(
     assignees: issue.assignees.map((assignee) => assignee.login),
     updatedAt: issue.updatedAt,
   })
+
+  const listGithubIssues = async (
+    state: 'open' | 'closed',
+    label: string,
+  ): Promise<GithubIssue[]> => {
+    const repository = await issueQueueRepository()
+    const encodedRepository = repository.split('/').map(encodeURIComponent).join('/')
+    const endpoint = `repos/${encodedRepository}/issues?state=${state}`
+      + `&labels=${encodeURIComponent(label)}&per_page=100`
+    const args = ['api', '--paginate', '--slurp', endpoint]
+    const pages = parseGhJson(args, await checkedGh(repoRoot, args), restGithubIssuePagesSchema)
+    const issues = pages.flat()
+      // GitHub's REST issues endpoint includes pull requests. The forge contract does not.
+      .filter((issue) => issue.pull_request === undefined)
+      .map((issue: RestGithubIssue): GithubIssue => ({
+        number: issue.number,
+        state: issue.state === 'open' ? 'OPEN' : 'CLOSED',
+        title: issue.title,
+        body: issue.body ?? '',
+        author: issue.user,
+        labels: issue.labels,
+        assignees: issue.assignees,
+        updatedAt: issue.updated_at,
+      }))
+    return issues
+  }
 
   return {
     resolveGitRemote(remote: string): string {
@@ -500,7 +543,15 @@ export function createGithubForge(
       const args = ['issue', 'view', String(issueNumber),
         '--repo', repository,
         '--json', 'number,state,title,body,author,labels,assignees,updatedAt']
-      const stdout = await checkedGh(repoRoot, args)
+      let stdout: string
+      try {
+        stdout = await checkedGh(repoRoot, args)
+      } catch (error) {
+        if (isMissingIssueFailure(error)) {
+          throw new ForgeIssueNotFoundError(issueNumber, { cause: error })
+        }
+        throw error
+      }
       return normalizeIssue(parseGhJson(args, stdout, githubIssueSchema))
     },
 
@@ -526,15 +577,10 @@ export function createGithubForge(
     },
 
     async listOpenIssues(label: string): Promise<ForgeIssue[]> {
-      const repository = await issueQueueRepository()
-      const args = ['issue', 'list', '--state', 'open',
-        '--repo', repository,
-        '--label', label, '--limit', '200',
-        '--json', 'number,state,title,body,author,labels,assignees,updatedAt']
-      const stdout = await checkedGh(repoRoot, args)
+      const listedIssues = await listGithubIssues('open', label)
       const permissionCache = new Map<string, Promise<boolean>>()
-      const issues = parseGhJson(args, stdout, githubIssueListSchema)
-        .filter((issue) => {
+      const issues = githubIssueListSchema.parse(listedIssues)
+        .filter((issue: GithubIssue) => {
           if (issue.state === 'OPEN') return true
           report(`dropped issue #${issue.number} with state ${issue.state} from open issue listing`)
           return false
@@ -543,14 +589,9 @@ export function createGithubForge(
     },
 
     async listClosedIssues(label: string): Promise<ForgeIssue[]> {
-      const repository = await issueQueueRepository()
-      const args = ['issue', 'list', '--state', 'closed',
-        '--repo', repository,
-        '--label', label, '--limit', '200',
-        '--json', 'number,state,title,body,author,labels,assignees,updatedAt']
-      const stdout = await checkedGh(repoRoot, args)
+      const listedIssues = await listGithubIssues('closed', label)
       const permissionCache = new Map<string, Promise<boolean>>()
-      return Promise.all(parseGhJson(args, stdout, closedGithubIssueListSchema)
+      return Promise.all(closedGithubIssueListSchema.parse(listedIssues)
         .map((issue) => normalizeIssue(issue, permissionCache)))
     },
 

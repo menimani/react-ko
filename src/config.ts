@@ -179,8 +179,7 @@ function resolveConfig(env: NodeJS.ProcessEnv): LoopConfig {
   if (taskGate !== 'full' && taskGate !== 'light') {
     throw new Error(`TASK_GATE must be 'full' or 'light', got '${taskGate}'`)
   }
-  // SCAN_PARALLEL: the loop supports up to four concurrent scans, so higher values clamp.
-  const scanParallel = Math.min(num(env, 'SCAN_PARALLEL', 2), 4)
+  const scanParallel = num(env, 'SCAN_PARALLEL', 2)
   if (scanParallel < 1) {
     throw new Error('SCAN_PARALLEL must be at least 1')
   }
@@ -266,7 +265,7 @@ export function validateConfigFileValues(
   return resolveConfig(environmentWithFile(env, values))
 }
 
-export function defaultConfigFilePath(cwd = process.cwd()): string {
+function defaultConfigFilePath(cwd = process.cwd()): string {
   return join(cwd, 'orchestration', 'config.json')
 }
 
@@ -337,9 +336,10 @@ export function loadConfig(
         const message = error instanceof Error ? error.message : String(error)
         if (observedStamp !== `error:${message}`) {
           observedStamp = `error:${message}`
-          emitError(`Could not inspect ${filePath}: ${message}`)
+          refreshError = new Error(`Could not inspect ${filePath}: ${message}`)
+          emitError(refreshError.message)
         }
-        return
+        throw refreshError
       }
     }
     if (stamp === observedStamp) {
