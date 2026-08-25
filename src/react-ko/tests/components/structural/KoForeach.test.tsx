@@ -11,6 +11,12 @@ function row(name: string): Row {
   return { name: ko.observable(name) }
 }
 
+type FunctionRow = (() => void) & { label: string }
+
+function functionRow(label: string): FunctionRow {
+  return Object.assign(() => undefined, { label })
+}
+
 function StatefulIndex({ index }: { index: number }) {
   const [initialIndex] = React.useState(index)
   return <span>{`${index}:${initialIndex}`}</span>
@@ -415,6 +421,56 @@ describe('KoForeach', () => {
     })
 
     expect(screen.getByText('A')).toBe(node)
+  })
+
+  it('keeps row DOM identity across reorders for function items', () => {
+    const first = functionRow('A')
+    const second = functionRow('B')
+    const items = ko.observableArray([first, second])
+    const dispose = vi.fn()
+
+    render(
+      <BindingHost viewModel={{}}>
+        <KoForeach items={items}>
+          {(item, _index, bind) => <span {...bind}>{item.label}</span>}
+        </KoForeach>
+      </BindingHost>
+    )
+
+    const node = screen.getByText('A')
+    ko.utils.domNodeDisposal.addDisposeCallback(node, dispose)
+
+    act(() => {
+      items.reverse()
+    })
+
+    expect(screen.getByText('A')).toBe(node)
+    expect(dispose).not.toHaveBeenCalled()
+  })
+
+  it('disposes removed function-item bindings', () => {
+    const first = functionRow('A')
+    const second = functionRow('B')
+    const items = ko.observableArray([first, second])
+    const dispose = vi.fn()
+
+    render(
+      <BindingHost viewModel={{}}>
+        <KoForeach items={items}>
+          {(item, _index, bind) => <span {...bind}>{item.label}</span>}
+        </KoForeach>
+      </BindingHost>
+    )
+
+    ko.utils.domNodeDisposal.addDisposeCallback(screen.getByText('A'), dispose)
+
+    act(() => {
+      items.splice(0, 1)
+    })
+
+    expect(screen.queryByText('A')).toBeNull()
+    expect(screen.getByText('B')).toBeDefined()
+    expect(dispose).toHaveBeenCalledOnce()
   })
 
   it('keeps row DOM identity across reorders for observable items and disposes removed bindings', () => {
