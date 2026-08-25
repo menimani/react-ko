@@ -24,9 +24,13 @@ TypeScript 版は `starter/ts` を使ってください。
   への永続化も管理します。
 - [`src/main.jsx`](./src/main.jsx) は ViewModel を `KnockoutScope` に渡し、コンポーネント
   ツリーへの提供とバインディングの適用を行います。
-- [`src/App.jsx`](./src/App.jsx) はマークアップを所有します。`useKoViewModel` で
-  ViewModel を取得し、`data-bind` でコントロールをバインドし、キー付きの本の行を
-  `KoForeach` で描画するため、コンポーネントツリーの管理は React が担当します。
+- [`src/App.jsx`](./src/App.jsx) は `useKoViewModel` で ViewModel を取得し、本棚の
+  3 つの主要セクションを組み合わせます。
+- [`src/components`](./src/components) には、集計を扱う `ShelfSummary`、追加と編集を
+  扱う `BookForm`、キー付きリストを描画する `BookList`、1 冊を表す `BookRow`、
+  絞り込みチップを扱う `StatusFilter` の 5 つの小さなコンポーネントがあります。
+  各コンポーネントは props で ViewModel または 1 冊の本を受け取り、`useKoBind`
+  または `KoForeach` でバインディングルートを確立します。
 
 フォームはフィールドを React state に複製せず、双方向の `value` バインディングを
 利用します。本を追加または編集すると、Knockout の算出集計と絞り込み済みの

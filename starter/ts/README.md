@@ -24,9 +24,14 @@ For JavaScript, use `starter/js` instead.
   and `localStorage` persistence.
 - [`src/main.tsx`](./src/main.tsx) places the ViewModel in `KnockoutScope`, which
   provides it to the component tree and applies the bindings.
-- [`src/App.tsx`](./src/App.tsx) owns the markup. It retrieves the ViewModel with
-  `useKoViewModel`, binds controls through `data-bind`, and renders keyed book
-  rows with `KoForeach` so React remains responsible for the component tree.
+- [`src/App.tsx`](./src/App.tsx) retrieves the ViewModel with `useKoViewModel`
+  and composes the bookshelf's three main sections.
+- [`src/components`](./src/components) holds five focused components:
+  `ShelfSummary` for statistics, `BookForm` for adding and editing,
+  `BookList` for keyed list rendering, `BookRow` for one book, and
+  `StatusFilter` for the filter chips. They receive the ViewModel or one book
+  through props and establish their binding roots with `useKoBind` or
+  `KoForeach`.
 
 The form demonstrates two-way `value` bindings without mirroring fields into
 React state. Adding or editing a book updates the Knockout computed summary and
