@@ -28,7 +28,9 @@ import {
 import { buildPrBody, GENERATED_BODY_MARKER, prTitle } from './prbody.ts'
 import { refreshTask, listTaskIds, noChangeMarkerPresent } from './refresh.ts'
 import { readStatus, transitionStatus } from './status.ts'
-import { startTask } from './start.ts'
+import {
+  startTask, StartupOwnershipUnknownError, StartupProcessRetainedError,
+} from './start.ts'
 import { enqueueTask, newTaskSpec, specFile } from './tasks.ts'
 import {
   terminateLiveTaskProcesses, type TaskProcessTermination,
@@ -42,6 +44,7 @@ import { currentBranchPushRemote, currentBranchTrackingRemote } from './gitRemot
 import { LoopWarningLog } from './loopLog.ts'
 import { newestChecksByName } from './ciWait.ts'
 import { execShellSync } from './shell.ts'
+import { operatingSystem, type OperatingSystem } from './adapters/os.ts'
 import {
   updateCoreBeforeCycle, type CoreUpdateOutcome,
 } from './coreUpdate.ts'
@@ -77,10 +80,12 @@ export interface LoopDeps {
   orchestrationDepsRuntime?: OrchestrationDepsRuntime | undefined
   terminateTaskProcesses?: (() => TaskProcessTermination) | undefined
   enqueueTask?: typeof enqueueTask
+  startTask?: typeof startTask
   updateCoreBeforeCycle?: (cycle: number) => Promise<CoreUpdateOutcome>
   projectAdapterChanged?: () => boolean
   branchGuard?: (() => string | undefined) | undefined
   prepareIntegrationWorktree?: (() => void) | undefined
+  os?: OperatingSystem | undefined
 }
 
 interface QueueEntry {
@@ -96,6 +101,8 @@ interface FindingDispatch {
 
 const IDLE_LOG_MAX_INTERVAL_MS = 5 * 60 * 1000
 const MAX_CONSECUTIVE_ISSUE_RELEASE_FAILURES = 3
+
+class InvalidPersistedCounterError extends Error {}
 
 function formatIdleDuration(milliseconds: number): string {
   const totalSeconds = Math.floor(milliseconds / 1000)
@@ -132,6 +139,8 @@ export function createLoop(deps: LoopDeps) {
     orchestrationDepsRuntime,
     terminateTaskProcesses = () => terminateLiveTaskProcesses(paths),
     enqueueTask: enqueueTaskImpl = enqueueTask,
+    startTask: startTaskImpl = startTask,
+    os = operatingSystem,
   } = deps
   const queueFile = join(paths.queueDir, 'backlog.txt')
   const stopFile = join(paths.queueDir, 'stop')
@@ -336,9 +345,7 @@ export function createLoop(deps: LoopDeps) {
     gate = 'draft-pr',
   ): void {
     const previous = previousGateFailures.get(gate)
-    const count = previous?.message === message
-      ? previous.count + 1
-      : 1
+    const count = (previous?.count ?? 0) + 1
     previousGateFailures.set(gate, { message, count })
     const detail = count === 1 ? message : `${message} (repeated ${count} times)`
     if (stopWhenRepeated && count > 1) {
@@ -362,9 +369,23 @@ export function createLoop(deps: LoopDeps) {
   }
 
   function readCount(file: string): number {
-    if (!existsSync(file)) return 0
-    const raw = readFileSync(file, 'utf8').replace(/[\s\r\n]/g, '')
-    return /^\d+$/.test(raw) ? Number(raw) : 0
+    let raw: string
+    try {
+      raw = readFileSync(file, 'utf8')
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return 0
+      throw error
+    }
+    const value = raw.trim()
+    const count = Number(value)
+    if (!/^\d+$/.test(value) || !Number.isSafeInteger(count)) {
+      const stateFile = relative(paths.root, file).replaceAll('\\', '/')
+      const message = `persisted counter ${stateFile} is invalid; expected a non-negative integer; stopping the loop`
+      event('ERROR', message)
+      writeFileSync(stopFile, '')
+      throw new InvalidPersistedCounterError(message)
+    }
+    return count
   }
 
   function git(args: string[], quietSuccess = ''): string {
@@ -1532,6 +1553,15 @@ export function createLoop(deps: LoopDeps) {
       return true
     }
 
+    // The PR can be completed or closed by a person between the final gate and
+    // promotion. Let postLoopPr interpret that terminal state instead of trying to
+    // create another PR for the same branch on every poll.
+    if (mode === 'final' && (status.state === 'merged' || status.state === 'closed')) {
+      if (status.url !== '') writeFileSync(prUrlFile, `${status.url}\n`)
+      previousGateFailures.delete('draft-pr')
+      return true
+    }
+
     try {
       const ahead = gitIn(paths.repoRoot, ['rev-list', '--count', `${baseRef}..HEAD`]).trim()
       if (ahead === '0') {
@@ -1636,7 +1666,17 @@ export function createLoop(deps: LoopDeps) {
       }
       return false
     }
-    if (status.isDraft) {
+    if (status.state === 'merged') {
+      previousGateFailures.delete('pr-promotion-state')
+    } else if (status.state === 'closed') {
+      reportGateFailure(
+        'could not promote PR because it is closed',
+        true,
+        'pr-promotion-state',
+      )
+      return false
+    }
+    if (status.state === 'open' && status.isDraft) {
       try {
         await forge.markPrReady(branch)
         previousGateFailures.delete('pr-promotion')
@@ -1664,7 +1704,35 @@ export function createLoop(deps: LoopDeps) {
         return false
       }
     }
-    if (status.state !== 'open' || status.isDraft) return false
+    if (status.state === 'closed') {
+      reportGateFailure(
+        'could not promote PR because it is closed',
+        true,
+        'pr-promotion-state',
+      )
+      return false
+    }
+    if (status.state === 'open' && status.isDraft) {
+      reportGateFailure(
+        'could not confirm PR promotion; PR is still draft',
+        true,
+        'pr-promotion-state',
+      )
+      return false
+    }
+    if (status.state !== 'open' && status.state !== 'merged') return false
+    previousGateFailures.delete('pr-promotion-state')
+    const gateEnvironment = os.verificationEnvironmentLabel()
+    event(
+      'Status', 'Environments',
+      `run verification exercised ${gateEnvironment}; promoted branch was not run in any other environment`,
+    )
+    for (const check of project.manualEnvironmentChecks ?? []) {
+      event(
+        'Status', `${check.environment} check`,
+        `not run for this branch; run ${check.command}`,
+      )
+    }
     // The body reflects branch history, so it also lists intermediate changes that were
     // later reverted — the need to rewrite it must be impossible to overlook.
     marker(`LOOP_DONE: ${prUrl}`)
@@ -1676,6 +1744,7 @@ export function createLoop(deps: LoopDeps) {
     previousGateFailures.delete('pr-status-before-promotion')
     previousGateFailures.delete('pr-promotion')
     previousGateFailures.delete('pr-status-after-promotion')
+    previousGateFailures.delete('pr-promotion-state')
     return true
   }
 
@@ -2002,7 +2071,7 @@ export function createLoop(deps: LoopDeps) {
       }
       prepareIntegration()
     }
-    const requestedScans = [1, 2, 3, 4].includes(config.scanParallel) ? config.scanParallel : 2
+    const requestedScans = config.scanParallel
     let nScans = requestedScans
     let sectionGroups: number[][] = []
     if (nScans > 1) {
@@ -2018,6 +2087,10 @@ export function createLoop(deps: LoopDeps) {
         event('WARN', `scan-template.md has no numbered sections; requested ${requestedScans} parallel scans, running one full scan`)
         nScans = 1
       } else {
+        if (requestedScans > sections.length) {
+          nScans = sections.length
+          event('WARN', `requested ${requestedScans} parallel scans but scan-template.md has ${sections.length} numbered sections; running ${nScans} scans`)
+        }
         sectionGroups = partitionScanSections(sections, nScans)
       }
     }
@@ -2031,7 +2104,7 @@ export function createLoop(deps: LoopDeps) {
         : `This scan runs alongside ${nScans - 1} partner scan(s). Perform only sections ${sectionGroups[i - 1]!.join(', ')}; the partners cover the rest. Stay inside them — overlapping findings merge away, duplicated reading does not.`
       writeFileSync(specFile(paths, scanId), scanSpecification(scanId, scope))
       try {
-        await startTask(paths, runner, scanId, {
+        await startTaskImpl(paths, runner, scanId, {
           effort: config.scanEffort as 'high',
           model: config.scanModel === '' ? undefined : config.scanModel,
           setup: project.scanWorktreeSetup,
@@ -2503,7 +2576,7 @@ export function createLoop(deps: LoopDeps) {
           ? readFileSync(effortFile, 'utf8').replace(/[\s\r\n]/g, '')
           : config.taskEffort
         try {
-          await startTask(paths, runner, entry.taskId, {
+          await startTaskImpl(paths, runner, entry.taskId, {
             effort: effort as 'medium',
             model: config.taskModel === '' ? undefined : config.taskModel,
           })
@@ -2519,6 +2592,22 @@ export function createLoop(deps: LoopDeps) {
           previousGateFailures.delete(`task-startup-${entry.taskId}`)
           running += 1
         } catch (error) {
+          if (error instanceof StartupOwnershipUnknownError) {
+            event(
+              'ERROR', shortTaskId(entry.taskId),
+              'runner returned an invalid PID; task ownership is unknown, task retained and loop stopped',
+            )
+            writeFileSync(stopFile, '')
+            break
+          }
+          if (error instanceof StartupProcessRetainedError) {
+            event(
+              'ERROR', shortTaskId(entry.taskId),
+              `startup process tree PID ${error.pid} survived; task retained and loop stopped`,
+            )
+            writeFileSync(stopFile, '')
+            break
+          }
           const issueNumbers = issueNumbersForTask(paths, entry.taskId)
           if (config.issueQueueEnabled && issueNumbers.length > 0) {
             recordIssueFailure(paths, entry.taskId)
@@ -2630,6 +2719,7 @@ export function createLoop(deps: LoopDeps) {
       // Even a reset far beyond the ordinary poll window is an external wait, not a
       // branch failure. The proxy suppresses all further forge calls until it expires.
       if (error instanceof ForgeRateLimitError) return 'continue'
+      if (error instanceof InvalidPersistedCounterError) return 'stopped'
       throw error
     }
   }

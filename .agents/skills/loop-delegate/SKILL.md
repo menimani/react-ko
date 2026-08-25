@@ -7,7 +7,7 @@ description: Turns a decision from the conversation into a queued orchestration 
 
 Current state:
 
-Run `npm run -C orchestration/ts loop-status` and use its output as context before continuing.
+Run `npm run -C 'orchestration/ts' loop-status` and use its output as context before continuing.
 
 ## What qualifies
 
@@ -30,7 +30,7 @@ over from the conversation completely — the implementer has none of its contex
 ## Delegating
 
 ```bash
-npm run -C orchestration/ts delegate -- "<description>"
+npm run -C 'orchestration/ts' delegate -- "<description>"
 ```
 
 The description may span multiple lines inside one quoted argument. Add
@@ -47,10 +47,10 @@ back to the one existing task. Ids follow `YYYYMMDD_HHMMSS_nnn_user-<slug>`.
   waiting at a cycle gate, the gate pushes again and re-checks CI after the
   merge.
 - **Loop not running** — the task waits in the backlog until `$loop-start`, or
-  `npm run -C orchestration/ts start -- <task-id>` runs it on its own.
+  `npm run -C 'orchestration/ts' start -- <task-id>` runs it on its own.
 
 ## Report
 
 State the task id and the specification path, whether the loop will pick it up
 or the backlog is holding it, and how to follow it:
-`npm run -C orchestration/ts logs -- <task-id> -f`.
+`npm run -C 'orchestration/ts' logs -- <task-id> -f`.

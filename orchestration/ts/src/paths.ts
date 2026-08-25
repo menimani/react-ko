@@ -46,12 +46,18 @@ export function packagePathPrefix(repoRoot: string, packageRoot = PACKAGE_ROOT):
   return packageDirectory === '' ? '' : `${packageDirectory}/`
 }
 
-export function packageScriptCommand(
+function shellPathArgument(path: string): string {
+  return `'${path.replaceAll('\\', '/').replaceAll("'", "'\\''")}'`
+}
+
+/** Render a package command that can be copied and run from any working directory. */
+export function absolutePackageScriptCommand(
   repoRoot: string,
   script: string,
   packageRoot = PACKAGE_ROOT,
 ): string {
-  return `${packageCommandPrefix(repoRoot, packageRoot)} ${script}`
+  const command = `npm run -C ${shellPathArgument(packageRoot)} ${script}`
+  return `${command} -- --repo ${shellPathArgument(repoRoot)}`
 }
 
 export interface OrchPaths {

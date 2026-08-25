@@ -1,6 +1,6 @@
 import type { ChildProcess } from 'node:child_process'
 import { EventEmitter } from 'node:events'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -140,6 +140,75 @@ describe('loop replacement startup', () => {
     expect(child.unref).not.toHaveBeenCalled()
   })
 
+  it('keeps the predecessor PID when readiness names the wrong replacement', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'orch-restart-'))
+    fixtureRoots.push(root)
+    const readyFile = join(root, 'ready')
+    const pidFile = join(root, 'loop.pid')
+    const predecessorMarker = processMarkerText(processMarker(process.pid))
+    writeFileSync(pidFile, predecessorMarker)
+    const child = fakeChild(43218)
+    const os = fakeOperatingSystem(child, () => {
+      setTimeout(() => writeFileSync(readyFile, '99999\n'), 0)
+    })
+    const onReady = vi.fn((pid: number) => {
+      publishLoopReplacementPid(pidFile, process.pid, pid)
+    })
+
+    await expect(startLoopReplacement(readyFile, {
+      env: environmentWithoutWrapper(),
+      operatingSystem: os,
+      outputFile: join(root, 'loop.log'),
+      packageRoot: root,
+      onReady,
+      startupTimeoutMs: 1_000,
+    })).resolves.toEqual({
+      ok: false,
+      pid: 43218,
+      error: 'replacement published an unexpected PID (99999)',
+    })
+    expect(onReady).not.toHaveBeenCalled()
+    expect(readFileSync(pidFile, 'utf8')).toBe(predecessorMarker)
+    expect(os.terminateProcessTree).toHaveBeenCalledWith(43218)
+    expect(child.unref).not.toHaveBeenCalled()
+  })
+
+  it('keeps the predecessor PID when the replacement dies after publishing readiness', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'orch-restart-'))
+    fixtureRoots.push(root)
+    const readyFile = join(root, 'ready')
+    const pidFile = join(root, 'loop.pid')
+    const predecessorMarker = processMarkerText(processMarker(process.pid))
+    writeFileSync(pidFile, predecessorMarker)
+    const child = fakeChild(43219)
+    const os = fakeOperatingSystem(child, () => {
+      setTimeout(() => {
+        writeFileSync(readyFile, '43219\n')
+        Object.assign(child, { exitCode: 1 })
+      }, 0)
+    })
+    const onReady = vi.fn((pid: number) => {
+      publishLoopReplacementPid(pidFile, process.pid, pid)
+    })
+
+    await expect(startLoopReplacement(readyFile, {
+      env: environmentWithoutWrapper(),
+      operatingSystem: os,
+      outputFile: join(root, 'loop.log'),
+      packageRoot: root,
+      onReady,
+      startupTimeoutMs: 1_000,
+    })).resolves.toEqual({
+      ok: false,
+      pid: 43219,
+      error: 'replacement exited before becoming ready',
+    })
+    expect(onReady).not.toHaveBeenCalled()
+    expect(readFileSync(pidFile, 'utf8')).toBe(predecessorMarker)
+    expect(os.processTreeIsAlive).toHaveBeenCalledWith(43219)
+    expect(child.unref).not.toHaveBeenCalled()
+  })
+
   it('upgrades a legacy bare-PID reservation only when the ready replacement is published', () => {
     const root = mkdtempSync(join(tmpdir(), 'orch-restart-'))
     fixtureRoots.push(root)
@@ -176,6 +245,29 @@ describe('loop replacement startup', () => {
       startupTimeoutMs: 1_000,
     })).resolves.toEqual({ ok: true, pid: 43212 })
     expect(launchDaemon).toHaveBeenCalledOnce()
+  })
+
+  it('releases the replacement and resolves when ready-marker cleanup fails', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'orch-restart-'))
+    fixtureRoots.push(root)
+    const readyFile = join(root, 'ready')
+    const child = fakeChild(43220)
+    const os = fakeOperatingSystem(child, () => {
+      setTimeout(() => writeFileSync(readyFile, '43220\n'), 0)
+    })
+
+    await expect(startLoopReplacement(readyFile, {
+      env: environmentWithoutWrapper(),
+      operatingSystem: os,
+      outputFile: join(root, 'loop.log'),
+      packageRoot: root,
+      onReady: () => {
+        rmSync(readyFile)
+        mkdirSync(readyFile)
+      },
+      startupTimeoutMs: 1_000,
+    })).resolves.toEqual({ ok: true, pid: 43220 })
+    expect(child.unref).toHaveBeenCalledOnce()
   })
 
   it('terminates the replacement tree when publishing readiness fails', async () => {

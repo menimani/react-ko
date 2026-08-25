@@ -7,13 +7,20 @@ description: Stops the autonomous improvement loop and reports what was still in
 
 Current state:
 
-Run `npm run -C orchestration/ts loop-status` and use its output as context before continuing.
+Run `npm run -C 'orchestration/ts' loop-status` and use its output as context before continuing.
+
+To inspect repositories other than the working directory, pass `-- --repo <path>`.
+Repeat `--repo <path>` in the same `loop-status` invocation to get one fleet-status line
+per repository. The core does not remember repository paths between invocations.
 
 ## Stopping
 
 ```bash
-npm run -C orchestration/ts stop
+npm run -C 'orchestration/ts' stop
 ```
+
+Add `-- --repo <path>` to stop the loop for an explicitly named repository. The path
+must resolve to a Git repository containing `orchestration/`.
 
 This writes a stop file. The loop notices it on its next poll, so it exits within
 `POLL_INTERVAL` seconds — 30 by default. The command also terminates every live task
@@ -28,8 +35,8 @@ recovery. No terminated agent continues working after `stop` returns.
 For a task that completed before the stop, inspect its log and merge it by hand:
 
 ```bash
-npm run -C orchestration/ts logs -- <task-id>
-npm run -C orchestration/ts merge -- <task-id> --yes
+npm run -C 'orchestration/ts' logs -- <task-id>
+npm run -C 'orchestration/ts' merge -- <task-id> --yes
 ```
 
 For a task that was terminated while running, inspect its log and worktree before doing
@@ -37,9 +44,9 @@ anything destructive. It has no automatic retry. Preserve any useful changes man
 then clean up and re-enqueue the retained specification:
 
 ```bash
-npm run -C orchestration/ts logs -- <task-id>
-npm run -C orchestration/ts cleanup -- <task-id>
-npm run -C orchestration/ts enqueue -- <task-id>
+npm run -C 'orchestration/ts' logs -- <task-id>
+npm run -C 'orchestration/ts' cleanup -- <task-id>
+npm run -C 'orchestration/ts' enqueue -- <task-id>
 ```
 
 `cleanup` removes the worktree and its branch. Look at the log first — a task that

@@ -39,7 +39,7 @@ see what changed; they cannot see what it was for.
 
 ## Before committing
 
-Run verification directly with the applicable repository commands unless it has already passed on this tree. A commit that fails the
+Run `$verify-changes` unless it has already passed on this tree. A commit that fails the
 build is worse than an uncommitted one, because it hides the failure behind a green
 history.
 

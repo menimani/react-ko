@@ -4,6 +4,7 @@ import {
 } from 'node:fs'
 import { dirname, join } from 'node:path'
 import type { Forge, ForgeIssue } from './adapters/forge.ts'
+import { ForgeIssueNotFoundError } from './adapters/forge.ts'
 import {
   descSlug, existingTaskIdForDesc, forgetTaskId, newTaskId, recordTaskIdForDesc, taskIdForDesc,
 } from './ids.ts'
@@ -143,7 +144,7 @@ function findingParts(description: string): { tag: string | undefined; path: str
 }
 
 /** The first path in a finding title is its established primary-file convention. */
-export function findingPrimaryFile(title: string): string | undefined {
+function findingPrimaryFile(title: string): string | undefined {
   return findingParts(title).path
 }
 
@@ -494,15 +495,11 @@ async function reconcileOpenFindings(
         issueSuppressesFingerprint(paths, issue, fingerprint)))
     .map((issue) => [issue.number, issue]))
   if (createdIssueNumber !== undefined && !issues.has(createdIssueNumber)) {
-    try {
-      const created = await forge.getIssue(createdIssueNumber)
-      if (created.state === 'open'
-        && isTrustedFingerprintOwner(created)
-        && hasExactFingerprints(created, fingerprints)) {
-        issues.set(created.number, created)
-      }
-    } catch {
-      // A concurrent close can make a just-created issue disappear from the open set.
+    const created = await forge.getIssue(createdIssueNumber)
+    if (created.state === 'open'
+      && isTrustedFingerprintOwner(created)
+      && hasExactFingerprints(created, fingerprints)) {
+      issues.set(created.number, created)
     }
   }
   const ordered = [...issues.values()].sort((a, b) => a.number - b.number)
@@ -513,12 +510,7 @@ async function reconcileOpenFindings(
     await withIssueCoordination(forge, duplicate.number, async () => {
       // Assignment and labels may have changed since listOpenIssues returned. Re-read
       // inside the same critical section used by claims before closing.
-      let current: ForgeIssue
-      try {
-        current = await forge.getIssue(duplicate.number)
-      } catch {
-        return
-      }
+      const current = await forge.getIssue(duplicate.number)
       if (isReadyToClose(current, fingerprints)) {
         await closeDuplicate(forge, current.number, survivor, onMutation)
       }
@@ -605,12 +597,7 @@ export async function reconcileFindingFingerprints(
       && !isClaimed(issue)
       && coveredBy.every((owner) => owner !== undefined)) {
       await withIssueCoordination(forge, issue.number, async () => {
-        let current: ForgeIssue
-        try {
-          current = await forge.getIssue(issue.number)
-        } catch {
-          return
-        }
+        const current = await forge.getIssue(issue.number)
         if (isReadyToClose(current, fingerprints)) {
           await closeDuplicate(
             forge, issue.number, coveredBy[0] as number,
@@ -641,8 +628,9 @@ async function findExistingFinding(
     let recordedIssue: ForgeIssue | undefined
     try {
       recordedIssue = await forge.getIssue(recorded.issueNumber)
-    } catch {
-      // A missing issue cannot validate even a durable advisory ledger entry.
+    } catch (error) {
+      if (!(error instanceof ForgeIssueNotFoundError)) throw error
+      writeFingerprintLedger(paths, ledger.filter((entry) => entry !== recorded))
     }
     const durableClosedAdvisory = recordedIssue?.state === 'closed'
       && isAdvisoryFingerprint(fingerprint)
@@ -664,7 +652,9 @@ async function findExistingFinding(
       recordFingerprint(paths, fingerprint, survivor)
       return survivor
     }
-    writeFingerprintLedger(paths, ledger.filter((entry) => entry !== recorded))
+    if (recordedIssue !== undefined) {
+      writeFingerprintLedger(paths, ledger.filter((entry) => entry !== recorded))
+    }
   }
   const matching = (await forge.listOpenIssues(LABEL_FINDING))
     .filter((issue) => isTrustedFingerprintOwner(issue)
@@ -825,17 +815,32 @@ function failureCountFile(paths: OrchPaths, issueNumber: number): string {
 export function issueFailureCount(paths: OrchPaths, issueNumber: number): number {
   const file = failureCountFile(paths, issueNumber)
   if (!existsSync(file)) return 0
-  const value = Number(readFileSync(file, 'utf8').trim())
-  return Number.isSafeInteger(value) && value > 0 ? value : 0
+  const persisted = readFileSync(file, 'utf8').replace(/\r?\n$/, '')
+  const value = Number(persisted)
+  if (!/^[1-9]\d*$/.test(persisted) || !Number.isSafeInteger(value)) {
+    throw new Error(
+      `Persisted issue failure count ${file} is invalid; expected a positive safe integer`,
+    )
+  }
+  return value
 }
 
 /** Count one terminal task failure for each issue before its claim is released. */
 export function recordIssueFailure(paths: OrchPaths, taskId: string): number[] {
   const issueNumbers = issueNumbersForTask(paths, taskId)
   if (issueNumbers.length === 0) return []
-  mkdirSync(failureCountDir(paths), { recursive: true })
-  return issueNumbers.map((issueNumber) => {
+  const counts = issueNumbers.map((issueNumber) => {
     const count = issueFailureCount(paths, issueNumber) + 1
+    if (!Number.isSafeInteger(count)) {
+      throw new Error(
+        `Persisted issue failure count ${failureCountFile(paths, issueNumber)} cannot be safely incremented`,
+      )
+    }
+    return count
+  })
+  mkdirSync(failureCountDir(paths), { recursive: true })
+  issueNumbers.forEach((issueNumber, index) => {
+    const count = counts[index]!
     const file = failureCountFile(paths, issueNumber)
     const temporaryFile = `${file}.${process.pid}.tmp`
     try {
@@ -844,8 +849,8 @@ export function recordIssueFailure(paths: OrchPaths, taskId: string): number[] {
     } finally {
       rmSync(temporaryFile, { force: true })
     }
-    return count
   })
+  return counts
 }
 
 /** A completed task breaks the issue's consecutive failure streak. */
@@ -867,9 +872,22 @@ export function recordIssuesForTask(
 export function issueNumbersForTask(paths: OrchPaths, taskId: string): number[] {
   const file = issueMapFile(paths, taskId)
   if (!existsSync(file)) return []
-  return readFileSync(file, 'utf8').split(/\r?\n/)
-    .filter((line) => /^\d+$/.test(line))
-    .map(Number)
+  return readPersistedIssueNumbers(file)
+}
+
+function readPersistedIssueNumbers(file: string): number[] {
+  const persisted = readFileSync(file, 'utf8')
+  if (/^(?:\r?\n)?$/.test(persisted)) return []
+  const lines = persisted.split(/\r?\n/)
+  if (lines.at(-1) === '') lines.pop()
+  const issueNumbers = lines.map((line) => Number(line))
+  if (lines.length === 0 || lines.some((line, index) =>
+    !/^[1-9]\d*$/.test(line) || !Number.isSafeInteger(issueNumbers[index]))) {
+    throw new Error(
+      `Persisted issue list ${file} is invalid; expected one positive safe integer per line`,
+    )
+  }
+  return issueNumbers
 }
 
 function writeIssueNumbers(file: string, issueNumbers: readonly number[]): void {
@@ -912,17 +930,13 @@ export function completeIssueReleaseIntent(paths: OrchPaths, taskId: string): vo
 export function issueReleaseIntentForTask(paths: OrchPaths, taskId: string): number[] {
   const file = releaseIntentFile(paths, taskId)
   if (!existsSync(file)) return []
-  return readFileSync(file, 'utf8').split(/\r?\n/)
-    .filter((line) => /^\d+$/.test(line))
-    .map(Number)
+  return readPersistedIssueNumbers(file)
 }
 
 export function issueReleasePreparationForTask(paths: OrchPaths, taskId: string): number[] {
   const file = releasePreparationFile(paths, taskId)
   if (!existsSync(file)) return []
-  return readFileSync(file, 'utf8').split(/\r?\n/)
-    .filter((line) => /^\d+$/.test(line))
-    .map(Number)
+  return readPersistedIssueNumbers(file)
 }
 
 /** Cancel a release preparation that did not reach completed local cleanup. */
@@ -931,7 +945,7 @@ export function removeIssueReleasePreparation(paths: OrchPaths, taskId: string):
 }
 
 /** Remove release work after it has reconciled successfully. */
-export function removeIssueReleaseIntent(paths: OrchPaths, taskId: string): void {
+function removeIssueReleaseIntent(paths: OrchPaths, taskId: string): void {
   rmSync(releaseIntentFile(paths, taskId), { force: true })
 }
 
@@ -980,25 +994,6 @@ export function dropClaimedTaskMaterialization(
   if (errors.length > 0) {
     throw new AggregateError(errors, `Could not remove materialization for task ${taskId}`)
   }
-}
-
-/** Return a startup claim to the shared queue before another worker can be blocked by it. */
-export async function releaseIssueClaim(
-  forge: Forge,
-  issueNumber: number,
-  assignee: string,
-): Promise<void> {
-  await withIssueCoordination(forge, issueNumber, async () => {
-    await forge.unassignIssue(issueNumber, assignee)
-    await forge.addLabel(issueNumber, LABEL_READY)
-    await forge.removeLabel(issueNumber, LABEL_IN_PROGRESS)
-    const released = await forge.getIssue(issueNumber)
-    if (released.state === 'open'
-      && (released.assignees.length !== 0
-        || !issueHasExactlyLifecycleLabel(released, LABEL_READY))) {
-      throw new Error(`Issue #${issueNumber} did not reach the single ${LABEL_READY} lifecycle state`)
-    }
-  })
 }
 
 /** Restore any open claimed lifecycle state to an individually claimable finding. */
@@ -1383,6 +1378,30 @@ async function releasePartialClaim(
   }
 }
 
+async function restoreReadyAfterClaimDrift(
+  forge: Forge,
+  issueNumber: number,
+  me: string,
+): Promise<void> {
+  await forge.unassignIssue(issueNumber, me)
+  const current = await forge.getIssue(issueNumber)
+  if (current.state !== 'open') return
+  if (!current.labels.includes(LABEL_READY)) {
+    await forge.addLabel(issueNumber, LABEL_READY)
+  }
+  for (const label of LIFECYCLE_LABELS) {
+    if (label !== LABEL_READY && current.labels.includes(label)) {
+      await forge.removeLabel(issueNumber, label)
+    }
+  }
+  const restored = await forge.getIssue(issueNumber)
+  if (restored.state === 'open'
+    && (restored.assignees.length !== 0
+      || !issueHasExactlyLifecycleLabel(restored, LABEL_READY))) {
+    throw new Error(`Issue #${issueNumber} did not reach the single ${LABEL_READY} lifecycle state`)
+  }
+}
+
 async function releasePartialQuarantine(
   forge: Forge,
   issueNumber: number,
@@ -1449,10 +1468,12 @@ async function claimRemoteIssue(
     throw error
   }
   const winner = [...afterAssignment.assignees].sort()[0]
-  if (afterAssignment.state !== 'open'
-    || !issueHasExactlyLifecycleLabel(afterAssignment, LABEL_READY)
-    || winner !== me) {
+  if (afterAssignment.state !== 'open' || winner !== me) {
     await forge.unassignIssue(issue.number, me)
+    return { outcome: 'lost-race', issueNumber: issue.number }
+  }
+  if (!issueHasExactlyLifecycleLabel(afterAssignment, LABEL_READY)) {
+    await restoreReadyAfterClaimDrift(forge, issue.number, me)
     return { outcome: 'lost-race', issueNumber: issue.number }
   }
   try {
@@ -1471,10 +1492,12 @@ async function claimRemoteIssue(
   }
 
   const claimed = await forge.getIssue(issue.number)
-  if (claimed.state !== 'open'
-    || !issueHasExactlyLifecycleLabel(claimed, LABEL_IN_PROGRESS)
-    || [...claimed.assignees].sort()[0] !== me) {
+  if (claimed.state !== 'open' || [...claimed.assignees].sort()[0] !== me) {
     await forge.unassignIssue(issue.number, me)
+    return { outcome: 'lost-race', issueNumber: issue.number }
+  }
+  if (!issueHasExactlyLifecycleLabel(claimed, LABEL_IN_PROGRESS)) {
+    await restoreReadyAfterClaimDrift(forge, issue.number, me)
     return { outcome: 'lost-race', issueNumber: issue.number }
   }
 

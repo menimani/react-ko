@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Forge } from '../src/adapters/forge.ts'
 import type { Runner } from '../src/adapters/runner.ts'
+import { loadMonitoredProject } from '../src/adapters/project.ts'
 import { loadConfig } from '../src/config.ts'
 import {
   updateCoreBeforeCycle, type CoreUpdateEvent, type CoreUpdateRuntime,
@@ -76,6 +77,7 @@ function makeLoop(
   runtime: CoreUpdateRuntime = { packageRoot, git },
   forge: Forge = makeFakeForge(),
   runnerOverride?: Runner,
+  projectAdapterChanged?: () => boolean,
 ) {
   mkdirSync(join(paths.root, 'templates'), { recursive: true })
   writeFileSync(join(paths.root, 'templates', 'scan-template.md'), '{{SCAN_SCOPE}}\n')
@@ -92,6 +94,7 @@ function makeLoop(
     forge,
     runner,
     project: stubProject,
+    projectAdapterChanged,
     log: (line) => events.push(line),
     now: () => new Date(2026, 7, 12, 0, 0, 0),
     updateCoreBeforeCycle: (cycle) =>
@@ -111,10 +114,16 @@ beforeEach(() => {
   mkdirSync(upstreamRoot)
   configureRepository(upstreamRoot)
   writeFileSync(join(upstreamRoot, 'core.txt'), 'version one\n')
+  mkdirSync(join(upstreamRoot, 'src', 'adapters'), { recursive: true })
+  writeFileSync(
+    join(upstreamRoot, 'src', 'adapters', 'project.ts'),
+    'export interface ProjectAdapter { name: string }\n',
+  )
   mkdirSync(join(upstreamRoot, 'skills'), { recursive: true })
   writeFileSync(join(upstreamRoot, 'skills', 'manifest.json'), JSON.stringify({
     commandPrefixPlaceholder: '{{ORCHESTRATION_COMMAND_PREFIX}}',
     packagePathPrefixPlaceholder: '{{ORCHESTRATION_PACKAGE_PATH_PREFIX}}',
+    projectGuidancePlaceholder: '{{ORCHESTRATION_PROJECT_GUIDANCE}}',
     skills: ['loop-start'],
   }))
   writeUpstreamSkill('version one: {{ORCHESTRATION_COMMAND_PREFIX}} loop\n')
@@ -221,6 +230,49 @@ describe('pre-cycle core update', () => {
     expect(events.some((line) => line.startsWith('Restarting core'))).toBe(false)
   })
 
+  it('continues an integration poll when a core update changes an adapter type import', async () => {
+    const adapterDirectory = join(paths.root, 'project')
+    mkdirSync(adapterDirectory, { recursive: true })
+    writeFileSync(join(adapterDirectory, 'project-consumer.ts'), `
+import type { ProjectAdapter } from '../ts/src/adapters/project.ts'
+
+export const consumerProject: ProjectAdapter & Record<string, unknown> = {
+  name: 'consumer',
+  pullRequest: {
+    categories: [{ label: 'Changes' }],
+    titleFallback: 'no changes',
+    classifyCommit: () => ({ category: 'Changes' }),
+    detectRisks: () => [],
+  },
+  preCommitChecks: [],
+  mergeChecks: () => [],
+  cycleSuite: () => [],
+}
+`)
+    commit(repoRoot, 'test: add consumer adapter fixture')
+    const monitored = await loadMonitoredProject(paths.root, { PROJECT: 'consumer' })
+    const oldCore = git(upstreamRoot, ['rev-parse', 'HEAD'])
+    writeFileSync(
+      join(upstreamRoot, 'src', 'adapters', 'project.ts'),
+      'export interface ProjectAdapter { name: string; updated?: true }\n',
+    )
+    const newCore = commit(upstreamRoot, 'feat: update project adapter types')
+    const loop = makeLoop(
+      config({ INTEGRATION_BRANCH: 'integration/run' }),
+      { packageRoot, git },
+      makeFakeForge(),
+      undefined,
+      monitored.sourceChanged,
+    )
+
+    expect(await loop.poll(), events.join('\n')).toBe('continue')
+
+    expect(monitored.sourceChanged()).toBe(false)
+    expect(runnerStarts).toHaveLength(1)
+    expect(events).toContain(`Updated core ${oldCore.slice(0, 8)}..${newCore.slice(0, 8)}`)
+    expect(events.some((line) => line.startsWith('Restarting adapter'))).toBe(false)
+  })
+
   it('lets the forge adapter resolve repository shorthand for Git', async () => {
     advanceUpstream('version two\n')
     const forge = makeFakeForge()
@@ -308,18 +360,17 @@ describe('pre-cycle core update', () => {
     expect(git(repoRoot, ['status', '--porcelain'])).toBe('')
   })
 
-  it('preserves and reports a divergent interactive shared skill', async () => {
+  it('overwrites and commits a changed managed interactive shared skill', async () => {
     const interactiveSkill = join(repoRoot, '.claude', 'skills', 'loop-start', 'SKILL.md')
     writeFileSync(interactiveSkill, 'consumer command\n')
     commit(repoRoot, 'chore: customize interactive skill fixture')
     const loop = makeLoop(config())
 
     expect(await loop.poll(), events.join('\n')).toBe('continue')
-    expect(readFileSync(interactiveSkill, 'utf8').replaceAll('\r', '')).toBe('consumer command\n')
+    expect(readFileSync(interactiveSkill, 'utf8').replaceAll('\r', ''))
+      .toBe("version one: npm run -C 'orchestration/ts' loop\n")
     expect(git(repoRoot, ['status', '--porcelain'])).toBe('')
-    expect(events).toContain(
-      'WARN shared skill .claude/skills/loop-start differs from the last synced copy; left unchanged',
-    )
+    expect(events).toContain('Updated skill refreshed .claude/skills/loop-start')
   })
 
   it('stops before starting a cycle when a shared skill target fails to synchronize', async () => {
@@ -341,7 +392,7 @@ describe('pre-cycle core update', () => {
     expect(events.some((line) => line.includes('simulated target failure'))).toBe(false)
   })
 
-  it('pulls core changes but preserves and reports a committed consumer skill divergence', async () => {
+  it('pulls core changes and overwrites a committed managed skill edit', async () => {
     const installed = join(repoRoot, '.agents', 'skills', 'loop-start', 'SKILL.md')
     writeFileSync(installed, 'consumer command\n')
     commit(repoRoot, 'chore: customize loop skill')
@@ -350,11 +401,9 @@ describe('pre-cycle core update', () => {
     const loop = makeLoop(config())
 
     expect(await loop.poll(), events.join('\n')).toBe('restart')
-    expect(readFileSync(installed, 'utf8').replaceAll('\r', '')).toBe('consumer command\n')
+    expect(readFileSync(installed, 'utf8').replaceAll('\r', '')).toBe('upstream command\n')
     expect(git(repoRoot, ['status', '--porcelain'])).toBe('')
-    expect(events).toContain(
-      'WARN shared skill .agents/skills/loop-start differs from the last synced copy; left unchanged',
-    )
+    expect(events).toContain('Updated skill refreshed .agents/skills/loop-start')
   })
 
   it('requires managed staged changes to be cleared before syncing any destination', async () => {

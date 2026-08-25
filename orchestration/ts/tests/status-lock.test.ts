@@ -3,11 +3,18 @@ import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const mocks = vi.hoisted(() => ({ rmSync: vi.fn(), writeFileSync: vi.fn() }))
+const mocks = vi.hoisted(() => ({
+  renameSync: vi.fn(), rmSync: vi.fn(), writeFileSync: vi.fn(),
+}))
 
 vi.mock('node:fs', async () => {
   const actual = await vi.importActual<typeof import('node:fs')>('node:fs')
-  return { ...actual, rmSync: mocks.rmSync, writeFileSync: mocks.writeFileSync }
+  return {
+    ...actual,
+    renameSync: mocks.renameSync,
+    rmSync: mocks.rmSync,
+    writeFileSync: mocks.writeFileSync,
+  }
 })
 
 import { orchPaths, type OrchPaths } from '../src/paths.ts'
@@ -20,6 +27,8 @@ let paths: OrchPaths
 beforeEach(() => {
   repoRoot = mkdtempSync(join(tmpdir(), 'orch-status-lock-'))
   paths = orchPaths(repoRoot)
+  mocks.renameSync.mockReset().mockImplementation((...args: unknown[]) =>
+    Reflect.apply(actualFs.renameSync, actualFs, args))
   mocks.rmSync.mockReset().mockImplementation((...args: unknown[]) =>
     Reflect.apply(actualFs.rmSync, actualFs, args))
   mocks.writeFileSync.mockReset().mockImplementation((...args: unknown[]) =>
@@ -32,6 +41,35 @@ afterEach(() => {
 })
 
 describe('status lock publication', () => {
+  it('preserves a successful write and recovers when lock release rename fails', async () => {
+    const taskId = 'release-rename-failure'
+    const lockDirectory = join(paths.statusDir, `.${taskId}.lock`)
+    const failure = Object.assign(new Error('lock release failed'), { code: 'EPERM' })
+    let releaseFailed = false
+    mocks.renameSync.mockImplementation((...args: unknown[]) => {
+      if (!releaseFailed && args[0] === lockDirectory) {
+        releaseFailed = true
+        throw failure
+      }
+      return Reflect.apply(actualFs.renameSync, actualFs, args)
+    })
+
+    await expect(writeStatus(paths, taskId, 'running', process.pid)).resolves.toBeUndefined()
+    expect(releaseFailed).toBe(true)
+    expect(readStatus(paths, taskId)?.status).toBe('running')
+    expect(actualFs.existsSync(lockDirectory)).toBe(true)
+    expect(actualFs.readFileSync(join(lockDirectory, 'retired-owner-token'), 'utf8').trim())
+      .toBe(actualFs.readFileSync(join(lockDirectory, 'owner-token'), 'utf8').trim())
+
+    // A fresh module has none of the releasing module's process-local recovery state,
+    // matching the relevant boundary between the daemon and a CLI invocation.
+    vi.resetModules()
+    const { writeStatus: writeStatusFromAnotherProcess } = await import('../src/status.ts')
+    await expect(writeStatusFromAnotherProcess(paths, taskId, 'completed')).resolves.toBeUndefined()
+    expect(readStatus(paths, taskId)?.status).toBe('completed')
+    expect(actualFs.existsSync(lockDirectory)).toBe(false)
+  })
+
   it('keeps the lock released when retired metadata removal fails', async () => {
     const taskId = 'partial-release-failure'
     const lockDir = join(paths.statusDir, `.${taskId}.lock`)

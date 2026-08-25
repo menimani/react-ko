@@ -14,11 +14,13 @@ specific failure; the comments in the source name the incident rather than the p
 
 - Node 23.6 or later — the TypeScript sources are executed natively, with no build step
 - git
-- Bash on Windows (for example, Git Bash), with `bash` available on `PATH` — the bundled
-  runners use it to launch npm command shims safely
-- An agent CLI (the bundled runner adapters drive
-  [Codex](https://openai.com/codex/) or [Claude Code](https://docs.anthropic.com/en/docs/claude-code))
-- A forge CLI (the bundled forge adapter drives GitHub through `gh`)
+- The bundled adapters additionally require:
+  - Bash on Windows (for example, Git Bash), with `bash` available on `PATH` — the
+    bundled runners use it to launch npm command shims safely
+  - The agent CLI selected by the bundled runner adapter:
+    [Codex](https://openai.com/codex/) or
+    [Claude Code](https://docs.anthropic.com/en/docs/claude-code)
+  - The GitHub CLI, `gh`, when using the bundled `forge-github` adapter
 
 ## How a run works
 
@@ -80,9 +82,18 @@ task dispatch, leaving any staged output available for diagnosis. Loop commands 
 rendered for
 the installed package location (`npm run` here, `npm run -C orchestration/ts` in the
 layout below).
-The sync tracks the exact content it generated: a consumer edit, deletion, or added
-support file is reported and retained, while repository skills absent from the manifest
-are never touched. Canonical skills live outside a nested runner skill directory,
+Every shared `SKILL.md` has one renderer-supplied injection point named
+`{{ORCHESTRATION_PROJECT_GUIDANCE}}` at its end. A consumer can supply the fragment for
+skill `<name>` at `orchestration/project/skills/<name>.md`, outside the vendored
+`orchestration/ts` subtree. The renderer adds Markdown separation before a non-empty
+fragment and emits nothing at the injection point when the file is absent, so consumers
+without fragments receive the same output as before.
+The sync tracks the exact content it generated. A rendered skill recorded in
+`.orchestration-core-sync.json` is core-owned; direct edits, deletions, and added support
+files are overwritten by a clean sync. Put repository-specific additions in the project
+fragment instead. A repository skill absent from the managed index is repository-owned
+and is never touched. Canonical
+skills live outside a nested runner skill directory,
 so importing the package does not expose a second qualified copy of each shared skill.
 
 Nothing here decides that shipping is safe. Deployment stays a human action.
@@ -130,6 +141,23 @@ deleted paths, and an on-demand diff reader; the adapter supplies the repository
 vocabulary and path rules. If the repository intentionally has no PR checks, it may
 explicitly declare
 `ciChecksExpected: false`; otherwise zero checks never satisfy an enabled CI gate.
+An adapter may also list manual cross-environment verification commands for operators:
+
+```ts
+manualEnvironmentChecks: [{
+  environment: 'Linux',
+  command: 'npm run test:linux',
+}],
+```
+
+Each `command` is a complete, repository-owned command that a person runs from the
+consumer repository root, against the run branch, in the named `environment`. The loop
+never executes these commands. On the final promotion path for a non-empty run, it logs
+the environment that ran the automated gate and states that the branch was not run in
+other environments. It then logs every `manualEnvironmentChecks` entry, including its
+command and the fact that it was not run for the branch. These status lines are operator
+guidance; they do not block or delay promotion.
+
 The core-owned pre-commit hook keeps its branch guard repository-neutral by reading the
 tracking remote's advertised default branch. It fails closed when that branch cannot be
 resolved, so repositories using names such as `trunk` receive the same protection without
@@ -156,6 +184,7 @@ project files, and a deliberately different hooks setting are reported and never
 For `SCAN_PARALLEL` greater than one, keep the scan checklist as uniquely numbered
 Markdown headings outside fenced code blocks; without numbered headings the loop warns
 and runs one full scan, while ambiguous numbering stops the loop before the cycle starts.
+Requests above the number of numbered sections are reduced to that count and reported.
 
 Use the repository's `loop-setup` skill to collect the project-specific decisions, fill
 the generated adapter, and run `verify-setup`. The verifier reports the TypeScript gate,
@@ -228,12 +257,30 @@ head to the loop, `loop-status` says what is in flight, `ci-wait` waits on a pul
 checks without believing a partial rollup, and `deploy` dispatches a deployment workflow
 and verifies the revision that actually came up.
 
+Every command accepts `--repo <path>` to act on that repository instead of the repository
+containing the working directory. The path may name the repository or a directory inside
+it; the CLI resolves its Git root and requires that root to contain `orchestration/`.
+Without `--repo`, repository discovery is unchanged. Repeat the option for fleet status:
+
+```bash
+npm run loop-status -- --repo ../service-a --repo ../service-b
+```
+
+With multiple repositories, `loop-status` prints one named line per repository with its
+running state, run branch, queued count, and in-flight count. With zero or one explicit
+repository, it retains the existing detailed single-repository output. Repository paths
+are supplied per invocation; the core keeps no repository registry or checkout inventory.
+
 If you promote a run's pull request by hand, record that completed run with
 `npm run shipped -- <pr-number-or-url>` (or the equivalent direct `node` command for a
 subtree installation). The command requires exactly one positive PR number, optionally
 prefixed with `#`, or one absolute HTTP(S) URL. It refuses to run while the loop is active,
 performs no forge operation, records the completion in `logs/loop.log`, and emits the exact
 standalone `LOOP_DONE: <pr-number-or-url>` marker to `logs/loop-markers.log`.
+An active loop that observes the PR already ready or merged records its normal ending
+itself, so `shipped` is only needed when that ending is absent. If the PR is closed rather
+than ready or merged, the loop warns once and retries; observing the same closed state on
+the next poll logs an error, writes the stop file, and stops without emitting `LOOP_DONE`.
 
 Automatic pulls are enabled by default. To pull later improvements manually, or when
 `CORE_AUTO_UPDATE=false` pins the consumed version, use:
@@ -274,7 +321,7 @@ settings update at their next use.
 |----------|---------|--------|
 | `MAX_SCAN_CYCLES` | 3 | Scan-and-fix rounds before the pull request is promoted |
 | `MAX_PARALLEL` | 3 | Ordinary task agent processes at once; scan agents use `SCAN_PARALLEL` independently |
-| `SCAN_PARALLEL` | 2 | Scan agent processes started together per scan cycle (1-4), independent of `MAX_PARALLEL` |
+| `SCAN_PARALLEL` | 2 | Requested scan agent processes per cycle; values must be at least 1 and are reduced to the template's numbered section count at launch, independently of `MAX_PARALLEL` |
 | `TASK_GATE` | full | `light` uses project-adapter-selected reduced checks for each merge, followed by the adapter's cycle suite once per cycle; `runAtEveryTaskGate` lets individual suite steps opt into every mode |
 | `AUTO_REVIEW` | false | Enable agent review of cycle diffs and queue the findings as fixes |
 | `REVIEW_EVERY_N_CYCLES` | 1 | With `AUTO_REVIEW=true`, review every Nth cycle and always review the final cycle |

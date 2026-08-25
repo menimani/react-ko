@@ -1,45 +1,44 @@
 import { test, expect } from '@playwright/test'
 
-// One pass over the starter in a real browser: the counter through both the
-// data-bind and hook text components, todo rows through the KoForeach render
-// prop, two-way editing through a KoWith scope, and teardown through Remove.
-test('the starter exercises the v2 surface without page errors', async ({ page }) => {
+// One pass over the Bookshelf starter in a real browser: app and row binding
+// roots, two-way form values, observableArray rendering, computed summary,
+// filtering, editing, and localStorage persistence.
+test('the starter bookshelf works without page errors', async ({ page }) => {
   const pageErrors = []
   page.on('pageerror', (error) => pageErrors.push(String(error)))
 
   await page.goto('/')
 
-  const counterButton = page.getByRole('button', { name: /count is/ })
-  await expect(counterButton).toContainText('0')
-  const hookCounter = page.getByText('count via useKoValue:')
-  await expect(hookCounter).toContainText('0')
+  const summary = page.getByRole('region', { name: 'Reading summary' })
+  await expect(page.getByRole('heading', { name: 'My Bookshelf' })).toBeVisible()
+  await expect(summary.getByText('3', { exact: true })).toHaveCount(1)
 
-  await counterButton.click()
-  await expect(counterButton).toContainText('1')
-  await expect(hookCounter).toContainText('1')
+  await page.getByPlaceholder('Book title').fill('The Dispossessed')
+  await page.getByPlaceholder('Author name').fill('Ursula K. Le Guin')
+  await page.getByLabel('Status', { exact: true }).selectOption('reading')
+  await page.getByLabel('Rating', { exact: true }).selectOption('5')
+  await page.getByRole('button', { name: 'Add to shelf' }).click()
 
-  await expect(page.getByText('Add your first todo.')).toBeVisible()
-  await page.getByPlaceholder('Add item').fill('Write browser tests')
-  await page.getByRole('button', { name: 'Add' }).click()
-  await expect(page.getByText('Write browser tests')).toBeVisible()
-  await expect(page.getByText('1 item (rendered by React)')).toBeVisible()
-  await expect(page.getByText('Add your first todo.')).toBeHidden()
+  const addedBook = page.locator('.book-card').filter({ hasText: 'The Dispossessed' })
+  await expect(addedBook).toContainText('Ursula K. Le Guin')
+  await expect(summary.getByText('4', { exact: true })).toHaveCount(1)
+  await expect(summary.getByText('2', { exact: true })).toHaveCount(1)
+  await expect(summary.getByText('4.3', { exact: true })).toBeVisible()
 
-  await page.getByRole('checkbox').check()
-  await expect(page.getByRole('checkbox')).toBeChecked()
+  await page.getByRole('group', { name: 'Filter by status' }).getByRole('button', { name: 'Reading' }).click()
+  await expect(page.locator('.book-card')).toHaveCount(2)
+  await expect(addedBook).toBeVisible()
 
-  await page.getByRole('button', { name: 'Details' }).click()
-  await expect(page.getByRole('heading', { name: 'Selected todo' })).toBeVisible()
-  const detailsInput = page.locator('aside input')
-  await detailsInput.fill('Renamed from details')
-  await expect(page.getByText('Renamed from details')).toBeVisible()
+  await addedBook.getByRole('button', { name: 'Edit' }).click()
+  await expect(page.getByRole('heading', { name: 'Edit book' })).toBeVisible()
+  await page.getByPlaceholder('Book title').fill('The Dispossessed (edited)')
+  await page.getByRole('button', { name: 'Save changes' }).click()
+  await expect(page.getByText('The Dispossessed (edited)')).toBeVisible()
 
-  await page.getByRole('button', { name: 'Close' }).click()
-  await expect(page.getByRole('heading', { name: 'Selected todo' })).toHaveCount(0)
-
-  await page.getByRole('button', { name: 'Remove' }).click()
-  await expect(page.getByText('Add your first todo.')).toBeVisible()
-  await expect(page.getByText('0 items (rendered by React)')).toBeVisible()
+  await page.reload()
+  await page.getByRole('group', { name: 'Filter by status' }).getByRole('button', { name: 'All' }).click()
+  await expect(page.getByText('The Dispossessed (edited)')).toBeVisible()
+  await expect(summary.getByText('4', { exact: true })).toHaveCount(1)
 
   expect(pageErrors).toEqual([])
 })
