@@ -39,8 +39,11 @@ export default defineConfig(({ mode }) => {
       environment: 'jsdom',
       include: [
         'tests/components/scope/**/*.test.{ts,tsx}',
+        'tests/components/structural/KoForeach.test.tsx',
         'tests/components/structural/restrictedParent.test.tsx',
         'tests/hooks/useKoBind.test.tsx',
+        'tests/hooks/useKoValue.test.tsx',
+        'tests/hooks/useKoViewModel.test.tsx',
       ],
     },
     plugins: [tsconfigPaths()],
