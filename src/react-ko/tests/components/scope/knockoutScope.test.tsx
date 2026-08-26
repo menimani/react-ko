@@ -10,7 +10,7 @@ import {
 } from 'react'
 import { createRoot } from 'react-dom/client'
 import ko from 'knockout'
-import { KnockoutScope } from '@/index'
+import { KnockoutScope, useKoViewModel } from '@/index'
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { message: string }> {
   state = { message: '' }
@@ -119,18 +119,24 @@ describe('KnockoutScope', () => {
   })
 
   it.each([null, undefined])(
-    'disposes and rebinds when its view model is replaced with %s',
-    (missingViewModel) => {
-      const first = { label: ko.observable('First') }
-      const second = { label: ko.observable('Second') }
+    'binds, provides, replaces, and cleans up a %s view model',
+    (nullishViewModel) => {
+      const presentViewModel = { label: ko.observable('Present') }
+      const providedViewModels: unknown[] = []
+
+      function ViewModelProbe() {
+        providedViewModels.push(useKoViewModel<unknown>())
+        return null
+      }
 
       function Harness({
         viewModel,
       }: {
-        viewModel: typeof first | null | undefined
+        viewModel: typeof presentViewModel | null | undefined
       }) {
         return (
           <KnockoutScope viewModel={viewModel}>
+            <ViewModelProbe />
             <span
               data-testid="value"
               data-bind="text: $data === null ? 'null' : typeof $data === 'undefined' ? 'undefined' : label"
@@ -139,28 +145,30 @@ describe('KnockoutScope', () => {
         )
       }
 
-      const { rerender } = render(<Harness viewModel={first} />)
+      const { rerender, unmount } = render(
+        <Harness viewModel={nullishViewModel} />
+      )
+
       const value = screen.getByTestId('value')
-      expect(value.textContent).toBe('First')
-      expect(first.label.getSubscriptionsCount()).toBe(1)
+      const nullishLabel = nullishViewModel === null ? 'null' : 'undefined'
+      expect(value.textContent).toBe(nullishLabel)
+      expect(ko.dataFor(value)).toBe(nullishViewModel)
+      expect(providedViewModels.at(-1)).toBe(nullishViewModel)
 
-      rerender(<Harness viewModel={missingViewModel} />)
-      expect(value.textContent).toBe(
-        missingViewModel === null ? 'null' : 'undefined'
-      )
-      expect(first.label.getSubscriptionsCount()).toBe(0)
+      rerender(<Harness viewModel={presentViewModel} />)
+      expect(value.textContent).toBe('Present')
+      expect(ko.dataFor(value)).toBe(presentViewModel)
+      expect(providedViewModels.at(-1)).toBe(presentViewModel)
+      expect(presentViewModel.label.getSubscriptionsCount()).toBe(1)
 
-      act(() => first.label('Changed after disposal'))
-      expect(value.textContent).toBe(
-        missingViewModel === null ? 'null' : 'undefined'
-      )
+      rerender(<Harness viewModel={nullishViewModel} />)
+      expect(value.textContent).toBe(nullishLabel)
+      expect(ko.dataFor(value)).toBe(nullishViewModel)
+      expect(providedViewModels.at(-1)).toBe(nullishViewModel)
+      expect(presentViewModel.label.getSubscriptionsCount()).toBe(0)
 
-      rerender(<Harness viewModel={second} />)
-      expect(value.textContent).toBe('Second')
-      expect(second.label.getSubscriptionsCount()).toBe(1)
-
-      act(() => second.label('Rebound'))
-      expect(value.textContent).toBe('Rebound')
+      unmount()
+      expect(ko.contextFor(value)).toBeUndefined()
     }
   )
 
