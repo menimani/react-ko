@@ -1,0 +1,38 @@
+name: Security Scan
+
+# Weekly, because an advisory published after the last dependency change lands on main
+# with no pull request to catch it. A change to this file runs the scan on its own pull
+# request, so a broken scan is found before the schedule does.
+on:
+  schedule:
+    - cron: '0 3 * * 1'  # Every Monday at 03:00 UTC
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/security-scan.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  npm-audit:
+    name: npm audit (${{ matrix.directory }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        # Every committed lockfile outside orchestration/ts, which the shared core scans
+        # in its own repository.
+        directory: ['.', 'e2e']
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      # npm audit reads the lockfile, so nothing needs installing first.
+      - name: npm audit
+        working-directory: ${{ matrix.directory }}
+        run: npm audit --audit-level=high
