@@ -49,7 +49,10 @@ jobs:
           "devDependencies.@types/react=${{ matrix.types }}"
           "devDependencies.@types/react-dom=${{ matrix.types }}"
           "devDependencies.knockout=3.5.1"
-      - run: npm install --package-lock=false
+      # npm 10, which Node 22 ships, fails this lockfile-free resolution with "Cannot read
+      # properties of null (reading 'edgesOut')" in Arborist's peer-set loading. npm 11
+      # resolves the same tree, so only this install runs on it; Node stays at 22.
+      - run: npx --yes npm@11 install --package-lock=false
       - name: Verify selected peers
         working-directory: src/react-ko
         env:
