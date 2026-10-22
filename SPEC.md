@@ -234,8 +234,19 @@ are not parsed by `loadConfig` and are not operator-file settings.
    branch tip. This refresh is retained when a check fails, so the next attempt does not
    test the same stale branch again. A conflicting rebase is aborted and keeps both the
    task worktree and run branch clean. The task is abandoned after that first counted
-   merge failure: its worktree and branch are removed, and linked issues return to ready
-   before another poll can select it again. Pre-merge tests are chosen from the paths the
+   merge failure, but its commits are not: before its worktree and task branch are
+   removed, the task tip is kept on `conflict/<task-id>` with a record of the run-branch
+   tip, the fork point, the conflicted paths, and the run-branch commits after the fork
+   point that touched them. If keeping the branch fails, the task branch and worktree
+   are left in place instead. A local task is queued again under a new id, at its own
+   depth and effort, as a retry whose specification names that branch, those paths, and
+   those commit hashes ahead of the earlier specification; commit subjects are left out
+   because they are repository-controlled text. A chain of conflicts is retried at most
+   twice, after which the commits stay kept for a person. Linked issues return to ready
+   before another poll can select the task again, and when this checkout claims such an
+   issue again its new specification carries the same section. When a retry merges or
+   completes without changes, every branch kept for its chain is deleted and its records
+   are removed. Pre-merge tests are chosen from the paths the
    rebased worktree touched. `TASK_GATE=full` asks the project adapter for its full merge
    checks; `TASK_GATE=light` asks it for reduced merge checks. At each cycle-gate entry,
    light mode runs every step in the adapter's cycle suite, while full mode runs only
@@ -271,7 +282,10 @@ are not parsed by `loadConfig` and are not operator-file settings.
     requests that merge instead of silently treating the task as already processed. When
     the project adapter classifies an infrastructure failure, or the merge log names an
     unreachable registry, say which — "tests failed" misattributes an environment failure
-    to the task's diff.
+    to the task's diff. Each gate command that fails is followed in the merge log by how it
+    ended: its exit status, also in hexadecimal when outside 0-255 as Windows reports a
+    crashed process, or the signal that terminated it, so a runtime crash reads differently
+    from a failing test.
 11. A task that merges while a cycle gate is already waiting clears that cycle's
     complete flag, so the gate pushes and verifies again with the new commits included.
 11a. After a local or remote task merge, a first-parent change to this package's
@@ -298,6 +312,10 @@ are not parsed by `loadConfig` and are not operator-file settings.
     counter once, at the gate, only when every expected scan completed successfully. A
     scan launch failure stops the loop without advancing the cycle number, and a cycle
     missing any expected yield stops rather than advancing to another cycle or completion.
+    A scan interrupted by the operator `stop` command is the exception: the command
+    records the live scan before terminating it, and the next daemon discards that scan's
+    task state, rewinds the incomplete cycle, and dispatches the cycle's full scan set
+    again. A scan that dies without that stop record remains a failure.
     For parallel scans, sections in the rendered `scan-template.md` are Markdown ATX
     headings whose text begins with a number and period (for example, `### 1. Tests`),
     and every section number must be unique; headings inside fenced code blocks do not
@@ -330,9 +348,13 @@ are not parsed by `loadConfig` and are not operator-file settings.
     missing, or unreadable adapter logs `Restarting adapter     for cycle <n>` and replaces
     the daemon before continuing, so every adapter consumer changes atomically at the same
     restart-safe boundary. In integration mode the monitored source is the adapter in the
-    integration worktree. The daemon then fetches the
-    configured core upstream and compares its tip with the last `git-subtree-split` for
-    this package's prefix. If it is behind, the daemon runs `git subtree pull --squash`.
+    integration worktree. The daemon then fetches the configured core upstream. It
+    recovers the imported revision by first matching the current subtree tree against
+    commit trees in the fetched upstream history, which preserves detection after a
+    squash-import commit is itself squash-merged. When no upstream tree matches, it falls
+    back to the last `git-subtree-split` whose `git-subtree-dir` matches this package's
+    prefix. It compares the recovered revision with the upstream tip and, if it is behind,
+    runs `git subtree pull --squash`.
     A package-file change logs an aligned `Updated    core        <old8>..<new8>` event.
     In direct layout only, it also logs `Restarting core        for cycle <n>`, releases
     daemon ownership, and starts the package's absolute CLI entry point from the package
@@ -405,7 +427,12 @@ are not parsed by `loadConfig` and are not operator-file settings.
     pending → keep polling; failure → generate a ci-fix task, up to
     `MAX_CI_FIX_ATTEMPTS`, then stop rather than poll a gate that cannot pass. A PR with
     zero checks remains unknown regardless of its age unless the project adapter
-    explicitly sets `ciChecksExpected: false`.
+    explicitly sets `ciChecksExpected: false`. Before generating a ci-fix task, the loop
+    persists its candidate task ID in a per-cycle pending-ID file. If enqueueing fails,
+    the pending ID remains while the attempt count and cycle-complete flag remain
+    unchanged; the next poll regenerates and retries the task with that same ID. A
+    successful enqueue records the attempt, clears the cycle-complete flag, and removes
+    the pending-ID file. Session cleanup also removes any remaining pending-ID file.
 17. Review: `AUTO_REVIEW=true` dispatches a review task reading the whole branch diff;
     before dispatch, the loop resolves the tracked remote's default branch and refreshes
     its remote ref. If either operation fails, the loop stops without dispatching a
@@ -428,6 +455,12 @@ are not parsed by `loadConfig` and are not operator-file settings.
     reviewed, and its rounds continue until one is clean, bounded by
     `MAX_FINAL_REVIEW_ROUNDS`; exceeding that stops the loop
     for a person instead of promoting a branch its own review keeps rejecting.
+    Before generating a review task, the loop persists its candidate task ID in a
+    per-cycle pending-ID file. If enqueueing fails, that pending ID remains and neither
+    the review round nor the dispatched review ID is recorded; the next gate pass
+    regenerates and retries the task with the same ID. A successful enqueue records the
+    round and dispatched ID, then removes the pending-ID file. Session cleanup also
+    removes any remaining pending-ID file.
     Review tasks commit nothing and are exempt from the merge commit check.
 18. After the final cycle passes the same gate, the PR is promoted from draft,
     unless it is already open and ready. A PR found merged before promotion, or merged
@@ -507,6 +540,9 @@ are not parsed by `loadConfig` and are not operator-file settings.
     outcomes, and daemon termination signals stop every live task process tree (`taskkill
     /T /F` on Windows and the detached process group on POSIX), retain task state for
     recovery, and report each terminated task or that no live task processes were found.
+    Before publishing its stop file, the `stop` command durably records any live scan so
+    the next daemon can discard it and restart the interrupted cycle instead of treating
+    the intentional termination as a missing scan yield.
 26. The daemon holds the code it started with; the wrapper prints where the log lives
     and how to stop.
 27. `prune --days N` deletes logs/status/generated specs/queue markers of tasks finished
@@ -526,7 +562,9 @@ are not parsed by `loadConfig` and are not operator-file settings.
 
 29. All forge access goes through `adapters/forge.ts` (`FORGE=github` selects
     `forge-github.ts`; any other selector loads an external package, file URL, absolute
-    path, or consumer-repository-relative module). External modules export a `Forge`
+    path, or consumer-repository-relative module). A consumer-repository-relative
+    selector must begin with `./` or `../`; an unprefixed value such as
+    `custom/forge.mjs` remains a package specifier. External modules export a `Forge`
     as default or `forge`, or a `createForge(repoRoot, report)` factory, so gitea/gitlab
     implementations can be added without touching the core. The interface returns
     normalized values only: PR state plus check records with
@@ -545,8 +583,9 @@ are not parsed by `loadConfig` and are not operator-file settings.
     arbitration, and stale-lease reaping live in `src/issueQueue.ts` on those primitives.
 30. The runner is invoked only through `adapters/runner.ts` (`RUNNER=codex` selects
     `runner-codex.ts`; `RUNNER=claude` selects `runner-claude.ts`; any other selector
-    resolves like an external forge module). External modules export a `Runner` as default
-    or `runner`, or a `createRunner(options)` factory. The runner contract is
+    resolves like an external forge module, including the required `./` or `../` prefix
+    for a consumer-repository-relative module). External modules export a `Runner` as
+    default or `runner`, or a `createRunner(options)` factory. The runner contract is
     the output markers — `TASK_COMPLETE`,
     `NO_CHANGE_WARRANTED`, `NEXT_TASK:`, `DECISION_REQUIRED:` in the final-message file — plus effort/model
     arguments mapped to CLI flags, and the runner's own repository skill destination and
@@ -594,11 +633,13 @@ are not parsed by `loadConfig` and are not operator-file settings.
     ref, and token. Run discovery is polled for at most five minutes; after discovery,
     only that run id is polled for at most thirty minutes. Both use five-second polling
     capped to the remaining deadline. The run must complete with conclusion `success`,
-    and the revision endpoint must return a successful response. Its trimmed body is
-    compared exactly with the run's `headSha`. The command reports the workflow success
-    and revision `PASS` or `FAIL`, and exits zero only for an exact revision match;
-    invalid usage, a missing deployment declaration, either timeout, an unsuccessful
-    workflow or revision response, and a revision mismatch exit non-zero.
+    and the revision endpoint must return a successful response. Fetching that response
+    and reading its body share a thirty-second deadline; reaching it aborts the request
+    and fails the command. The trimmed body is compared exactly with the run's `headSha`.
+    The command reports the workflow success and revision `PASS` or `FAIL`, and exits zero
+    only for an exact revision match; invalid usage, a missing deployment declaration,
+    any of the three timeouts, an unsuccessful workflow or revision response, and a
+    revision mismatch exit non-zero.
 
 ## The issue queue (new in the rewrite, opt-in)
 
@@ -695,6 +736,13 @@ so authorship and verified ancestry must both hold.
     degrades a poll to local-only work. Persisted cleanup release failures are retried each
     poll and stop the loop after three consecutive failures. Labels are ensured at loop
     startup.
+    Promotion retry state is one JSON object per issue at
+    `queue/issue-promotion/<issueNumber>.json`. It requires non-empty string `taskId`,
+    numeric `issueNumber` equal to the filename's issue number, non-empty string
+    `mergeCommit`, and non-empty string `runBranch`; optional `commentConfirmed`, when
+    present, is boolean. Invalid JSON, a non-object value, or any schema violation is not
+    treated as absent state: issue reconciliation fails closed, leaves the record and issue
+    state unchanged for repair, and resumes only after the record is repaired.
     The daemon lists open `loop:finding` issues once per poll and partitions that snapshot
     locally for adoption, reconciliation, lease reaping, claiming, and cycle-gate idle
     detection. MERGED-marker comment reads are cached by issue number and `updatedAt`.
@@ -731,7 +779,9 @@ so authorship and verified ancestry must both hold.
     the project adapter's path-selected checks in a detached worktree, and merges with
     `--no-ff` and `closes #N` for every issue named by a grouped worker report. It persists
     a successful adoption for every member before updating the issues, so a later poll
-    retries failed metadata updates without merging again. A
+    retries failed metadata updates without merging again. These per-issue promotion
+    records use the schema and fail-closed repair behavior in item 35; malformed persisted
+    state stops reconciliation rather than permitting a duplicate merge or issue release. A
     successful adoption logs aligned `Merging` and `Merged` events keyed by the short
     task id, with the latter naming the first eight characters of the merge commit;
     promotion closes the issue. A failure logs the aligned `Failed` event with the short
