@@ -30,13 +30,23 @@ export default defineConfig(({ mode }) => {
         { find: /^react-dom\/(.+)$/, replacement: `${reactDom}/$1` },
         {
           find: /^@testing-library\/react$/,
-          replacement: join(testingLibrary, 'dist', 'index.js'),
+          replacement: join(testingLibrary, 'dist', '@testing-library', 'react.esm.js'),
         },
       ],
     },
     test: {
       globals: true,
       environment: 'jsdom',
+      // When the runtime's @testing-library/react version matches the root one, npm
+      // hoists a single copy, and Node would resolve its own react and react-dom from
+      // the root instead of this runtime. Inlining its ESM build (aliased above) sends
+      // those imports through the React aliases, so it always renders with the
+      // runtime's React.
+      server: {
+        deps: {
+          inline: [/@testing-library[\\/]react/],
+        },
+      },
       include: [
         'tests/components/scope/**/*.test.{ts,tsx}',
         'tests/components/structural/KoForeach.test.tsx',
