@@ -8,6 +8,12 @@ updates:
     groups:
       minor-and-patch:
         update-types: ["minor", "patch"]
+    ignore:
+      # TypeScript 7: the starters' typescript-eslint (8.72.0, the latest) accepts
+      # TypeScript below 6.1 only. Lift once it accepts 7. This stops version-update
+      # pull requests only; alerts and the Security Scan still report vulnerabilities.
+      - dependency-name: "typescript"
+        versions: [">=7"]
   - package-ecosystem: "npm"
     directory: "/e2e"
     schedule:
