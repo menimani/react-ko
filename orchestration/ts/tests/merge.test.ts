@@ -5,13 +5,14 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ProjectAdapter } from '../src/adapters/project.ts'
 import { operatingSystem, type OperatingSystem } from '../src/adapters/os.ts'
 import { createOperatingSystem as createPosixOperatingSystem } from '../src/adapters/os-posix.ts'
 import { createOperatingSystem as createWindowsOperatingSystem } from '../src/adapters/os-windows.ts'
 import {
-  completeTaskWithoutChanges, MergeError, mergeRemoteTask, mergeTask, removeMergedWorktree,
+  completeTaskWithoutChanges, describeCommandFailure, MergeError, MergeRecoveryError,
+  mergeRemoteTask, mergeTask, RebaseConflictError, removeMergedWorktree,
   removeTemporaryWorktree,
 } from '../src/merge.ts'
 import {
@@ -23,6 +24,7 @@ import { specFile } from '../src/tasks.ts'
 import {
   removeWorktreeWithFallback, type WorktreeRemovalRuntime,
 } from '../src/worktree.ts'
+import { buildRepositoryTemplate, type RepositoryTemplate } from './repositoryTemplate.ts'
 import { stubProject } from './stubProject.ts'
 import { PROCESS_TEST_TIMEOUT_MS, TestProcessRegistry } from './testProcess.ts'
 
@@ -142,15 +144,27 @@ async function makeCompletedTask(taskId: string, options: { commit?: boolean; di
   return worktree
 }
 
+let initialRepository: RepositoryTemplate<void> | undefined
+
+beforeAll(() => {
+  initialRepository = buildRepositoryTemplate((root) => {
+    git(root, ['init', '-q', '-b', 'main'])
+    git(root, ['config', 'user.email', 'test@example.com'])
+    git(root, ['config', 'user.name', 'Test'])
+    writeFileSync(join(root, 'README.md'), '# repo\n')
+    git(root, ['add', '-A'])
+    git(root, ['commit', '-qm', 'chore: initial commit'])
+  })
+})
+
+afterAll(() => {
+  initialRepository?.dispose()
+})
+
 beforeEach(async () => {
   repoRoot = mkdtempSync(join(tmpdir(), 'orch-merge-'))
+  initialRepository!.copyTo(repoRoot)
   paths = orchPaths(repoRoot)
-  git(repoRoot, ['init', '-q', '-b', 'main'])
-  git(repoRoot, ['config', 'user.email', 'test@example.com'])
-  git(repoRoot, ['config', 'user.name', 'Test'])
-  writeFileSync(join(repoRoot, 'README.md'), '# repo\n')
-  git(repoRoot, ['add', '-A'])
-  git(repoRoot, ['commit', '-qm', 'chore: initial commit'])
 })
 
 afterEach(async () => {
@@ -531,6 +545,7 @@ describe('mergeTask', () => {
     const runnerPid = 12345
     vi.spyOn(operatingSystem, 'processStartIdentity').mockReturnValue(undefined)
     vi.spyOn(operatingSystem, 'processIsAlive').mockReturnValue(true)
+    vi.spyOn(operatingSystem, 'processTreeIsAlive').mockReturnValue(true)
     const terminate = vi.spyOn(operatingSystem, 'terminateProcessTree')
     await writeStatus(paths, taskId, 'completed', runnerPid)
 
@@ -550,6 +565,7 @@ describe('mergeTask', () => {
       'No implementation is needed.\nNO_CHANGE_WARRANTED\nTASK_COMPLETE\n')
     vi.spyOn(operatingSystem, 'processStartIdentity').mockReturnValue(undefined)
     vi.spyOn(operatingSystem, 'processIsAlive').mockReturnValue(true)
+    vi.spyOn(operatingSystem, 'processTreeIsAlive').mockReturnValue(true)
     const terminate = vi.spyOn(operatingSystem, 'terminateProcessTree')
     await writeStatus(paths, taskId, 'completed', runnerPid)
 
@@ -771,6 +787,50 @@ describe('mergeTask', () => {
     expect(readStatus(paths, taskId)?.status).toBe('completed')
   })
 
+  it('names the failing check and its exit status before aborting the merge', async () => {
+    const taskId = '20260808_000000_032_user-reports-check-status'
+    await makeCompletedTask(taskId, { commit: true })
+    const outputFile = join(repoRoot, 'failing-check.log')
+    const project: ProjectAdapter = {
+      ...stubProject,
+      name: 'failing-check',
+      mergeChecks: () => [
+        { label: 'Passing check', cwd: '', command: 'node -e "process.exit(0)"' },
+        { label: 'Crashing check', cwd: '', command: 'node -e "process.exit(3)"' },
+      ],
+    }
+
+    await expect(mergeTask(paths, taskId, { taskGate: 'light', project, outputFile }))
+      .rejects.toThrow('Tests failed. Aborting merge.')
+
+    const output = readFileSync(outputFile, 'utf8')
+    expect(output).toContain('=== Crashing check failed: exit status 3 ===')
+    expect(output).not.toContain('Passing check failed')
+    expect(readStatus(paths, taskId)?.status).toBe('completed')
+  })
+
+  it('reports an explicit test command exit status before aborting the merge', async () => {
+    const taskId = '20260808_000000_033_user-reports-test-command-status'
+    await makeCompletedTask(taskId, { commit: true })
+    const outputFile = join(repoRoot, 'failing-test-command.log')
+
+    await expect(mergeTask(paths, taskId, {
+      taskGate: 'light', project: stubProject, outputFile, testCmd: 'node -e "process.exit(2)"',
+    })).rejects.toThrow('Tests failed. Aborting merge.')
+
+    expect(readFileSync(outputFile, 'utf8')).toContain('=== Tests failed: exit status 2 ===')
+  })
+
+  it.each([
+    [{ status: 1, signal: null }, 'exit status 1'],
+    [{ status: 3221226505, signal: null }, 'exit status 3221226505 (0xC0000409)'],
+    [{ status: -1073740791, signal: null }, 'exit status -1073740791 (0xC0000409)'],
+    [{ status: null, signal: 'SIGABRT' }, 'terminated by signal SIGABRT'],
+    [new Error('spawn ENOENT'), 'did not run: spawn ENOENT'],
+  ])('describes a gate command that ended as %j', (error, description) => {
+    expect(describeCommandFailure(error)).toBe(description)
+  })
+
   it('bypasses automatic checks when they are disabled', async () => {
     const taskId = '20260808_000000_020_user-skips-automatic-checks'
     await makeCompletedTask(taskId, { commit: true })
@@ -837,12 +897,23 @@ describe('mergeTask', () => {
     git(repoRoot, ['commit', '-qm', 'feat: change README on run branch'])
     const runHead = git(repoRoot, ['rev-parse', 'HEAD']).trim()
     const runStatus = git(repoRoot, ['status', '--porcelain'])
+    const forkPoint = git(repoRoot, ['merge-base', 'HEAD', taskHead]).trim()
 
-    await expect(mergeTask(paths, taskId, {
+    const failure = await mergeTask(paths, taskId, {
       taskGate: 'light', project: noCheckProject,
-    })).rejects.toThrow(
+    }).then(() => undefined, (error: unknown) => error)
+    expect(failure).toBeInstanceOf(RebaseConflictError)
+    expect((failure as RebaseConflictError).message).toBe(
       'A conflict occurred while rebasing the task onto main; the rebase was aborted.',
     )
+    expect((failure as RebaseConflictError).conflict).toEqual({
+      runBranch: 'main',
+      runTip: runHead,
+      base: forkPoint,
+      taskTip: taskHead,
+      conflictedFiles: ['README.md'],
+      conflictingCommits: [runHead],
+    })
 
     expect(git(repoRoot, ['rev-parse', 'HEAD']).trim()).toBe(runHead)
     expect(git(repoRoot, ['status', '--porcelain'])).toBe(runStatus)
@@ -1044,6 +1115,37 @@ describe('mergeTask', () => {
 
     expect(event).not.toHaveBeenCalled()
     expect(readStatus(paths, taskId)?.status).toBe('merged')
+  })
+
+  it('stops when a failed local merge cannot prove that the worktree was restored', async () => {
+    const taskId = '20260824_084607_019_auto-merge-recovery'
+    await makeCompletedTask(taskId, { commit: true })
+    const runHead = git(repoRoot, ['rev-parse', 'HEAD']).trim()
+    let mergeCalls = 0
+    const mergeRuntime = {
+      git: (cwd: string, args: string[]): string => {
+        if (args[0] === 'merge' && args[1] === '--quiet') {
+          mergeCalls += 1
+          if (mergeCalls === 2) {
+            git(cwd, ['merge', '--no-commit', '--no-ff', args[3]!])
+            throw new Error('merge result was not reported')
+          }
+        }
+        if (args[0] === 'merge' && args[1] === '--abort') {
+          throw new Error('abort failed')
+        }
+        return git(cwd, args)
+      },
+    }
+
+    const failure = mergeTask(paths, taskId, {
+      taskGate: 'light', project: noCheckProject, mergeRuntime,
+    })
+    await expect(failure).rejects.toThrow(MergeRecoveryError)
+    await expect(failure).rejects.toThrow('merge is still in progress; merge abort failed')
+
+    expect(git(repoRoot, ['rev-parse', 'HEAD']).trim()).toBe(runHead)
+    expectNoTemporaryWorktree('.merge-')
   })
 })
 
@@ -1261,6 +1363,65 @@ describe('mergeRemoteTask', () => {
     expect(readFileSync(join(repoRoot, 'README.md'), 'utf8')).toBe('# run version\n')
     expect(git(repoRoot, ['rev-parse', remoteRef]).trim()).toBe(expectedHead)
     expect(git(repoRoot, ['show', `${remoteRef}:README.md`])).toBe('# remote version\n')
+    expectNoTemporaryWorktree('.adopt-')
+  })
+
+  it('stops when abort leaves a remote adoption merge in progress', async () => {
+    const branch = 'task/remote-unrecoverable-conflict'
+    git(repoRoot, ['switch', '-qc', branch])
+    writeFileSync(join(repoRoot, 'task.txt'), 'remote recovery work\n')
+    git(repoRoot, ['add', 'task.txt'])
+    git(repoRoot, ['commit', '-qm', 'feat: add remote recovery work'])
+    const expectedHead = git(repoRoot, ['rev-parse', 'HEAD']).trim()
+    git(repoRoot, ['switch', '-q', 'main'])
+    git(repoRoot, ['update-ref', `refs/remotes/origin/${branch}`, expectedHead])
+    let mergeCalls = 0
+    const mergeRuntime = {
+      git: (cwd: string, args: string[]): string => {
+        if (args[0] === 'merge' && args[1] === '--quiet') {
+          mergeCalls += 1
+          if (mergeCalls === 2) {
+            git(cwd, ['merge', '--no-commit', '--no-ff', args[3]!])
+            throw new Error('merge result was not reported')
+          }
+        }
+        if (args[0] === 'merge' && args[1] === '--abort') throw new Error('abort is blocked')
+        return git(cwd, args)
+      },
+    }
+
+    await expect(mergeRemoteTask(paths, 228, 'origin', branch, expectedHead, {
+      taskGate: 'light', project: noCheckProject, mergeRuntime,
+      forge: { issueClosingCommitMessage: (message) => message },
+    })).rejects.toThrow('merge is still in progress; merge abort failed: abort is blocked')
+
+    expectNoTemporaryWorktree('.adopt-')
+  })
+
+  it('returns a retryable conflict when a failed abort is proven harmless', async () => {
+    const branch = 'task/remote-safe-abort-failure'
+    git(repoRoot, ['switch', '-qc', branch])
+    writeFileSync(join(repoRoot, 'task.txt'), 'task work\n')
+    git(repoRoot, ['add', 'task.txt'])
+    git(repoRoot, ['commit', '-qm', 'feat: add safe abort fixture'])
+    const expectedHead = git(repoRoot, ['rev-parse', 'HEAD']).trim()
+    git(repoRoot, ['switch', '-q', 'main'])
+    git(repoRoot, ['update-ref', `refs/remotes/origin/${branch}`, expectedHead])
+    const mergeRuntime = {
+      git: (cwd: string, args: string[]): string => {
+        if (args[0] === 'merge' && args[1] === '--quiet') throw new Error('merge did not start')
+        if (args[0] === 'merge' && args[1] === '--abort') throw new Error('nothing to abort')
+        return git(cwd, args)
+      },
+    }
+
+    const failure = mergeRemoteTask(paths, 229, 'origin', branch, expectedHead, {
+      taskGate: 'light', project: noCheckProject, mergeRuntime,
+      forge: { issueClosingCommitMessage: (message) => message },
+    })
+    await expect(failure).rejects.toThrow(MergeError)
+    await expect(failure).rejects.not.toThrow(MergeRecoveryError)
+    await expect(failure).rejects.toThrow(`A merge conflict occurred while adopting ${branch}.`)
     expectNoTemporaryWorktree('.adopt-')
   })
 })
