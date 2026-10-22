@@ -8,6 +8,18 @@ updates:
     groups:
       minor-and-patch:
         update-types: ["minor", "patch"]
+    ignore:
+      # TypeScript 7: the starters' typescript-eslint supports TypeScript below 6.1 only.
+      # Lift once it supports 7.
+      - dependency-name: "typescript"
+        versions: [">=7"]
+      # ESLint 10: the starters pin eslint-plugin-react-hooks 5, which does not accept
+      # it as a peer. Lift together with @eslint/js once the starters move past it.
+      - dependency-name: "eslint"
+        versions: [">=10"]
+      # @eslint/js 10 requires ESLint 10; it moves with eslint above.
+      - dependency-name: "@eslint/js"
+        versions: [">=10"]
   - package-ecosystem: "npm"
     directory: "/e2e"
     schedule:
