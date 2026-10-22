@@ -27,7 +27,7 @@ jobs:
     name: Build site
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/configure-pages@v5
       # The same Jekyll build GitHub ran for the folder, with the theme from
       # docs/_config.yml. There is nothing else to install.
