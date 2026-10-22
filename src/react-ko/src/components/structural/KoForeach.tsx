@@ -3,6 +3,10 @@ import type * as ko from 'knockout'
 import { useKoValue, type KoBindProps } from '@/index'
 import { useKoBindAlways } from '@/hooks/useKoBind'
 
+// Holds T out of inference without TypeScript 5.4's NoInfer, which would raise the
+// TypeScript floor for consumers of the published declarations.
+type NotInferred<T> = [T][T extends unknown ? 0 : never]
+
 type NullableItems<T> =
   | ko.Observable<T[] | null | undefined>
   | ko.Observable<readonly T[] | null | undefined>
@@ -17,8 +21,11 @@ type CommonProps<T> = {
     | ko.ObservableArray<T>
     | ko.Observable<T[]>
     | ko.Observable<readonly T[]>
-    | ko.Computed<T[]>
-    | ko.Computed<readonly T[]>
+    // Knockout 3.5.2 typed Computed as read-only, which made it covariant: a computed
+    // of `T[] | null` then also matched these two members and inferred a nullable T.
+    // Only the nullable members below infer T; these still accept non-null computeds.
+    | ko.Computed<NotInferred<T>[]>
+    | ko.Computed<readonly NotInferred<T>[]>
     | NullableItems<T>
   itemKey?: (item: T, index: number) => React.Key
 }
