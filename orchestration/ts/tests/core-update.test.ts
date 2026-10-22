@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Forge } from '../src/adapters/forge.ts'
 import type { Runner } from '../src/adapters/runner.ts'
 import { loadMonitoredProject } from '../src/adapters/project.ts'
@@ -15,6 +15,7 @@ import { createLoop } from '../src/loop.ts'
 import { orchPaths, type OrchPaths } from '../src/paths.ts'
 import { makeFakeForge } from './fakeForge.ts'
 import { fakeRunnerSharedSkills } from './fakeRunner.ts'
+import { buildRepositoryTemplate, type RepositoryTemplate } from './repositoryTemplate.ts'
 import { stubProject } from './stubProject.ts'
 
 let fixtureRoot: string
@@ -106,10 +107,16 @@ function makeLoop(
   return loop
 }
 
-beforeEach(() => {
-  fixtureRoot = mkdtempSync(join(tmpdir(), 'orch-core-update-'))
-  repoRoot = join(fixtureRoot, 'consumer')
-  upstreamRoot = join(fixtureRoot, 'upstream')
+function useFixtureRoot(root: string): void {
+  fixtureRoot = root
+  repoRoot = join(root, 'consumer')
+  upstreamRoot = join(root, 'upstream')
+  packageRoot = join(repoRoot, 'orchestration', 'ts')
+}
+
+/** The consumer with the core imported as a squashed subtree and its skills installed. */
+function buildFixture(root: string): void {
+  useFixtureRoot(root)
   mkdirSync(repoRoot)
   mkdirSync(upstreamRoot)
   configureRepository(upstreamRoot)
@@ -145,11 +152,27 @@ beforeEach(() => {
     'subtree', 'add', '--prefix=orchestration/ts', upstreamRoot, 'main', '--squash',
   ])
 
-  packageRoot = join(repoRoot, 'orchestration', 'ts')
   syncSharedSkills(repoRoot, packageRoot, [
     fakeRunnerSharedSkills, ...(stubProject.sharedSkills ?? []),
   ])
   commit(repoRoot, 'chore: install shared skills')
+}
+
+// The subtree import alone takes over a second on Windows, so the fixture is built once
+// and every test receives its own copy.
+let fixtureTemplate: RepositoryTemplate<void> | undefined
+
+beforeAll(() => {
+  fixtureTemplate = buildRepositoryTemplate(buildFixture, ['consumer', 'upstream'])
+})
+
+afterAll(() => {
+  fixtureTemplate?.dispose()
+})
+
+beforeEach(() => {
+  useFixtureRoot(mkdtempSync(join(tmpdir(), 'orch-core-update-')))
+  fixtureTemplate!.copyTo(fixtureRoot)
   paths = orchPaths(repoRoot)
   events = []
   runnerStarts = []
@@ -205,6 +228,28 @@ describe('pre-cycle core update', () => {
     expect(runnerStarts).toHaveLength(0)
     expect(events).toContain(`Updated core ${oldCore.slice(0, 8)}..${newCore.slice(0, 8)}`)
     expect(events).toContain('Restarting core for cycle 1')
+  })
+
+  it('finds the newest squash-import after its run branch is squash-merged', async () => {
+    const runBranch = 'chore/import-core'
+    git(repoRoot, ['switch', '-c', runBranch])
+    const importedCore = advanceUpstream('version two\n')
+    git(repoRoot, [
+      'subtree', 'pull', '--prefix=orchestration/ts', upstreamRoot, 'main', '--squash',
+    ])
+    git(repoRoot, ['switch', 'main'])
+    git(repoRoot, ['merge', '--squash', runBranch])
+    commit(repoRoot, 'Merge pull request #1 from consumer/chore/import-core')
+    git(repoRoot, ['branch', '-D', runBranch])
+    const newCore = advanceUpstream('version three\n')
+    const loop = makeLoop(config())
+
+    expect(await loop.poll(), events.join('\n')).toBe('restart')
+    expect(readFileSync(join(packageRoot, 'core.txt'), 'utf8').replaceAll('\r', ''))
+      .toBe('version three\n')
+    expect(events).toContain(
+      `Updated core ${importedCore.slice(0, 8)}..${newCore.slice(0, 8)}`,
+    )
   })
 
   it('updates integration source without restarting the fixed daemon', async () => {
@@ -492,6 +537,12 @@ export const consumerProject: ProjectAdapter & Record<string, unknown> = {
       .toBe('version one\n')
     expect(runnerStarts).toHaveLength(1)
     expect(events, events.join('\n')).toContain('WARN core update skipped: working tree is dirty')
+    const imported = git(upstreamRoot, ['rev-parse', 'HEAD^'])
+    const upstream = git(upstreamRoot, ['rev-parse', 'HEAD'])
+    expect(events).toContain(
+      `Status core behind imported ${imported.slice(0, 8)} upstream ${upstream.slice(0, 8)}; `
+      + 'continuing on old code: working tree is dirty',
+    )
   })
 
   it('aborts a conflicting pull, warns, and starts the cycle on the old code', async () => {
@@ -510,6 +561,45 @@ export const consumerProject: ProjectAdapter & Record<string, unknown> = {
     expect(events.some((line) => line.startsWith(
       'WARN core update pull conflicted; continuing on old code:',
     )), events.join('\n')).toBe(true)
+    const imported = git(upstreamRoot, ['rev-parse', 'HEAD^'])
+    const upstream = git(upstreamRoot, ['rev-parse', 'HEAD'])
+    expect(events).toContain(
+      `Status core behind imported ${imported.slice(0, 8)} upstream ${upstream.slice(0, 8)}; `
+      + 'continuing on old code: pull conflicted',
+    )
+  })
+
+  it('rolls back an import bridge when the pull fails before creating merge state', async () => {
+    const runBranch = 'chore/import-core'
+    git(repoRoot, ['switch', '-c', runBranch])
+    advanceUpstream('version two\n')
+    git(repoRoot, [
+      'subtree', 'pull', '--prefix=orchestration/ts', upstreamRoot, 'main', '--squash',
+    ])
+    git(repoRoot, ['switch', 'main'])
+    git(repoRoot, ['merge', '--squash', runBranch])
+    commit(repoRoot, 'Merge pull request #1 from consumer/chore/import-core')
+    git(repoRoot, ['branch', '-D', runBranch])
+    advanceUpstream('version three\n')
+    const oldHead = git(repoRoot, ['rev-parse', 'HEAD'])
+    const failingGit = vi.fn((root: string, args: string[]) => {
+      if (args[0] === 'subtree' && args[1] === 'pull') {
+        throw new Error('simulated pre-merge pull failure')
+      }
+      return git(root, args)
+    })
+    const loop = makeLoop(config(), { packageRoot, git: failingGit })
+
+    expect(await loop.poll()).toBe('continue')
+    expect(git(repoRoot, ['rev-parse', 'HEAD'])).toBe(oldHead)
+    expect(git(repoRoot, ['status', '--porcelain'])).toBe('')
+    expect(readFileSync(join(packageRoot, 'core.txt'), 'utf8').replaceAll('\r', ''))
+      .toBe('version two\n')
+    expect(failingGit).not.toHaveBeenCalledWith(repoRoot, ['merge', '--abort'])
+    expect(runnerStarts).toHaveLength(1)
+    expect(events).toContain(
+      'WARN core update pull conflicted; continuing on old code: simulated pre-merge pull failure',
+    )
   })
 
   it('stops when a failed core pull cannot confirm a successful merge abort', async () => {

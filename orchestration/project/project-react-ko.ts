@@ -206,7 +206,8 @@ function changesConsumerResolution(patch: string): boolean {
 
     const topLevelProperty = /^  "([^"]+)":/.exec(line.slice(1))
     if (topLevelProperty !== null) {
-      section = topLevelProperty[1]
+      // The pattern has exactly one capture group, so a match always fills it.
+      section = topLevelProperty[1]!
       if (prefix !== ' ' && CONSUMER_RESOLUTION_SECTIONS.has(section)) return true
       continue
     }

@@ -126,7 +126,9 @@ to select `project-<name>.ts`. You can instead give `PROJECT_ADAPTER` an explici
 it overrides the conventional path selected by `PROJECT`.
 
 An external `FORGE` or `RUNNER` selector may be a package specifier, file URL, absolute
-path, or path relative to the consumer repository root. A forge module exports a `Forge`
+path, or path relative to the consumer repository root. A repository-relative selector
+must begin with `./` or `../`; for example, use `./custom/runner.mjs`, because
+`custom/runner.mjs` is treated as a package specifier. A forge module exports a `Forge`
 as its default or `forge` export, or exports `createForge(repoRoot, report)`. A runner
 module likewise exports a `Runner` as its default or `runner` export, or exports
 `createRunner(options)`. Factories may be asynchronous.
@@ -237,7 +239,12 @@ Immediately before a completed local task enters its merge gate, the loop rebase
 task branch onto the current integration tip. Long-running tasks therefore test the work
 that has landed while they were running instead of repeatedly presenting the same stale
 branch to the gate. If every task commit becomes empty because that work already landed,
-the task completes as no-change and its linked issues are closed normally.
+the task completes as no-change and its linked issues are closed normally. If the rebase
+conflicts, the finished commits are kept on `conflict/<task-id>` and the work is retried
+from them: a local task is queued again with a specification naming that branch and the
+paths and run-branch commits it collided with, and a released issue carries the same
+section when this checkout claims it again. Two retries are made at most; the branches
+are deleted once a retry merges.
 
 A stopped daemon retains both branch identities and the daemon commit. Restarting is a
 resume of the same run: integration commits made while it was down remain available to
