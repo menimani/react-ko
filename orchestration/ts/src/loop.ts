@@ -16,15 +16,19 @@ import {
   shortTaskId,
 } from './ids.ts'
 import {
-  completeTaskWithoutChanges, mergeRemoteTask, mergeTask, MergeError,
+  completeTaskWithoutChanges, mergeRemoteTask, mergeTask, MergeError, MergeRecoveryError,
   NoChangeReconciliationError, RebaseConflictError,
   OrchestrationDepsInstallError,
   type OrchestrationDepsRuntime,
 } from './merge.ts'
 import {
   finalMessageFile, isInspectionTaskId, isReviewTaskId, isScanTaskId, logFile,
-  branchName, PACKAGE_ROOT, worktreeDir, type OrchPaths,
+  branchName, conflictBranchName, PACKAGE_ROOT, worktreeDir, type OrchPaths,
 } from './paths.ts'
+import {
+  conflictRetrySection, issueConflictKey, readConflictedAttempts, removeConflictedAttempts,
+  writeConflictedAttempts, type ConflictedAttempt,
+} from './conflictRetry.ts'
 import { buildPrBody, GENERATED_BODY_MARKER, prTitle } from './prbody.ts'
 import { refreshTask, listTaskIds, noChangeMarkerPresent } from './refresh.ts'
 import { readStatus, transitionStatus } from './status.ts'
@@ -45,6 +49,7 @@ import { LoopWarningLog } from './loopLog.ts'
 import { newestChecksByName } from './ciWait.ts'
 import { execShellSync } from './shell.ts'
 import { operatingSystem, type OperatingSystem } from './adapters/os.ts'
+import { interruptedScansFileName } from './scanRecovery.ts'
 import {
   updateCoreBeforeCycle, type CoreUpdateOutcome,
 } from './coreUpdate.ts'
@@ -101,6 +106,9 @@ interface FindingDispatch {
 
 const IDLE_LOG_MAX_INTERVAL_MS = 5 * 60 * 1000
 const MAX_CONSECUTIVE_ISSUE_RELEASE_FAILURES = 3
+// A local task whose rebase conflicts is retried from its kept commits at most this many
+// times. Each retry races the same sibling merges, so a third conflict is left for a person.
+const MAX_CONFLICT_RETRIES = 2
 
 class InvalidPersistedCounterError extends Error {}
 
@@ -388,13 +396,13 @@ export function createLoop(deps: LoopDeps) {
     return count
   }
 
-  function git(args: string[], quietSuccess = ''): string {
+  function git(args: string[]): string {
+    return gitIn(paths.repoRoot, args)
+  }
+
+  function optionalGit(args: string[], quietSuccess = ''): string {
     try {
-      const output = execFileSync('git', args, {
-        cwd: paths.repoRoot, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
-        stdio: ['ignore', 'pipe', 'pipe'],
-        windowsHide: true,
-      })
+      const output = git(args)
       return output === '' ? quietSuccess : output
     } catch {
       return ''
@@ -417,7 +425,7 @@ export function createLoop(deps: LoopDeps) {
     // The comparison base is the checkout's HEAD SHA, not its branch name: a detached
     // worker checkout has an empty branch name, which read as zero commits and left
     // completed work permanently unpublished.
-    const baseSha = git(['rev-parse', 'HEAD']).trim()
+    const baseSha = optionalGit(['rev-parse', 'HEAD']).trim()
     if (gitIn(worktree, ['status', '--porcelain']).trim() !== '') {
       throw new Error(`${taskId} has uncommitted changes`)
     }
@@ -564,7 +572,7 @@ export function createLoop(deps: LoopDeps) {
           throw new MergeError(`Could not fetch ${report.branch} from ${remote}.`)
         }
 
-        const runBranch = git(['branch', '--show-current']).trim()
+        const runBranch = optionalGit(['branch', '--show-current']).trim()
         let appliedMergeCommit: string | undefined
         let promotionPersistenceError: unknown
         const persistPromotion = (mergedCommit: string): void => {
@@ -629,7 +637,9 @@ export function createLoop(deps: LoopDeps) {
         if (error instanceof ForgeRateLimitError) return
         const message = error instanceof Error ? error.message : String(error)
         appendFileSync(mergeLog, `${message}\n`)
-        if (error instanceof OrchestrationDepsInstallError) throw error
+        if (error instanceof OrchestrationDepsInstallError || error instanceof MergeRecoveryError) {
+          throw error
+        }
         if (adoptionTaskId === undefined) {
           event('WARN', `remote adoption failed for issue #${issue.number}`)
         } else {
@@ -818,6 +828,94 @@ export function createLoop(deps: LoopDeps) {
       if (existsSync(file)) parts.push(`\n${readFileSync(file, 'utf8')}`)
     }
     appendFileSync(specFile(paths, taskId), parts.join(''))
+  }
+
+  /**
+   * An issue whose earlier task conflicted while rebasing hands that attempt to the task
+   * claimed for it now, so the retry starts from the kept commits. The issue record stays
+   * until the new task merges, which keeps the hand-over safe if this claim is rolled back.
+   */
+  function attachIssueConflictedAttempts(taskId: string, issueNumbers: number[]): void {
+    const attempts = new Map<string, ConflictedAttempt>()
+    for (const issueNumber of issueNumbers) {
+      for (const attempt of readConflictedAttempts(paths, issueConflictKey(issueNumber))) {
+        attempts.set(attempt.taskId, attempt)
+      }
+    }
+    if (attempts.size === 0) return
+    const chain = [...attempts.values()]
+    appendFileSync(specFile(paths, taskId), conflictRetrySection(chain))
+    writeConflictedAttempts(paths, taskId, chain)
+  }
+
+  function appendClaimedRequirementsWithConflicts(
+    taskId: string,
+    requirements: ClaimedRequirement[],
+  ): void {
+    appendClaimedRequirements(taskId, requirements)
+    attachIssueConflictedAttempts(taskId, requirements.map(({ issueNumber }) => issueNumber))
+  }
+
+  /**
+   * Keep a conflicted task's commits on their own branch before cleanup deletes the task
+   * branch. Attempts this task was itself retrying travel with it, so the merge that
+   * finally lands removes every branch kept along the way.
+   */
+  function keepConflictedAttempt(taskId: string, error: RebaseConflictError): {
+    branch: string
+    attempts: ConflictedAttempt[] | undefined
+  } {
+    const branch = conflictBranchName(taskId)
+    git(['branch', '--force', branch, error.conflict?.taskTip ?? branchName(taskId)])
+    if (error.conflict === undefined) return { branch, attempts: undefined }
+    return {
+      branch,
+      attempts: [...readConflictedAttempts(paths, taskId), { ...error.conflict, taskId, branch }],
+    }
+  }
+
+  /**
+   * Queue a local task again after its rebase conflicted, carrying its whole specification
+   * behind a section that names the kept commits and what they collided with. Returns
+   * undefined once the chain has used its retries.
+   */
+  function requeueConflictedTask(
+    taskId: string,
+    attempts: ConflictedAttempt[],
+    specification: string,
+    effort: string | undefined,
+    depth: number,
+  ): string | undefined {
+    if (attempts.length > MAX_CONFLICT_RETRIES) return undefined
+    const retryId = newTaskId(paths, taskId.replace(/^\d{8}_\d{6}_\d{3}_/, ''))
+    writeFileSync(specFile(paths, retryId), [
+      `# ${retryId}: retry of ${taskId} after a rebase conflict\n`,
+      conflictRetrySection(attempts),
+      '\n## Specification of the earlier attempt\n\n',
+      specification.replace(/^# [^\n]*\n/, ''),
+    ].join(''))
+    if (effort !== undefined) {
+      mkdirSync(join(paths.queueDir, 'effort'), { recursive: true })
+      writeFileSync(join(paths.queueDir, 'effort', retryId), effort)
+    }
+    writeConflictedAttempts(paths, retryId, attempts)
+    enqueueTaskImpl(paths, retryId, depth)
+    return retryId
+  }
+
+  /** Once a retry lands, the commits kept for it are history: drop their branches. */
+  function retireConflictedAttempts(taskId: string, linkedIssues: number[]): void {
+    try {
+      const keys = [taskId, ...linkedIssues.map(issueConflictKey)]
+      const branches = new Set(keys.flatMap((key) =>
+        readConflictedAttempts(paths, key).map(({ branch }) => branch)))
+      for (const branch of branches) {
+        if (optionalGit(['branch', '--list', branch]).trim() !== '') git(['branch', '-D', branch])
+      }
+      for (const key of keys) removeConflictedAttempts(paths, key)
+    } catch (error) {
+      event('WARN', `could not remove commits kept for ${shortTaskId(taskId)}: ${errorSummary(error)}`)
+    }
   }
 
   /**
@@ -1186,12 +1284,12 @@ export function createLoop(deps: LoopDeps) {
     }
 
     const remotePrefix = `${remote}/`
-    let baseBranch = git([
+    let baseBranch = optionalGit([
       'symbolic-ref', '--quiet', '--short', `refs/remotes/${remote}/HEAD`,
     ]).trim()
     if (!baseBranch.startsWith(remotePrefix)
-      || git(['rev-parse', '--verify', `${baseBranch}^{commit}`]).trim() === '') {
-      const advertised = git(['ls-remote', '--symref', remote, 'HEAD'])
+      || optionalGit(['rev-parse', '--verify', `${baseBranch}^{commit}`]).trim() === '') {
+      const advertised = optionalGit(['ls-remote', '--symref', remote, 'HEAD'])
       const branch = /^ref: refs\/heads\/(.+)\tHEAD$/m.exec(advertised)?.[1] ?? ''
       baseBranch = branch === '' ? '' : `${remote}/${branch}`
     }
@@ -1206,7 +1304,7 @@ export function createLoop(deps: LoopDeps) {
       }
     }
     if (!baseBranch.startsWith(remotePrefix)
-      || git(['rev-parse', '--verify', `${baseBranch}^{commit}`]).trim() === '') {
+      || optionalGit(['rev-parse', '--verify', `${baseBranch}^{commit}`]).trim() === '') {
       event('WARN', `could not resolve a valid default branch for ${remote}`)
       return false
     }
@@ -1253,6 +1351,7 @@ export function createLoop(deps: LoopDeps) {
   function runAutoReview(cycle: number, isFinal: boolean): boolean {
     const roundFile = join(paths.queueDir, `review-round-${cycle}`)
     const idFile = join(paths.queueDir, `review-id-${cycle}`)
+    const pendingIdFile = join(paths.queueDir, `review-pending-id-${cycle}`)
 
     if (!isFinal && cycle % config.reviewEveryNCycles !== 0) {
       return true
@@ -1292,7 +1391,11 @@ export function createLoop(deps: LoopDeps) {
     }
 
     const prUrl = existsSync(prUrlFile) ? readFileSync(prUrlFile, 'utf8').trim() : ''
-    const reviewId = newTaskId(paths, `review-c${cycle}`, now())
+    const pendingId = existsSync(pendingIdFile)
+      ? readFileSync(pendingIdFile, 'utf8').replace(/[\s\r\n]/g, '')
+      : ''
+    const reviewId = pendingId || newTaskId(paths, `review-c${cycle}`, now())
+    if (pendingId === '') writeFileSync(pendingIdFile, `${reviewId}\n`)
     if (!generateReviewTask(reviewId, cycle, prUrl)) {
       event('Stopped', 'Loop', 'review base unavailable')
       writeFileSync(stopFile, '')
@@ -1312,12 +1415,13 @@ export function createLoop(deps: LoopDeps) {
     // being able to perform it, so keep them behind the enqueue boundary.
     writeFileSync(roundFile, `${rounds + 1}\n`)
     writeFileSync(idFile, `${reviewId}\n`)
+    rmSync(pendingIdFile, { force: true })
     return false
   }
 
   function cleanupSessionState(preserveTaskMarkers = false): void {
     for (const name of readdirSync(paths.queueDir)) {
-      if (/^(cycle-complete-|cycle-suite-tip-|cycle-resume-|ci-fix-emitted-|review-round-|review-id-|failed-|scan-yield-|scan-expected-)/.test(name)
+      if (/^(cycle-complete-|cycle-suite-tip-|cycle-resume-|ci-fix-emitted-|ci-fix-pending-id-|review-round-|review-id-|review-pending-id-|failed-|scan-yield-|scan-expected-)/.test(name)
         || name === 'decisions.txt' || name === 'pr-url.txt'
         || name === 'empty-scan-count.txt' || name === 'merge-failure-count.txt') {
         rmSync(join(paths.queueDir, name), { force: true })
@@ -1333,6 +1437,74 @@ export function createLoop(deps: LoopDeps) {
       for (const name of ['daemon-branch.txt', 'daemon-head.txt', 'integration-branch.txt']) {
         rmSync(join(paths.queueDir, name), { force: true })
       }
+    }
+  }
+
+  /**
+   * An operator stop is not evidence that a scan failed. Discard every scan that was
+   * live when stop was requested and rewind the incomplete cycle so its full scan set
+   * is dispatched again. The marker stays in place until cleanup is complete, making a
+   * partial recovery safe to retry after another daemon start.
+   */
+  function recoverInterruptedScans(): boolean {
+    const marker = join(paths.queueDir, interruptedScansFileName)
+    if (!existsSync(marker)) return true
+
+    try {
+      const entries = readFileSync(marker, 'utf8').split(/\r?\n/).filter(Boolean).map((line) => {
+        const match = /^([1-9][0-9]*)\t([^\t]+)$/.exec(line)
+        const cycle = match === null ? Number.NaN : Number(match[1])
+        const taskId = match?.[2] ?? ''
+        if (!Number.isSafeInteger(cycle) || !isScanTaskId(taskId)) {
+          throw new Error(`invalid stopped-scan recovery entry: ${line}`)
+        }
+        return { cycle, taskId }
+      })
+      if (entries.length === 0) {
+        rmSync(marker, { force: true })
+        return true
+      }
+
+      const cycles = new Set(entries.map((entry) => entry.cycle))
+      const currentCycle = readCount(scanCountFile)
+      if (cycles.size !== 1 || !cycles.has(currentCycle)) {
+        event('ERROR', `stopped-scan recovery does not match current cycle ${currentCycle}; stopping the loop`)
+        writeFileSync(stopFile, '')
+        return false
+      }
+
+      const taskIds = [...new Set(entries.map((entry) => entry.taskId))]
+      for (const taskId of taskIds) cleanupTask(paths, taskId, undefined, false)
+
+      const failedFile = join(paths.queueDir, `failed-${currentCycle}`)
+      if (existsSync(failedFile)) {
+        const interrupted = new Set(taskIds)
+        const retained = readFileSync(failedFile, 'utf8').split(/\r?\n/)
+          .filter((taskId) => taskId !== '' && !interrupted.has(taskId))
+        if (retained.length === 0) rmSync(failedFile, { force: true })
+        else writeFileSync(failedFile, `${retained.join('\n')}\n`)
+      }
+
+      for (const name of [
+        `scan-expected-${currentCycle}`,
+        `scan-yield-${currentCycle}`,
+        `cycle-complete-${currentCycle}`,
+        `cycle-suite-tip-${currentCycle}`,
+        `cycle-resume-${currentCycle}`,
+        `ci-fix-emitted-${currentCycle}`,
+        `ci-fix-pending-id-${currentCycle}`,
+        `review-round-${currentCycle}`,
+        `review-id-${currentCycle}`,
+        `review-pending-id-${currentCycle}`,
+      ]) rmSync(join(paths.queueDir, name), { force: true })
+      writeFileSync(scanCountFile, `${currentCycle - 1}\n`)
+      rmSync(marker, { force: true })
+      event('Recovered', 'scan cycle', `${currentCycle} after operator stop`)
+      return true
+    } catch (error) {
+      event('ERROR', `could not recover scans interrupted by stop: ${errorSummary(error)}`)
+      writeFileSync(stopFile, '')
+      return false
     }
   }
 
@@ -1359,96 +1531,6 @@ export function createLoop(deps: LoopDeps) {
     writeFileSync(runBranchFile, `${currentBranch}\n`)
   }
 
-  /**
-   * Warn about earlier branches from the same integration-run series which still carry
-   * commits absent from the advertised default branch. Remote objects are fetched
-   * without a destination ref, so this observation never creates, advances, or deletes
-   * a branch.
-   */
-  function reportStrandedRunBranches(): void {
-    try {
-      const currentBranch = gitIn(paths.repoRoot, ['branch', '--show-current']).trim()
-      const runName = /^(.*(?:^|\/)loop-)\d{8}(-.+-run)\d+$/.exec(currentBranch)
-      if (runName === null) return
-
-      const escapeRegex = (value: string): string =>
-        value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-      const runBranchPattern = new RegExp(
-        `^${escapeRegex(runName[1]!)}\\d{8}${escapeRegex(runName[2]!)}\\d+$`,
-      )
-      const remote = currentBranchTrackingRemote(paths.repoRoot)
-      const remoteListing = gitIn(paths.repoRoot, [
-        'ls-remote', '--symref', remote, 'HEAD', 'refs/heads/*',
-      ])
-      const defaultBranch = /^ref: refs\/heads\/(.+)\tHEAD$/m.exec(remoteListing)?.[1]
-      if (defaultBranch === undefined) {
-        throw new Error(`${remote} does not advertise a default branch`)
-      }
-
-      const tips = new Map<string, Set<string>>()
-      const addTip = (branch: string, tip: string): void => {
-        if (branch === currentBranch || !runBranchPattern.test(branch)) return
-        const branchTips = tips.get(branch) ?? new Set<string>()
-        branchTips.add(tip)
-        tips.set(branch, branchTips)
-      }
-      for (const branch of gitIn(paths.repoRoot, [
-        'for-each-ref', '--format=%(refname:short)', 'refs/heads/',
-      ]).split(/\r?\n/).filter(Boolean)) {
-        addTip(branch, branch)
-      }
-
-      const remoteHeads = new Map<string, string>()
-      for (const line of remoteListing.split(/\r?\n/)) {
-        const match = /^([0-9a-fA-F]+)\trefs\/heads\/(.+)$/.exec(line)
-        if (match === null) continue
-        remoteHeads.set(match[2]!, match[1]!)
-        addTip(match[2]!, match[1]!)
-      }
-      const defaultTip = remoteHeads.get(defaultBranch)
-      if (defaultTip === undefined) {
-        throw new Error(`could not resolve ${remote}/${defaultBranch}`)
-      }
-
-      const requiredObjects = new Set([defaultTip, ...[...tips.values()].flatMap((refs) =>
-        [...refs].filter((ref) => /^[0-9a-fA-F]+$/.test(ref)))])
-      const missingObjects = [...requiredObjects].filter((object) => {
-        try {
-          gitIn(paths.repoRoot, ['cat-file', '-e', `${object}^{commit}`])
-          return false
-        } catch {
-          return true
-        }
-      })
-      if (missingObjects.length > 0) {
-        gitIn(paths.repoRoot, [
-          'fetch', '--no-tags', '--no-write-fetch-head', remote,
-          ...missingObjects,
-        ])
-      }
-
-      for (const [branch, branchTips] of [...tips].sort(([left], [right]) =>
-        left.localeCompare(right))) {
-        try {
-          const counts = [...branchTips].map((tip) => Number(gitIn(
-            paths.repoRoot, ['rev-list', '--count', `${defaultTip}..${tip}`],
-          ).trim()))
-          const count = Math.max(...counts)
-          if (count > 0) {
-            event(
-              'WARN',
-              `stranded run branch ${branch} has ${count} commit${count === 1 ? '' : 's'} not on ${defaultBranch}`,
-            )
-          }
-        } catch (error) {
-          event('WARN', `stranded run branch ${branch} could not be checked; continuing: ${errorSummary(error)}`)
-        }
-      }
-    } catch (error) {
-      event('WARN', `stranded run branch check failed; continuing: ${errorSummary(error)}`)
-    }
-  }
-
   /** Fail startup before work begins when this run can never publish its branch. */
   function validatePushTarget(): boolean {
     if (!config.autoPr && !config.workerMode) return true
@@ -1470,7 +1552,7 @@ export function createLoop(deps: LoopDeps) {
   /** Push the branch and create or update the draft PR. Returns false when it must retry. */
   async function ensureDraftPr(mode: 'cycle' | 'final'): Promise<boolean> {
     emptyRun = false
-    const branch = git(['branch', '--show-current']).trim()
+    const branch = optionalGit(['branch', '--show-current']).trim()
     if (branch === '') {
       reportGateFailure('could not get branch name; PR skipped', true)
       return false
@@ -1480,7 +1562,7 @@ export function createLoop(deps: LoopDeps) {
     try {
       pushRemote = currentBranchPushRemote(paths.repoRoot)
       baseRemote = currentBranchTrackingRemote(paths.repoRoot)
-      const hasUpstream = git([
+      const hasUpstream = optionalGit([
         'rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}',
       ]).trim() !== ''
       execFileSync('git', [
@@ -1495,7 +1577,7 @@ export function createLoop(deps: LoopDeps) {
       return false
     }
 
-    const baseRef = git([
+    const baseRef = optionalGit([
       'symbolic-ref', '--quiet', '--short', `refs/remotes/${baseRemote}/HEAD`,
     ]).trim()
     if (!baseRef.startsWith(`${baseRemote}/`)) {
@@ -1627,8 +1709,13 @@ export function createLoop(deps: LoopDeps) {
     return 'success'
   }
 
-  function generateCiFixTask(cycle: number, prUrl: string, failSummary: string): void {
-    const fixId = newTaskId(paths, `ci-fix-c${cycle}`, now())
+  function generateCiFixTask(cycle: number, prUrl: string, failSummary: string): string {
+    const pendingIdFile = join(paths.queueDir, `ci-fix-pending-id-${cycle}`)
+    const pendingId = existsSync(pendingIdFile)
+      ? readFileSync(pendingIdFile, 'utf8').replace(/[\s\r\n]/g, '')
+      : ''
+    const fixId = pendingId || newTaskId(paths, `ci-fix-c${cycle}`, now())
+    if (pendingId === '') writeFileSync(pendingIdFile, `${fixId}\n`)
     const text = repositoryInspectionPreamble() + renderTemplate('ci-fix-template.md', {
       FIX_ID: fixId,
       CYCLE: String(cycle),
@@ -1639,6 +1726,7 @@ export function createLoop(deps: LoopDeps) {
     })
     writeFileSync(specFile(paths, fixId), text)
     enqueueTaskImpl(paths, fixId, 0)
+    return pendingIdFile
   }
 
   /** After the final gate: promote the draft PR and print LOOP_DONE. */
@@ -1651,7 +1739,7 @@ export function createLoop(deps: LoopDeps) {
     }
     const prUrl = existsSync(prUrlFile) ? readFileSync(prUrlFile, 'utf8').trim() : ''
     if (prUrl === '') return false
-    const branch = git(['branch', '--show-current']).trim()
+    const branch = optionalGit(['branch', '--show-current']).trim()
     let status
     try {
       status = await forge.prStatus({ kind: 'branch', value: branch })
@@ -1862,7 +1950,7 @@ export function createLoop(deps: LoopDeps) {
               .filter((comment) => comment.author.hasWriteAccess)
               .map((comment) => /^MERGED: [^\r\n]+\r?\nMerged as ([0-9a-f]{40,64}) into run branch /i.exec(comment.body)?.[1])
               .find((sha) => sha !== undefined
-                && git(['merge-base', '--is-ancestor', sha, 'HEAD'], 'ancestor') === 'ancestor')
+                && optionalGit(['merge-base', '--is-ancestor', sha, 'HEAD'], 'ancestor') === 'ancestor')
             if (mergeSha !== undefined) continue
           } catch (error) {
             if (error instanceof ForgeRateLimitError) return 'continue'
@@ -1941,7 +2029,7 @@ export function createLoop(deps: LoopDeps) {
             }
           }
 
-          const currentTip = git(['rev-parse', 'HEAD']).trim()
+          const currentTip = optionalGit(['rev-parse', 'HEAD']).trim()
           const cycleSuiteEnabled = cycleSuiteEnabledForTaskGate()
           const suitePassedForTip = cycleSuiteEnabled
             && currentTip !== ''
@@ -1984,13 +2072,15 @@ export function createLoop(deps: LoopDeps) {
             } catch {
               failSummary = ''
             }
+            let pendingIdFile: string
             try {
-              generateCiFixTask(currentScans, prUrl, failSummary)
+              pendingIdFile = generateCiFixTask(currentScans, prUrl, failSummary)
             } catch (error) {
               event('WARN', `could not enqueue CI fix: ${errorSummary(error)}`)
               return 'continue'
             }
             writeFileSync(ciFixFlag, `${attempts + 1}\n`)
+            rmSync(pendingIdFile, { force: true })
             rmSync(completeFlag, { force: true })
           } else {
             event('ERROR', `CI still failing after ${attempts} fixes; stopping the loop`)
@@ -2134,7 +2224,7 @@ export function createLoop(deps: LoopDeps) {
       writeFileSync(stopFile, '')
       return 'stopped'
     }
-    const currentBranch = git(['branch', '--show-current']).trim()
+    const currentBranch = optionalGit(['branch', '--show-current']).trim()
     const recordedBranch = existsSync(runBranchFile)
       ? readFileSync(runBranchFile, 'utf8').replace(/[\r\n]/g, '')
       : ''
@@ -2148,6 +2238,8 @@ export function createLoop(deps: LoopDeps) {
       rmSync(stopFile, { force: true })
       return 'stopped'
     }
+
+    if (!recoverInterruptedScans()) return 'stopped'
 
     // Label setup is a remote prerequisite, not a prerequisite for observing and
     // advancing local work. If it is unavailable, keep this poll local-only and
@@ -2246,6 +2338,7 @@ export function createLoop(deps: LoopDeps) {
         })
         if (mergeResult.outcome === 'no-change') {
           event('No-change', shortTaskId(taskId), 'no change warranted')
+          retireConflictedAttempts(taskId, linkedIssues)
           if (!isInspectionTaskId(paths, taskId)) {
             const cycle = readCount(scanCountFile)
             if (cycle > 0) {
@@ -2258,8 +2351,9 @@ export function createLoop(deps: LoopDeps) {
         const mergeCommit = mergeResult.mergeCommit
         event('Merged', shortTaskId(taskId), `commit ${mergeCommit.slice(0, 8)}`)
         writeFileSync(mergeFailureFile, '0\n')
+        retireConflictedAttempts(taskId, linkedIssues)
         if (linkedIssues.length > 0) {
-          const runBranch = git(['branch', '--show-current']).trim()
+          const runBranch = optionalGit(['branch', '--show-current']).trim()
           await reconcileMergedIssues(taskId, linkedIssues, mergeCommit, runBranch)
         }
         // A task delegated while the gate was waiting merges commits the gate has
@@ -2276,7 +2370,9 @@ export function createLoop(deps: LoopDeps) {
           return
         }
         if (error instanceof MergeError) appendFileSync(mergeLog, `${error.message}\n`)
-        if (error instanceof OrchestrationDepsInstallError) throw error
+        if (error instanceof OrchestrationDepsInstallError || error instanceof MergeRecoveryError) {
+          throw error
+        }
         event('Failed', shortTaskId(taskId), `log ${shortLogPath(mergeLog)}`)
         if (error instanceof RebaseConflictError) {
           noteMergeFailure(mergeLog)
@@ -2285,7 +2381,22 @@ export function createLoop(deps: LoopDeps) {
             if (!terminalized) {
               throw new Error('task status changed before rebase-conflict abandonment')
             }
+            // The task passed its own work; only the run branch moved under it. Keep its
+            // commits before cleanup deletes the task branch, and read what a retry needs
+            // before cleanup and dematerialization remove it. A failure here throws before
+            // cleanup, so the task branch and worktree survive for a person instead.
+            const kept = keepConflictedAttempt(taskId, error)
+            const specification = readFileSync(specFile(paths, taskId), 'utf8')
+            const effortFile = join(paths.queueDir, 'effort', taskId)
+            const effort = existsSync(effortFile) ? readFileSync(effortFile, 'utf8') : undefined
+            const depthFile = join(scannedDir, `${taskId}.depth`)
+            const depth = existsSync(depthFile) ? readCount(depthFile) : 0
             if (linkedIssues.length > 0) {
+              if (kept.attempts !== undefined) {
+                for (const issueNumber of linkedIssues) {
+                  writeConflictedAttempts(paths, issueConflictKey(issueNumber), kept.attempts)
+                }
+              }
               prepareIssueReleaseIntent(paths, taskId, linkedIssues)
             }
             cleanupTask(paths, taskId, undefined, false)
@@ -2294,21 +2405,30 @@ export function createLoop(deps: LoopDeps) {
             } else {
               completeIssueReleaseIntent(paths, taskId)
               dropClaimedTaskMaterialization(paths, taskId, true)
-              if (remoteOperationsAvailable) {
-                const failures = await reconcileIssueReleaseIntent(
-                  forge, paths, taskId, issueReleaseOptions,
-                )
-                if (failures.length > 0) {
-                  throw new IssueReleaseReconciliationError(failures)
-                }
+            }
+            const retryId = linkedIssues.length > 0 || kept.attempts === undefined
+              ? undefined
+              : requeueConflictedTask(taskId, kept.attempts, specification, effort, depth)
+            removeConflictedAttempts(paths, taskId)
+            if (linkedIssues.length > 0 && remoteOperationsAvailable) {
+              const failures = await reconcileIssueReleaseIntent(
+                forge, paths, taskId, issueReleaseOptions,
+              )
+              if (failures.length > 0) {
+                throw new IssueReleaseReconciliationError(failures)
               }
             }
-            if (linkedIssues.length === 0) {
-              event('Abandoned', shortTaskId(taskId), 'rebase conflict')
+            if (retryId !== undefined) {
+              event('Requeued', shortTaskId(taskId),
+                `rebase conflict; ${shortTaskId(retryId)} starts from ${kept.branch}`)
+            } else if (linkedIssues.length === 0) {
+              event('Abandoned', shortTaskId(taskId), `rebase conflict; commits kept on ${kept.branch}`)
             } else if (remoteOperationsAvailable) {
-              event('Released', shortTaskId(taskId), 'rebase conflict abandoned')
+              event('Released', shortTaskId(taskId),
+                `rebase conflict abandoned; commits kept on ${kept.branch}`)
             } else {
-              event('Abandoned', shortTaskId(taskId), 'rebase conflict; issue release pending')
+              event('Abandoned', shortTaskId(taskId),
+                `rebase conflict; issue release pending; commits kept on ${kept.branch}`)
             }
           } catch (abandonmentError) {
             if (!(abandonmentError instanceof ForgeRateLimitError)) {
@@ -2520,7 +2640,7 @@ export function createLoop(deps: LoopDeps) {
             for (const issues of groupReadyFindings(readyIssues)) {
               if (capacity <= 0) break
               const result = await claimIssueGroup(
-                forge, paths, issues, cachedUser, appendClaimedRequirements,
+                forge, paths, issues, cachedUser, appendClaimedRequirementsWithConflicts,
               )
               if (result.outcome === 'claimed') {
                 event('Claimed', shortTaskId(result.taskId),
@@ -2730,7 +2850,6 @@ export function createLoop(deps: LoopDeps) {
     initializeIssueQueue,
     validatePushTarget,
     initializeSessionStateForBranch,
-    reportStrandedRunBranches,
     cleanupSessionState,
     restartSubject: () => restartSubject,
     // exported for tests
