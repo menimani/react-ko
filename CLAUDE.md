@@ -7,9 +7,8 @@ build into `src/react-ko/dist`); the root package.json proxies `npm test` and
 `npm run build` into it. `starter/ts` and `starter/js` are the in-repo starter
 templates, kept on the current API in the same change that moves it.
 
-`README.md` and `README.ja.md` describe the library to its users.
-`orchestration/CLAUDE.md` covers delegating work to Codex. Open one when a change
-touches what it records.
+`README.md` and `README.ja.md` describe the library to its users. Open them when a change
+touches what they record.
 
 This file holds only what the source cannot tell you: the rules a reasonable change would
 otherwise break. Everything about how a component works or which command runs the tests

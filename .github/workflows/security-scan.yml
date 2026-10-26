@@ -22,8 +22,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Every committed lockfile outside orchestration/ts, which the shared core scans
-        # in its own repository.
+        # Every committed lockfile.
         directory: ['.', 'e2e']
     steps:
       - uses: actions/checkout@v7

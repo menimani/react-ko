@@ -1,1 +1,0 @@
-- Two workers sharing one forge login defeat the claim tie-break — accepted 2026-08-08: concurrently claiming workers are documented to require distinct forge logins.
