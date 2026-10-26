@@ -155,9 +155,7 @@ git config core.hooksPath .githooks
 npm run dev --workspace=starter/ts
 ```
 
-ドキュメントサイトは `docs/` ディレクトリで、GitHub Pages が公開します。このリポジトリを
-保守する自律改善ループは `orchestration/` にあります。実行と再開の方法は
-`orchestration/CLAUDE.md` を参照してください。
+ドキュメントサイトは `docs/` ディレクトリで、GitHub Pages が公開します。
 
 ---
 

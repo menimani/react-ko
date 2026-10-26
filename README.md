@@ -154,9 +154,7 @@ local library without publishing.
 npm run dev --workspace=starter/ts
 ```
 
-The documentation site is the `docs/` directory, published by GitHub Pages. The
-autonomous improvement loop that maintains this repository lives in
-`orchestration/`; `orchestration/CLAUDE.md` explains how to run and resume it.
+The documentation site is the `docs/` directory, published by GitHub Pages.
 
 ---
 
