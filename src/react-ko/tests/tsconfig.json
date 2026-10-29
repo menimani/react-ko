@@ -1,6 +1,9 @@
 {
   "extends": "../tsconfig.json",
   "compilerOptions": {
+    // TypeScript 6 defaults rootDir to this directory; the tests import src through
+    // the "@/*" alias, so the root must be the package directory.
+    "rootDir": "..",
     "noEmit": true,
     "types": ["node", "vitest/globals"]
   },

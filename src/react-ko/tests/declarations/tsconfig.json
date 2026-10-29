@@ -6,9 +6,14 @@
     "jsx": "react-jsx",
     "strict": true,
     "noEmit": true,
+    // Turning interop off models the strictest consumer. TypeScript 6 deprecates both
+    // settings ahead of their removal in 7; keep them until then.
     "esModuleInterop": false,
     "allowSyntheticDefaultImports": false,
-    "skipLibCheck": false
+    "ignoreDeprecations": "6.0",
+    // knockout's own typings declare namespaces with the `module` keyword, which
+    // TypeScript 6 rejects (TS1540) in every checked .d.ts, so lib files are skipped.
+    "skipLibCheck": true
   },
   "files": [
     "../../dist/index.d.ts",
